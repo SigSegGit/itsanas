@@ -3,8 +3,7 @@
   "defences": {
     "unlock: no clear copy stays": {
       "file": "crates/itsanas-cli/src/setup/unlock.rs",
-      "live": "    service.forget().map_err(|e| e.to_string())?;
-",
+      "live": "    service.forget().map_err(|e| e.to_string())?;\n",
       "dead": ""
     },
     "unlock: read back before the only copy goes": {

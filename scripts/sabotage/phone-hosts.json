@@ -10,8 +10,7 @@
   "defences": {
     "hosts: not a withdrawn device": {
       "file": "crates/itsanas-coord/src/service.rs",
-      "live": "if claim.claim.revoked
-                || claim.claim.pledged_bytes == 0",
+      "live": "if claim.claim.revoked\n                || claim.claim.pledged_bytes == 0",
       "dead": "if claim.claim.pledged_bytes == 0"
     },
     "hosts: not one offering nothing": {

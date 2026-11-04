@@ -134,7 +134,8 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-0. **Release 0.1.17**, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
+0. **The one-shot acceptance run of 0.1.17**, in the owner's private notes (`RECETTE-0.1.17.md`): every
+   command in order, and the report to send back. It starts with the release, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
    offers the update when opened, once a day, after the unlock:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
@@ -3848,6 +3849,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
        system's own prompt has run. Left: changing the passphrase while sealed does not reseal.
     e. ✅ **Legal texts**: `docs/legal/`, embedded, on the first screen and in Settings.
     f. ✅ **The Android logo**: the launcher's vector drawn and compared with `docs/assets/icon.png`.
+    Nicolas's call, 2026-11-04: `Request::Hosts` stays on by default, knowing that many accounts
+    can list the machines that contribute.
+
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
        Wi-Fi, and on battery on Wi-Fi answering only.
 

@@ -77,14 +77,33 @@ It asks Nicolas only when it has a concrete reason to doubt the merge, and
 then says what that reason is. Asking for a routine merge costs him a round
 trip for nothing. (Nicolas, 2026-10-12.)
 
-**Rodin before each major step, once.** A major step is a `docs/HANDOVER.md` §8
-item, or anything Nicolas calls one. Rodin critiques the *plan* before the code
-is written, where a wrong design is cheapest to drop; he is not re-run per
-commit or per CI run, which is where the tokens went. Outside major steps, only
-when Nicolas asks. (Nicolas, 2026-09-24; this replaced "only on explicit
-request" from the same day.)
+**One session, one function after another.** On 2026-11-04 one session, with no
+subagent, built what several had been planned for: a list of ten items for about
+three points of the weekly quota, against 35 for a multi-agent batch two days
+before. So: no subagent, workflow, study or Rodin unless Nicolas asks for one in
+this session, whatever the size of the job, and a session carries on to the end
+of the list. (Nicolas, 2026-11-04; this replaced "Rodin before each major step".)
 
-**Subagents, when a job is worth a cold start.** Versioned in
+**Right the first time.** Before the first push, write to what the gates enforce:
+
+- a function stays under 100 lines; a value is passed by reference unless `Copy`;
+  statements come after items; a long type gets an alias; a public type derives
+  `Debug`; a public doc comment links nothing private;
+- a message holds no line continuation (`concat!` or one line);
+- `cargo check --all-targets`, not the library alone;
+- each new test has its catalogue row, its counts and, if red team, its surface;
+- each new route, page heading or feature has its `docs/PARITY.md` row, whose
+  cells are `✅` or `⬜` with a reason and nothing else;
+- a sabotage changes something its test sees, or it is decoration.
+
+Then `scripts/preflight.sh` once, not one push per failure.
+
+**Reuse before writing.** Grep for the function first, and ask the system: a
+platform API or an existing call often does the job in a few lines. No new trait
+or layer without a second caller. A report gives lines added, code and tests
+apart.
+
+**Subagents, only when Nicolas asks for one.** Versioned in
 [`.claude/agents/`](.claude/agents/README.md), shared with itsaresume, so
 cloud sessions have them too: `locator` (before code: exact places and
 names, so the main context stops reading large files blind), `redteam` (the
