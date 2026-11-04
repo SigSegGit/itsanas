@@ -2758,7 +2758,8 @@ fn red_team_a_phone_that_signs_out_locks_at_once() {
     let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
     let file = home.with_extension("passphrase");
     std::fs::write(&file, "stand-in\n").expect("stand-in passphrase");
-    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
     let heard = Heard::default();
     let told = heard.clone();
     let kept = file.clone();
@@ -2846,7 +2847,8 @@ impl ServiceControl for TheApp {
 /// A phone's page over a node it holds open: the Settings of `home`, with the
 /// node in a slot of its own and the shell's events recorded.
 fn phone_page(home: &Path, base: &Path, node: itsanas_node::Node, heard: &Heard) -> Page {
-    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
     let heard = heard.clone();
     Page::start_with(home, base, Mode::Settings, &Seen::default(), move |b| {
         b.features = Features::PHONE;

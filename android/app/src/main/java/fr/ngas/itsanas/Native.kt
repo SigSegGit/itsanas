@@ -38,6 +38,18 @@ object Native {
     external fun close(): String
 
     /**
+     * Bring the hosting loop in line with the shared policy. It is the daemon's
+     * own: this says what the phone can see and draws nothing. Returns JSON
+     * with `running` and `because`.
+     */
+    external fun hostTick(
+        metered: Boolean,
+        charging: Boolean,
+        percent: Int,
+        contentOnMetered: Boolean,
+    ): String
+
+    /**
      * Serve the setup engine's page on 127.0.0.1 and answer its address (the
      * key is in the fragment). [mode] is "setup" or "settings". Secrets are
      * asked through [Host]; the first call finds that class, so it must come

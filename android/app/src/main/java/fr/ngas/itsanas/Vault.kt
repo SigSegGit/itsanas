@@ -93,6 +93,21 @@ object Vault {
         return level in 1..15 && !charging(context)
     }
 
+    /** Whether the hosting loop runs now, as the shared policy decides; its reason. */
+    suspend fun hostTick(context: Context): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val battery = context.getSystemService(BatteryManager::class.java)
+        val percent = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
+        val json = JSONObject(
+            Native.hostTick(
+                metered(context),
+                charging(context),
+                if (percent in 1..100) percent else 100,
+                contentOnMetered(context),
+            )
+        )
+        Pair(json.getBoolean("running"), json.getString("because"))
+    }
+
     /** What the shared policy says to do now, and why, in one sentence. */
     suspend fun plan(context: Context, foreground: Boolean): Plan = withContext(Dispatchers.IO) {
         val json = JSONObject(

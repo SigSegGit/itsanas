@@ -484,7 +484,7 @@ pub fn conditions(metered: bool) -> Conditions {
 fn open_the_router_port<'scope>(
     scope: &'scope std::thread::Scope<'scope, '_>,
     node: &'scope Node,
-    port: u16,
+    port: Option<u16>,
     parking: (
         &'scope PeerServer,
         &'scope itsanas_net::PeerService<'scope>,
@@ -494,6 +494,7 @@ fn open_the_router_port<'scope>(
 ) {
     let (server, service, board) = parking;
     scope.spawn(move || park_while_unreachable(node, server, service, board, shutdown));
+    let Some(port) = port else { return };
     if node.config.announce.is_some()
         || node.config.coordinator.is_none()
         || std::env::var_os("ITSANAS_NO_UPNP").is_some()
@@ -821,18 +822,9 @@ pub fn run(
     let server = bind_listener(node, address)?;
     let bound = server.local_addr()?;
 
-    // What the listener tells a machine of this account that asks where the
-    // others are (`Request::Presences`). The round owns the book; the listener
-    // answers from the copy each round leaves here.
-    let board = SharedBoard::default();
-    let disk_room = disk_room(node.vault_dir());
-    let service = peer_service(node, &board, &disk_room);
-
     let portable = crate::portable::is_portable(&node.home);
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
-
-    let neighbourhood = Neighbourhood::new();
 
     let lan = bind_lan(discover);
 
@@ -875,6 +867,110 @@ pub fn run(
     println!("Ctrl-C to stop.");
     println!();
 
+    serve_and_round(
+        node,
+        &server,
+        lan.as_ref(),
+        Beat {
+            base: interval,
+            scope: plan.scope,
+            shutdown,
+            updates_itself: true,
+            asks_the_router: true,
+        },
+    );
+
+    if UPDATED.load(Ordering::SeqCst) {
+        // A failure code on purpose: the Windows wrapper, systemd's
+        // Restart=on-failure and launchd's KeepAlive all start the program
+        // again on one, and only on one -- and the program is now the new one.
+        return Err(CliError::Usage(
+            "updated; exiting so the background service starts the new version".to_owned(),
+        ));
+    }
+    println!("stopped.");
+    Ok(())
+}
+
+/// How a run of the loop is paced and stopped, whichever shell runs it.
+struct Beat<'a> {
+    base: Duration,
+    scope: PolicyScope,
+    shutdown: &'a AtomicBool,
+    /// Whether this program replaces itself. A phone's is installed by its
+    /// system, after a person says yes.
+    updates_itself: bool,
+    /// Whether it may ask the router for a port. A test on a developer's
+    /// network must not.
+    asks_the_router: bool,
+}
+
+/// How a shell that decides when the loop runs wants it run, as
+/// `itsanas_policy::hosting` said.
+#[derive(Debug)]
+pub struct Hosting<'a> {
+    pub every: Duration,
+    pub scope: PolicyScope,
+    /// Answers for what it holds and takes in nothing new.
+    pub answers_only: bool,
+    /// Beacons and the router's port. Off for a test: on a real network it
+    /// would dial the neighbours and open a port on somebody's router.
+    pub local_network: bool,
+    pub shutdown: &'a AtomicBool,
+}
+
+/// The daemon's loop, for a shell with no process of its own to give it: the
+/// same listener, park, rounds and audits as `itsanas daemon`. Nothing about a
+/// phone reaches the network; only the shell's policy says when this runs.
+///
+/// # Errors
+///
+/// If the listener cannot be bound.
+pub fn host_until(node: &Node, hosting: &Hosting<'_>) -> Result<()> {
+    node.bound_writes()?;
+    local(node)
+        .answers_only
+        .store(hosting.answers_only, Ordering::Relaxed);
+    let server = bind_listener(node, &node.config.listen)?;
+    let lan = bind_lan(hosting.local_network);
+    serve_and_round(
+        node,
+        &server,
+        lan.as_ref(),
+        Beat {
+            base: hosting.every,
+            scope: hosting.scope,
+            shutdown: hosting.shutdown,
+            updates_itself: false,
+            asks_the_router: hosting.local_network,
+        },
+    );
+    Ok(())
+}
+
+/// The loop itself: serve, park, publish, round, until told to stop.
+fn serve_and_round(node: &Node, server: &PeerServer, lan: Option<&Lan>, beat: Beat<'_>) {
+    let Beat {
+        base,
+        scope: plan_scope,
+        shutdown,
+        updates_itself,
+        asks_the_router,
+    } = beat;
+    let Ok(bound) = server.local_addr() else {
+        eprintln!("itsanas: the listener has no address");
+        return;
+    };
+
+    // What the listener tells a machine of this account that asks where the
+    // others are (`Request::Presences`). The round owns the book; the listener
+    // answers from the copy each round leaves here.
+    let board = SharedBoard::default();
+    let disk_room = disk_room(node);
+    let service = peer_service(node, &board, &disk_room);
+
+    let neighbourhood = Neighbourhood::new();
+
     // Shared with the serving thread, which owns the server for its lifetime.
     let witness = server.witness();
 
@@ -903,7 +999,9 @@ pub fn run(
             }
         });
 
-        scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
+        if updates_itself {
+            scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
+        }
 
         // A key copied while its coordinator could not be reached, or was
         // full, enrols here, once (`copy_to_key.rs`). Beside the rounds,
@@ -913,11 +1011,11 @@ pub fn run(
         open_the_router_port(
             scope,
             node,
-            bound.port(),
-            (&server, &service, &board),
+            asks_the_router.then(|| bound.port()),
+            (server, &service, &board),
             shutdown,
         );
-        if let Some(lan) = &lan {
+        if let Some(lan) = lan {
             scope.spawn(|| {
                 discovery::run(
                     lan,
@@ -932,8 +1030,8 @@ pub fn run(
 
         sync_loop(
             node,
-            interval,
-            plan.scope,
+            base,
+            plan_scope,
             shutdown,
             &neighbourhood,
             bound,
@@ -941,17 +1039,6 @@ pub fn run(
             &board,
         );
     });
-
-    if UPDATED.load(Ordering::SeqCst) {
-        // A failure code on purpose: the Windows wrapper, systemd's
-        // Restart=on-failure and launchd's KeepAlive all start the program
-        // again on one, and only on one -- and the program is now the new one.
-        return Err(CliError::Usage(
-            "updated; exiting so the background service starts the new version".to_owned(),
-        ));
-    }
-    println!("stopped.");
-    Ok(())
 }
 
 /// What this daemon knows about being reachable, and what it has already said.
@@ -1607,16 +1694,38 @@ fn peer_service<'a>(
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
 }
 
+/// What outlives a run of the loop, for one machine.
+struct Local {
+    owners: itsanas_node::owners::ClaimBook,
+    /// Read per offer by the listener and the hosting pull ([`Hosting`]).
+    answers_only: AtomicBool,
+}
+
+/// [`Local`] for `node`. One per device and not one per process: a phone's
+/// process outlives a sign-out, and the next account's listener would have
+/// asked the first one's coordinator pin about the devices presenting to it.
+/// Kept for the life of the process, which sees a handful at most.
+fn local(node: &Node) -> &'static Local {
+    static LOCALS: std::sync::Mutex<std::collections::BTreeMap<DeviceId, &'static Local>> =
+        std::sync::Mutex::new(std::collections::BTreeMap::new());
+    let mut locals = LOCALS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    locals.entry(node.store.device_id()).or_insert_with(|| {
+        Box::leak(Box::new(Local {
+            owners: itsanas_node::owners::ClaimBook::new()
+                .asking(node.store.owner(), coordinator::asker(node)),
+            answers_only: AtomicBool::new(false),
+        }))
+    })
+}
+
 /// The claims this daemon's peers presented (§8 1c), shared by the listener,
 /// which takes them, and the hosting pull, which is held to them as offers
-/// are. One per process: a node runs one daemon. Asks the coordinator about a
-/// device of another account when it presents (§8 1c (ii)).
+/// are. Asks the coordinator about a device of another account when it
+/// presents (§8 1c (ii)).
 fn owners(node: &Node) -> &'static itsanas_node::owners::ClaimBook {
-    static OWNERS: std::sync::OnceLock<itsanas_node::owners::ClaimBook> =
-        std::sync::OnceLock::new();
-    OWNERS.get_or_init(|| {
-        itsanas_node::owners::ClaimBook::new().asking(node.store.owner(), coordinator::asker(node))
-    })
+    &local(node).owners
 }
 
 /// Ask the coordinator about the devices whose confirmation is ageing or
@@ -1658,10 +1767,20 @@ fn check_standing(node: &Node) {
 /// No room at all while the vault's marker is missing: a NAS that dropped
 /// while the daemon runs leaves an empty local mount point, and chunks written
 /// there land on the system disk and vanish under the mount when it returns
-/// (Rodin, 2026-10-13).
-fn disk_room(vault: std::path::PathBuf) -> impl Fn() -> Option<u64> + Sync {
+/// (Rodin, 2026-10-13). None either while the policy says answers only: an
+/// audit reads what is held and is not an offer, so it is still answered, with
+/// no refusal that could pass for one.
+fn disk_room(node: &Node) -> impl Fn() -> Option<u64> + Sync + use<> {
+    room_at(node.vault_dir(), &local(node).answers_only)
+}
+
+/// [`disk_room`], given the vault and the flag.
+fn room_at(
+    vault: std::path::PathBuf,
+    answers_only: &'static AtomicBool,
+) -> impl Fn() -> Option<u64> + Sync {
     move || {
-        if !vault_present(&vault) {
+        if answers_only.load(Ordering::Relaxed) || !vault_present(&vault) {
             return Some(0);
         }
         fs4::available_space(&vault)
@@ -1678,7 +1797,7 @@ pub(crate) fn vault_present(vault: &std::path::Path) -> bool {
 /// The pledge as far as the disk can still honour it (`pledges::keepable`):
 /// another program filling the disk must stop the hosting, not a write.
 fn keepable_pledge(node: &Node) -> u64 {
-    if !vault_present(&node.vault_dir()) {
+    if local(node).answers_only.load(Ordering::Relaxed) || !vault_present(&node.vault_dir()) {
         return 0;
     }
     itsanas_node::pledges::keepable(
@@ -4138,7 +4257,8 @@ mod tests {
         let vault = dir.path().join("nas").join("vault");
         std::fs::create_dir_all(&vault).expect("vault");
         std::fs::write(vault.join(itsanas_node::node::VAULT_MARKER), "device").expect("marker");
-        let room = disk_room(vault.clone());
+        static ANSWERS_ONLY: AtomicBool = AtomicBool::new(false);
+        let room = room_at(vault.clone(), &ANSWERS_ONLY);
         assert_ne!(room(), Some(0), "a mounted vault with room offered none");
         // The NAS unmounts: an empty local mount point is left.
         std::fs::remove_file(vault.join(itsanas_node::node::VAULT_MARKER)).expect("unmount");

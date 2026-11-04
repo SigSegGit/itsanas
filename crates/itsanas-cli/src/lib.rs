@@ -29,6 +29,7 @@ pub mod devices;
 mod discovery;
 mod drives;
 pub mod failure;
+mod host_run;
 mod jobs;
 mod lifecycle;
 pub mod limits;

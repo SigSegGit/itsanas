@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The slot a node is held in, shared with `account::logout_into`.
-pub type Slot = Mutex<Option<Node>>;
+pub type Slot = Mutex<Option<std::sync::Arc<Node>>>;
 
 /// The node behind the page.
 pub trait Nodes: Send + Sync {
@@ -133,7 +133,7 @@ impl Nodes for Opened {
         };
         match Node::open(&self.home, &passphrase) {
             Ok(node) => {
-                *held = Some(node);
+                *held = Some(std::sync::Arc::new(node));
                 Ok(())
             }
             Err(error) => {

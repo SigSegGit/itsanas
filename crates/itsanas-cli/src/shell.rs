@@ -36,3 +36,9 @@ pub fn forgot(
 ) -> Result<String> {
     crate::setup::forgot::forgot(home, prompt, service, itsanas_node::coordinator::name_owner)
 }
+
+pub use crate::daemon::{Hosting, host_until};
+pub use crate::host_run::{
+    CURRENT as HOST_RUN, HostRun, running as host_running, stop_current as host_stop,
+    tick as host_tick,
+};

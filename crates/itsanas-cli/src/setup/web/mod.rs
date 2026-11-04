@@ -1405,9 +1405,12 @@ fn node_call(
     if let Err(failure) = nodes.open() {
         return Response::refuse(409, &failure.message());
     }
+    // A change to the node needs it alone. The service's next look starts the
+    // loop again, on the new values.
+    crate::host_run::stop_current();
     let outcome = {
         let mut held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
-        match held.as_mut() {
+        match held.as_mut().and_then(std::sync::Arc::get_mut) {
             Some(node) => body(node),
             None => Err(Failure::Closed),
         }

@@ -95,6 +95,27 @@ class SyncService : Service() {
                 continue
             }
 
+            // The daemon's own loop, when the policy says this phone hosts: it
+            // does this account's rounds too, so none is run beside it.
+            val hosting = try {
+                Vault.hostTick(this)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                Pair(false, error.message ?: "hosting would not start")
+            }
+            if (hosting.first) {
+                if (plan.movesContent) {
+                    try {
+                        PhoneFolder.sync(this)
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                    }
+                }
+                update("Hosting", hosting.second)
+                delay(HOST_LOOK_MS)
+                continue
+            }
+
             update("Syncing", plan.because)
             // Only when content may move, so a metered link pays for no photos.
             // A folder that fails stops nothing: the round still runs, and says so.
@@ -118,7 +139,26 @@ class SyncService : Service() {
             }
             update(if (plan.movesContent) "Synced" else "Checked", line)
 
-            delay(plan.everySeconds?.times(1000) ?: RETRY_MS)
+            // A look a minute at most, so a phone plugged in starts hosting
+            // without waiting for its next two-hour round. The round itself
+            // keeps the policy's pace.
+            pace(plan.everySeconds?.times(1000) ?: RETRY_MS)
+        }
+    }
+
+    /** Wait out a round's pace, and end early once the policy says this phone hosts. */
+    private suspend fun pace(ms: Long) {
+        var left = ms
+        while (left > 0 && scope.isActive) {
+            delay(minOf(left, HOST_LOOK_MS))
+            left -= HOST_LOOK_MS
+            val hosting = Account.open && try {
+                Vault.hostTick(this).first
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                false
+            }
+            if (hosting) return
         }
     }
 
@@ -184,6 +224,7 @@ class SyncService : Service() {
         private const val CHANNEL = "sync"
         private const val NOTIFICATION = 1
         private const val RETRY_MS = 5 * 60 * 1000L
+        private const val HOST_LOOK_MS = 60 * 1000L
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, SyncService::class.java))

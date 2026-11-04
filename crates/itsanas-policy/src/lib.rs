@@ -147,6 +147,29 @@ pub struct Settings {
     /// On by default, because a sync tool that only works while you watch it is
     /// not a sync tool. Off is for somebody who wants it strictly manual.
     pub background: bool,
+
+    /// Offer this machine to the network. The same switch on every platform:
+    /// off, it is a personal device, on, a storage machine. Off forgets nothing
+    /// (the space offered is kept) and deletes nothing ([`hosting`]).
+    pub contribute: bool,
+
+    /// Battery percentage at or below which this machine counts as
+    /// [`Power::Low`] ([`Power::of`]).
+    pub battery_floor_percent: u8,
+
+    /// How often the loop runs a round while charging on a free connection.
+    pub every_charging: Duration,
+
+    /// How often it does otherwise. Mostly it waits and answers.
+    pub every_on_battery: Duration,
+
+    /// Bytes hosting may move over a metered connection per
+    /// [`Settings::metered_period`]. Zero by default, so a data plan is never
+    /// spent on somebody else's copies unless its owner says so.
+    pub metered_allowance: u64,
+
+    /// What [`Settings::metered_allowance`] is counted over.
+    pub metered_period: Period,
 }
 
 impl Default for Settings {
@@ -154,8 +177,136 @@ impl Default for Settings {
         Self {
             content_on_metered: false,
             background: true,
+            contribute: true,
+            battery_floor_percent: 15,
+            every_charging: SERVICE,
+            every_on_battery: BACKGROUND_FREE,
+            metered_allowance: 0,
+            metered_period: Period::Month,
         }
     }
+}
+
+/// What a metered allowance is counted over.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Period {
+    Hour,
+    Day,
+    Week,
+    Month,
+}
+
+impl Period {
+    /// Every variant. See [`Network::ALL`].
+    pub const ALL: [Self; 4] = [Self::Hour, Self::Day, Self::Week, Self::Month];
+
+    /// Its length. A month is thirty days: an allowance starts when it is first
+    /// spent, not on the first of a calendar this crate does not read.
+    #[must_use]
+    pub const fn seconds(self) -> u64 {
+        match self {
+            Self::Hour => 3_600,
+            Self::Day => 86_400,
+            Self::Week => 7 * 86_400,
+            Self::Month => 30 * 86_400,
+        }
+    }
+}
+
+impl Power {
+    /// The state a shell reads off its battery, against the owner's floor.
+    /// Charging is never low: the battery is the one thing it is not spending.
+    #[must_use]
+    pub const fn of(percent: u8, charging: bool, floor: u8) -> Self {
+        if charging {
+            Self::Charging
+        } else if percent <= floor {
+            Self::Low
+        } else {
+            Self::OnBattery
+        }
+    }
+}
+
+/// What the hosting loop may do right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostWork {
+    /// The loop does not run: no listener, no park, nothing answered. A machine
+    /// away is not a failed audit, and is not counted as present either.
+    Nothing,
+    /// It runs and answers what it is asked about what it holds, and takes in
+    /// nothing new.
+    AnswersOnly,
+    /// It runs and takes in up to what this machine offers.
+    Everything,
+}
+
+/// What a machine knows of itself that decides [`hosting`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostFacts {
+    /// It holds other members' data. Switched off, it keeps answering for that
+    /// data until they have other copies: the network never deletes on one
+    /// side's say-so.
+    pub still_holding: bool,
+    /// Bytes hosting moved over a metered link this period, each way counted.
+    pub metered_used: u64,
+}
+
+/// [`plan`]'s answer for hosting: whether the same loop as a desktop's runs,
+/// and how much it does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostPlan {
+    pub work: HostWork,
+    pub every: Option<Duration>,
+    pub because: &'static str,
+}
+
+/// Decide what hosting does. Total, like [`plan`]; attention plays no part, since
+/// somebody looking at a phone is no reason to spend its battery on a stranger.
+///
+/// A metered link never takes in: the bound is read between rounds, and a chunk
+/// already coming would overshoot it.
+#[must_use]
+pub fn hosting(conditions: Conditions, settings: Settings, facts: HostFacts) -> HostPlan {
+    let nothing = |because| HostPlan {
+        work: HostWork::Nothing,
+        every: None,
+        because,
+    };
+    let answers = |because| HostPlan {
+        work: HostWork::AnswersOnly,
+        every: Some(settings.every_on_battery),
+        because,
+    };
+    if !settings.contribute && !facts.still_holding {
+        return nothing("contributing to the network is switched off");
+    }
+    if conditions.network == Network::None {
+        return nothing("no network");
+    }
+    if conditions.power == Power::Low {
+        return nothing("battery is low");
+    }
+    if conditions.network == Network::Metered {
+        return if settings.metered_allowance == 0 {
+            nothing("this connection is metered, and hosting over one is not allowed")
+        } else if facts.metered_used >= settings.metered_allowance {
+            nothing("this connection is metered, and its allowance is spent")
+        } else {
+            answers("metered connection, within its allowance: answering only")
+        };
+    }
+    if !settings.contribute {
+        return answers("switched off: answering for what it holds until others have copies");
+    }
+    if conditions.power == Power::Charging {
+        return HostPlan {
+            work: HostWork::Everything,
+            every: Some(settings.every_charging),
+            because: "charging, on an unmetered connection",
+        };
+    }
+    answers("on battery: answering only")
 }
 
 /// How much of a sync to do.
@@ -399,6 +550,134 @@ mod tests {
         }
     }
 
+    /// Every combination gives a plan with its sentence, and the three things
+    /// that must never happen do not: a battery at its floor or a data plan with
+    /// no allowance spent on hosting, or anything taken in over a metered link.
+    /// Sabotage: drop the `Power::Low` row, or the allowance rows of `hosting`.
+    #[test]
+    fn red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan() {
+        let allowances = [0, 1 << 20];
+        for network in Network::ALL {
+            for power in Power::ALL {
+                for attention in Attention::ALL {
+                    for contribute in [false, true] {
+                        for still_holding in [false, true] {
+                            for metered_allowance in allowances {
+                                for metered_used in [0, 1 << 20] {
+                                    for metered_period in Period::ALL {
+                                        let settings = Settings {
+                                            contribute,
+                                            metered_allowance,
+                                            metered_period,
+                                            ..Settings::default()
+                                        };
+                                        let facts = HostFacts {
+                                            still_holding,
+                                            metered_used,
+                                        };
+                                        let got =
+                                            hosting(at(network, power, attention), settings, facts);
+                                        let case = format!(
+                                            "{network:?} {power:?} {attention:?} {settings:?} \
+                                             {facts:?} -> {got:?}"
+                                        );
+                                        assert!(!got.because.is_empty(), "no reason: {case}");
+                                        assert_eq!(
+                                            got.every.is_none(),
+                                            got.work == HostWork::Nothing,
+                                            "a running loop needs a pace: {case}"
+                                        );
+                                        if power == Power::Low || network == Network::None {
+                                            assert_eq!(
+                                                got.work,
+                                                HostWork::Nothing,
+                                                "ran on an empty battery or no network: {case}"
+                                            );
+                                        }
+                                        if network == Network::Metered {
+                                            assert_ne!(
+                                                got.work,
+                                                HostWork::Everything,
+                                                "took in chunks on somebody's data plan: {case}"
+                                            );
+                                            if metered_used >= metered_allowance {
+                                                assert_eq!(
+                                                    got.work,
+                                                    HostWork::Nothing,
+                                                    "spent a data plan past its allowance: {case}"
+                                                );
+                                            }
+                                        }
+                                        if !contribute {
+                                            assert_ne!(
+                                                got.work,
+                                                HostWork::Everything,
+                                                "took in new data while switched off: {case}"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Switched off, a machine that holds other members' copies still answers
+    /// for them on a free connection, or its owner would be judged to have lost
+    /// them; holding nothing, it is simply a personal device. Sabotage: move
+    /// the `!settings.contribute` row above the facts, or drop it.
+    #[test]
+    fn red_team_switching_off_keeps_answering_for_what_it_holds() {
+        let wifi = at(Network::Unmetered, Power::Charging, Attention::Background);
+        let off = Settings {
+            contribute: false,
+            ..Settings::default()
+        };
+        let holding = HostFacts {
+            still_holding: true,
+            metered_used: 0,
+        };
+        assert_eq!(
+            hosting(wifi, off, holding).work,
+            HostWork::AnswersOnly,
+            "switching off stopped answering: owners lose the copy with no word to them"
+        );
+        assert_eq!(
+            hosting(wifi, off, HostFacts::default()).work,
+            HostWork::Nothing,
+            "a personal device kept a listener open for nobody"
+        );
+    }
+
+    /// The two modes Nicolas asked to measure: plugged in on Wi-Fi it takes in,
+    /// on battery on Wi-Fi it only answers. Sabotage: swap the last two rows.
+    #[test]
+    fn charging_takes_in_and_a_battery_only_answers() {
+        let facts = HostFacts::default();
+        let charging = at(Network::Unmetered, Power::Charging, Attention::Background);
+        let battery = at(Network::Unmetered, Power::OnBattery, Attention::Background);
+        let settings = Settings::default();
+        assert_eq!(
+            hosting(charging, settings, facts).work,
+            HostWork::Everything
+        );
+        assert_eq!(
+            hosting(battery, settings, facts).work,
+            HostWork::AnswersOnly
+        );
+    }
+
+    #[test]
+    fn the_floor_decides_low_and_charging_never_is() {
+        assert_eq!(Power::of(15, false, 15), Power::Low);
+        assert_eq!(Power::of(16, false, 15), Power::OnBattery);
+        assert_eq!(Power::of(30, false, 40), Power::Low);
+        assert_eq!(Power::of(5, true, 15), Power::Charging);
+    }
+
     #[test]
     fn the_file_list_still_arrives_on_a_metered_connection() {
         // Refusing everything would be safe and useless: the phone would show
@@ -594,6 +873,7 @@ mod tests {
                                 Settings {
                                     content_on_metered,
                                     background,
+                                    ..Settings::default()
                                 },
                             );
                             assert!(
