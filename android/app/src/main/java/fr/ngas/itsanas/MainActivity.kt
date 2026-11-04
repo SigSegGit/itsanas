@@ -486,17 +486,22 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     // A round nobody asked for says why it failed without stopping them: the first
     // file on a first device has no machine to reach, and it was added all the same.
     suspend fun syncOnce(asked: Boolean = false) {
+        // Its own coroutine: awaited, a line still showing when the person leaves is
+        // cancelled inside these catches, and escapes to callers that catch everything.
+        fun tell(line: String) {
+            scope.launch { snackbar.showSnackbar(line) }
+        }
         try {
             val plan = Vault.plan(context, foreground = true)
             Account.syncNow(metadataOnly = !plan.movesContent)
             refresh()
-            snackbar.showSnackbar(plan.because)
+            tell(plan.because)
         } catch (left: CancellationException) {
             // The person left this screen mid-round. That is no failure, and the
             // callers catching everything would put it in a dialog over the next one.
         } catch (error: Throwable) {
             val why = error.message ?: "the round failed"
-            if (asked) complain(why) else snackbar.showSnackbar(why)
+            if (asked) complain(why) else tell(why)
         }
     }
 
