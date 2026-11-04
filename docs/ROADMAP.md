@@ -449,7 +449,7 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with thirteen jobs: one that decides what a pull request tests (see
+- CI with 13 jobs: one that decides what a pull request tests (see
   "Selective CI" under Known ceilings), lint (format, clippy at `-D warnings`, rustdoc, and the
   five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
   tests, **the installers actually installing** on a machine of each kind, an
