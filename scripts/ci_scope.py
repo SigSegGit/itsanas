@@ -111,6 +111,7 @@ JOBS = {
     "acceptance-local": "acceptance",
     "cross-build": "arm",
     "android-core": "android",
+    "android-app": "android_app",
     "minimum-rust-version": "msrv",
     "coverage": "coverage",
 }
@@ -223,6 +224,11 @@ def decide(event, labels, files, packages):
             bool(set(ANDROID_CORE) & affected),
             "a crate android-core checks is affected",
             "none of the crates android-core checks is affected",
+        ),
+        "android-app": job(
+            "itsanas-android" in affected or touched("scripts/build-apk") or touched("scripts/android-e2e"),
+            "the phone app's code or its build is affected",
+            "neither itsanas-android, the Kotlin side nor the APK scripts are affected",
         ),
         "minimum-rust-version": job(rust, "affected crates", nothing),
         # Coverage of a subset is a misleading number, and it gates nothing.

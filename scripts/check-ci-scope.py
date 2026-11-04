@@ -128,6 +128,11 @@ check("an_acceptance_script_change_runs_acceptance", runs(r) == {"acceptance-loc
 r = pr(["android/app/src/main/java/fr/ngas/itsanas/Native.kt"])
 check("the_kotlin_side_belongs_to_itsanas_android",
       r["affected"] == ["itsanas-android"], r["affected"])
+check("a_kotlin_change_runs_the_phone_app", r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
+r = pr(["scripts/android-e2e.sh"])
+check("an_e2e_script_change_runs_the_phone_app", r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
+r = pr(["docs/ROADMAP.md"])
+check("a_docs_change_skips_the_phone_app", not r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
 
 for path in ("Cargo.lock", "Cargo.toml", "rust-toolchain.toml", ".config/nextest.toml",
              ".cargo/config.toml", ".github/workflows/ci.yml", "scripts/ci_scope.py"):
@@ -215,11 +220,18 @@ for job, key in scope.JOBS.items():
         check(f"ci_{job.replace('-', '_')}_is_gated_on_its_own_output",
               job_if is not None and gate in job_if.group(1) and "needs: changes" in body,
               f"expected `if: ... {gate}` and `needs: changes` on job {job}")
-    if job not in ("coverage", "android-core", "installers-run", "acceptance-local"):
+    if job not in ("coverage", "android-core", "android-app", "installers-run", "acceptance-local"):
         uses_args = any(a in body for a in ("test_args", "build_args", "doc_args"))
         check(f"ci_{job.replace('-', '_')}_tests_the_planned_crates_not_the_workspace",
               uses_args and "--workspace" not in re.sub(r"#.*", "", body),
               f"job {job} must take its crates from the plan")
+
+# Beside ci.yml, the phone app's jobs would be outside the one required check.
+android_yml = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
+check("the_phone_app_runs_only_inside_the_required_check",
+      "workflow_call:" in android_yml and "pull_request:" not in android_yml
+      and "uses: ./.github/workflows/android.yml" in blocks.get("android-app", ""),
+      "android.yml must be called from ci.yml, or a pull request merges without its verdict")
 
 last = blocks.get("no-warnings", "")
 needed = set(re.findall(r"^      - ([a-z-]+)$", last, re.M))

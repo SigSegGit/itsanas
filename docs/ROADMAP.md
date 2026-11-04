@@ -1611,7 +1611,7 @@ Now a first job, `changes` (`scripts/ci_scope.py`), reads
 **every crate that depends on one, transitively, dev-dependencies included**.
 The tests, the expensive tests, ARM and MSRV run on that set; installers only
 when `install/`, `scripts/smoke.sh` or `itsanas-cli` is affected; acceptance
-only for the two binaries or its scripts; android-core only for the crates it
+only for the two binaries or its scripts; android-app whenever `itsanas-android` is affected; android-core only for the crates it
 checks; coverage only on full runs. Lint, every doc gate and `cargo deny`
 always run. A docs-only or scripts-only PR runs no Rust test job.
 

@@ -51,6 +51,7 @@ jobs:
       acceptance: ${{ steps.plan.outputs.acceptance }}
       arm: ${{ steps.plan.outputs.arm }}
       android: ${{ steps.plan.outputs.android }}
+      android_app: ${{ steps.plan.outputs.android_app }}
       msrv: ${{ steps.plan.outputs.msrv }}
       coverage: ${{ steps.plan.outputs.coverage }}
       smoke: ${{ steps.plan.outputs.smoke }}
@@ -613,6 +614,12 @@ jobs:
           name: coverage
           path: lcov.info
 
+  android-app:
+    name: The phone app
+    needs: changes
+    if: needs.changes.outputs.android_app == 'true'
+    uses: ./.github/workflows/android.yml
+
   no-warnings:
     name: No warnings anywhere in this run
     runs-on: ubuntu-latest
@@ -636,6 +643,7 @@ jobs:
       - acceptance-local
       - cross-build
       - android-core
+      - android-app
       - minimum-rust-version
       - supply-chain
       - coverage
