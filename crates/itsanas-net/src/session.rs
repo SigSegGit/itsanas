@@ -238,7 +238,7 @@ pub fn note_contact(store: &Store, client: &PeerClient) -> Result<()> {
     let now = itsanas_store::now_unix();
     store.note_seen(&device)?;
     if let Some(network) = client
-        .direct_address()
+        .network_address()
         .and_then(itsanas_placement::Network::of)
     {
         store.note_network_at(&device, network, now)?;

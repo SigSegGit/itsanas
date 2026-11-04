@@ -25,7 +25,8 @@ use crate::claim::{ClaimedPresence, Presence, SignedClaim, SignedPresence};
 use crate::directory::{Account, Admission, Directory};
 use crate::error::Result;
 use crate::protocol::{
-    COORD_VERSION, EnrolledDevice, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response,
+    COORD_VERSION, EnrolledDevice, MAX_HOSTS_RETURNED, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME,
+    Request, Response,
 };
 
 /// How many escrow fetches one username may provoke per window.
@@ -105,6 +106,10 @@ pub struct EscrowLimiter {
     window: Duration,
     capacity: usize,
 }
+
+/// How many addresses one [`Request::Hosts`] reads: bounded whatever the size
+/// of the network, and most of them are expected to offer something.
+const HOSTS_SCANNED: usize = 256;
 
 impl EscrowLimiter {
     /// A limiter with the default budget.
@@ -425,6 +430,8 @@ impl<'a> CoordService<'a> {
                 self.claimed_peers_of(*user, now_unix)?,
             )),
 
+            Request::Hosts => Ok(Response::Hosts(self.hosts_for(caller, now_unix)?)),
+
             Request::Standing(presented) => self.standing(presented),
             Request::DeleteAccount(_) | Request::Deleted { .. } => self.deletion(request, now_unix),
 
@@ -590,6 +597,35 @@ impl<'a> CoordService<'a> {
         });
         out.truncate(MAX_PEERS_RETURNED);
         Ok(out.into_iter().map(|(_, claimed)| claimed).collect())
+    }
+
+    /// What [`Request::Hosts`] tells `caller`: machines of other accounts that
+    /// offer space and were heard lately. Nothing to a device with no claim.
+    fn hosts_for(&self, caller: DeviceId, now: u64) -> Result<Vec<ClaimedPresence>> {
+        let Some(mine) = self.directory.claim_for(caller)? else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        for presence in self.directory.presences_after(caller, HOSTS_SCANNED)? {
+            let device = presence.presence.device;
+            let Some(claim) = self.directory.claim_for(device)? else {
+                continue;
+            };
+            let seen = self.directory.last_seen(device)?.unwrap_or(0);
+            if claim.claim.revoked
+                || claim.claim.pledged_bytes == 0
+                || claim.claim.owner == mine.claim.owner
+                || now.saturating_sub(seen) > PRESENCE_TTL
+                || self.directory.is_suspended(claim.claim.owner)?
+            {
+                continue;
+            }
+            out.push(ClaimedPresence { presence, claim });
+            if out.len() == MAX_HOSTS_RETURNED {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     /// Which address, if any, may be probed on this caller's behalf.

@@ -1587,6 +1587,48 @@ fn releasing_one_file_leaves_a_chunk_another_file_still_uses() {
     );
 }
 
+/// A holder that once passed its audits and then went silent proves nothing: a
+/// phone uninstalled tells nobody. Sabotage: count `proved` without its age.
+#[test]
+fn red_team_release_does_not_rest_on_silent_low_presence_holders() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master");
+    let store = store_for(&master, dir.path());
+    store
+        .write_file("only-here.bin", &vec![4u8; 200_000])
+        .expect("write");
+    let chunks = store
+        .stat("only-here.bin")
+        .expect("stat")
+        .expect("here")
+        .chunks;
+    for _ in 0..itsanas_store::holders::SAFE_TO_RELEASE {
+        let peer = DeviceKeys::generate().expect("device key").device_id();
+        store.record_holders(&chunks, &peer).expect("record");
+        store.note_audit(&peer, true).expect("audit");
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+    let silent = now + itsanas_store::holders::LIVE_FOR + 3_600;
+    assert!(
+        matches!(
+            store.release("only-here.bin", silent).expect("release"),
+            itsanas_store::Release::NotSafeYet { .. }
+        ),
+        "the owner dropped its copy on the word of holders silent for over a week: wiped, the \
+         file is gone"
+    );
+    assert!(
+        matches!(
+            store.release("only-here.bin", now).expect("release"),
+            itsanas_store::Release::Gone(_)
+        ),
+        "holders heard from just now must still allow a release"
+    );
+}
+
 /// A file this device created and then released is still listed, and can still
 /// be fetched.
 ///

@@ -1034,6 +1034,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |
 | **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
 | **`red_team_a_phone_hosts_another_account_and_on_battery_only_answers`** | The daemon's loop on a phone's node: another account stores chunks on it and audits them, and on battery it answers the audit and takes in nothing new. |
+| **`red_team_the_coordinator_introduces_hosts_that_offer_space_and_nothing_else`** | A member is told of another account's machine that offers space: not their own, not one offering nothing, no address leading to a private network. |
+| **`red_team_release_does_not_rest_on_silent_low_presence_holders`** | Holders that passed audits and then went silent for over `LIVE_FOR` no longer allow a release. |
 | **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
 | **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
 | **`red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan`** | Over every combination of conditions and settings: nothing runs at the battery floor or with no network, and a metered link never takes in or goes past its allowance. |

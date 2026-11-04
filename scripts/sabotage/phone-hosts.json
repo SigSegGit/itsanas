@@ -8,6 +8,21 @@
     "host_run"
   ],
   "defences": {
+    "hosts: not one offering nothing": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || claim.claim.pledged_bytes == 0\n",
+      "dead": ""
+    },
+    "hosts: not the asker's own": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || claim.claim.owner == mine.claim.owner\n",
+      "dead": ""
+    },
+    "hosts: nothing private": {
+      "file": "crates/itsanas-node/src/coordinator.rs",
+      "live": "                && dialable_from_anywhere(&row.presence.presence.address)\n",
+      "dead": ""
+    },
     "hosting: the loop starts": {
       "file": "crates/itsanas-cli/src/host_run.rs",
       "live": "if let Some(every) = plan.every.filter(|_| plan.work != HostWork::Nothing) {",

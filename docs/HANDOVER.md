@@ -3821,18 +3821,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
     published. In order:
 
     a. 🟨 **A phone hosts.** `host_until`, `host_run`, `hosting`, built. **Left:**
-       - Hosts between accounts: "The coordinator lists only the asker's own account and a relay
-         never introduces a machine" (`crates/itsanas-cli/tests/route.rs`), so a phone reaches
-         strangers on its LAN or by a typed address only. PC too. Without this the role reaches
-         almost nobody, and the phone's claim reaches no stranger's book (`Owners::standing` sums
-         only what presented).
-       - Stopped hosting reclaims space only after the owner's `MayEvict`; a manual purge says it
-         loses copies. `still_holding` keeps it answering already.
-       - Release not resting on silent holders: `store.rs` `proved >= 2` is historical, with a red-team
-         test that goes red without it.
-       - A holder reached only through a relay groups under the relay's network (`target.rs`), red
-         team test: ten parked emulators count as one.
-       - Declared space: `held_for_others`, an honesty fix for the local bound.
+       - Hosts between accounts: built. `Request::Hosts` names up to 8 machines of other accounts
+         that offer space, the same few for one caller; the round dials them pinned, its claim
+         presented. Not run across two real networks.
+       - Marks: only `measured` ever sends `MayEvict`, so in `everyone` a machine switched off keeps
+         what it holds and goes on answering. Nothing is deleted. No manual purge is offered.
+       - Release, relay grouping: built (`holder_evidence`, `network_address`).
+       - Declared space: unchanged on purpose. A claim capped by what is held would earn a new
+         machine nothing and keep it off `Request::Hosts`; a phone is treated as a PC.
        - Count bytes for `metered_used` (always 0 in `host_run::tick`), each way, and `metered` is
          not cellular.
     b. ⬜ **One switch, "Contribuer au réseau", on by default**, on every platform in the same page:

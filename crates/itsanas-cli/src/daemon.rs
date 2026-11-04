@@ -1700,6 +1700,8 @@ struct Local {
     owners: itsanas_node::owners::ClaimBook,
     /// Read per offer by the listener and the hosting pull ([`Hosting`]).
     answers_only: AtomicBool,
+    /// The hosts the coordinator last named, and when ([`introduced`]).
+    introduced: std::sync::Mutex<Option<(Instant, Vec<(DeviceId, String)>)>>,
 }
 
 /// [`Local`] for `node`. One per device and not one per process: a phone's
@@ -1717,6 +1719,7 @@ fn local(node: &Node) -> &'static Local {
             owners: itsanas_node::owners::ClaimBook::new()
                 .asking(node.store.owner(), coordinator::asker(node)),
             answers_only: AtomicBool::new(false),
+            introduced: std::sync::Mutex::new(None),
         }))
     })
 }
@@ -1969,6 +1972,45 @@ fn one_round(
         reconcile_once(node, folder, false);
     }
 
+    // Hosts of other accounts the coordinator names, for a machine with nobody
+    // typed in and nobody on its LAN: what makes offering space reach anyone.
+    for (device, address) in introduced(node) {
+        if halted(node, shutdown) {
+            break;
+        }
+        if reached.contains(&device) {
+            continue;
+        }
+        let through = contact.through(&address);
+        // A relay answers a caller it knows: this presents to it first, so the
+        // splice works from the next round on.
+        if let Some((relay, at)) = through
+            .as_ref()
+            .filter(|(relay, _)| !reached.contains(relay))
+        {
+            if let Some(outcome) = sync_once(node, at, None, Some(*relay), false, false, scope) {
+                reached.insert(outcome.device);
+            }
+        }
+        let outcome = sync_once(
+            node,
+            &address,
+            through.as_ref(),
+            Some(device),
+            false,
+            false,
+            scope,
+        );
+        if let Some(outcome) = outcome {
+            reached.insert(outcome.device);
+            in_touch |= outcome.earned_trust;
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+                hosts.push((outcome.device, address));
+            }
+        }
+    }
+
     let mut strangers_dialled = 0usize;
     for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
         if halted(node, shutdown) {
@@ -2027,6 +2069,35 @@ fn one_round(
     }
 
     (reached, in_touch, announced)
+}
+
+/// How long the coordinator's list of hosts is kept: it costs a connection, and
+/// the same caller is told the same few.
+const INTRODUCED_FOR: Duration = Duration::from_secs(3600);
+
+/// The hosts the coordinator names, asked at most once per [`INTRODUCED_FOR`]. A
+/// coordinator that cannot be reached leaves the last list in use.
+fn introduced(node: &Node) -> Vec<(DeviceId, String)> {
+    if node.config.coordinator.is_none() {
+        return Vec::new();
+    }
+    let mut kept = local(node)
+        .introduced
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let due = kept
+        .as_ref()
+        .is_none_or(|(asked, _)| asked.elapsed() >= INTRODUCED_FOR);
+    if due {
+        let list = coordinator::hosts(node).unwrap_or_else(|error| {
+            println!("coordinator: could not ask for hosts ({error})");
+            kept.take().map(|(_, list)| list).unwrap_or_default()
+        });
+        *kept = Some((Instant::now(), list));
+    }
+    kept.as_ref()
+        .map(|(_, list)| list.clone())
+        .unwrap_or_default()
 }
 
 /// Whether a machine found on the LAN that answered counts as a contact for

@@ -252,6 +252,45 @@ mod tests {
         });
     }
 
+    /// A member with nobody typed in and nobody on their LAN is told of another
+    /// account's machine that offers space: not their own, not one offering
+    /// nothing, nothing that leads to a private network. Sabotage: drop each of
+    /// the coordinator's and the client's three filters in turn.
+    #[test]
+    fn red_team_the_coordinator_introduces_hosts_that_offer_space_and_nothing_else() {
+        with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("scratch");
+            let at = |name: &str| dir.path().join(name);
+            let (mut host, _) = phone(&at("host"), coordinator, "offering", None);
+            host.config.pledge_bytes = 100 << 20;
+            let (idle, _) = phone(&at("idle"), coordinator, "offersnone", None);
+            let (mut lan, _) = phone(&at("lan"), coordinator, "onlyprivate", None);
+            lan.config.pledge_bytes = 100 << 20;
+            let (mut me, phrase) = phone(&at("me"), coordinator, "asking", None);
+            me.config.pledge_bytes = 100 << 20;
+            let (mut sibling, _) = phone(&at("sibling"), coordinator, "asking", Some(&phrase));
+            sibling.config.pledge_bytes = 100 << 20;
+            let now = itsanas_discover::now_unix();
+            let public = "203.0.113.5:9797";
+            for (node, address) in [
+                (&host, public),
+                (&idle, "203.0.113.6:9797"),
+                (&sibling, "203.0.113.7:9797"),
+                (&lan, "192.168.1.20:9797"),
+                (&me, "203.0.113.8:9797"),
+            ] {
+                itsanas_node::coordinator::register_with(node, None, now).expect("enrols");
+                itsanas_node::coordinator::announce(node, address, now).expect("announces");
+            }
+            let told = itsanas_node::coordinator::hosts(&me).expect("asks");
+            assert_eq!(
+                told,
+                vec![(host.store.device_id(), public.to_owned())],
+                "a member must hear of the machine offering space, and not of their own, one                  offering nothing, or an address that sends them into a private network"
+            );
+        });
+    }
+
     /// Signing out on the page ends the loop, whichever shell started it, or it
     /// would go on answering for an account that left. Sabotage: drop
     /// `stop_current` from `logout_into`.

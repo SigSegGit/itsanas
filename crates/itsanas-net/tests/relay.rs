@@ -126,6 +126,14 @@ fn through(
             me.store.owner(),
             Some(Duration::from_secs(30)),
         );
+        if let Ok(client) = &attempt {
+            // Sabotage: leave `via` unset in `connect_relayed`.
+            assert!(
+                client.direct_address().is_none() && client.network_address().is_some(),
+                "a relayed machine has no network of its own: ten emulators parked behind one \
+                 relay would count as ten households"
+            );
+        }
         if attempt.is_ok() || Instant::now() > until {
             return attempt;
         }

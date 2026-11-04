@@ -271,6 +271,14 @@ pub enum Request {
         /// The accounts this host keeps something for.
         users: Vec<UserId>,
     },
+
+    /// Some machines of other accounts that offer space, so that a member with
+    /// no typed address and nobody on their LAN finds a host at all. Only
+    /// devices whose claim offers something: switched off, a machine declares
+    /// nothing and is not listed. The same few for a given caller, so asking
+    /// again enumerates nobody. Appended last; a coordinator older than this
+    /// hangs up, and the caller finds hosts as it did.
+    Hosts,
 }
 
 /// Accounts one [`Request::Deleted`] may ask about.
@@ -370,7 +378,14 @@ pub enum Response {
     /// The accounts of a [`Request::Deleted`] that were deleted, each as its
     /// own signed request, for the host to check. Appended last.
     Deleted(Vec<crate::claim::SignedDeletion>),
+
+    /// At most [`MAX_HOSTS_RETURNED`] rows for a [`Request::Hosts`]. Appended
+    /// last.
+    Hosts(Vec<ClaimedPresence>),
 }
+
+/// How many hosts one [`Request::Hosts`] is told of.
+pub const MAX_HOSTS_RETURNED: usize = 8;
 
 impl Request {
     /// Whether this request may be made before the caller has proved anything.
@@ -409,6 +424,7 @@ impl Request {
             Self::Standing(_) => "standing",
             Self::DeleteAccount(_) => "delete-account",
             Self::Deleted { .. } => "deleted",
+            Self::Hosts => "hosts",
         }
     }
 }
@@ -642,7 +658,8 @@ mod tests {
                 | Request::ClaimedPeers { .. }
                 | Request::Standing(_)
                 | Request::DeleteAccount(_)
-                | Request::Deleted { .. } => {}
+                | Request::Deleted { .. }
+                | Request::Hosts => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
