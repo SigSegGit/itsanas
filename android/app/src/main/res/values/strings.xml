@@ -68,6 +68,10 @@
     <string name="file_fetch">Fetch and open</string>
     <string name="file_delete">Delete</string>
     <string name="file_not_here">not on this phone</string>
+    <string name="tree_up">Up one folder</string>
+    <string name="tree_one_file">1 file · %1$s</string>
+    <string name="tree_files">%1$d files · %2$s</string>
+    <string name="tree_not_here">%1$d not on this phone</string>
     <string name="delete_title">Delete %1$s?</string>
     <string name="delete_body">It goes from every machine in this account, not just this phone. There is no undo.</string>
     <string name="delete_everywhere">Delete everywhere</string>
@@ -77,7 +81,7 @@
     <string name="update_body">This phone runs %1$s. Android asks before installing it.</string>
     <string name="update_install">Install</string>
     <string name="update_later">Later</string>
-    <string name="update_allow">Allow ITSaNAS to install apps in Android\'s settings. The offer comes back the next time the app opens.</string>
+    <string name="unlock_use_passphrase">Use the passphrase</string>
     <string name="update_failed">The update was not installed: %1$s</string>
 
     <string name="biometric_title">Unlock with your fingerprint or face?</string>

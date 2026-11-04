@@ -76,6 +76,8 @@ object Native {
 
     external fun list(): String
 
+    external fun listAt(folder: String): String
+
     external fun get(path: String, destination: String): String
 
     external fun put(path: String, source: String): String
@@ -114,8 +116,13 @@ data class Known(
     val here: Boolean,
 ) {
     val name: String get() = path.substringAfterLast('/')
-    val folder: String get() = path.substringBeforeLast('/', "")
 }
+
+/** A folder inside the one on screen, with everything below it counted. */
+data class KnownFolder(val name: String, val path: String, val files: Long, val size: Long, val notHere: Long)
+
+/** One folder of the account. */
+data class Level(val at: String, val folders: List<KnownFolder>, val files: List<Known>)
 
 /** What the node is and what it holds. */
 data class Status(
@@ -152,6 +159,25 @@ object Answers {
                 here = file.getBoolean("here"),
             )
         }
+    }
+
+    fun level(json: String): Level {
+        val o = JSONObject(json)
+        val folders = o.getJSONArray("folders")
+        return Level(
+            at = o.getString("at"),
+            folders = (0 until folders.length()).map { index ->
+                val folder = folders.getJSONObject(index)
+                KnownFolder(
+                    name = folder.getString("name"),
+                    path = folder.getString("path"),
+                    files = folder.getLong("files"),
+                    size = folder.getLong("size"),
+                    notHere = folder.getLong("notHere"),
+                )
+            },
+            files = files(json),
+        )
     }
 
     fun status(json: String): Status {

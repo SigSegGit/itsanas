@@ -893,6 +893,7 @@ pub fn run(
 }
 
 /// How a run of the loop is paced and stopped, whichever shell runs it.
+#[derive(Clone, Copy)]
 struct Beat<'a> {
     base: Duration,
     scope: PolicyScope,
@@ -4253,11 +4254,11 @@ mod tests {
 
     #[test]
     fn red_team_a_vault_that_drops_while_running_takes_no_chunk() {
+        static ANSWERS_ONLY: AtomicBool = AtomicBool::new(false);
         let dir = tempfile::tempdir().expect("tempdir");
         let vault = dir.path().join("nas").join("vault");
         std::fs::create_dir_all(&vault).expect("vault");
         std::fs::write(vault.join(itsanas_node::node::VAULT_MARKER), "device").expect("marker");
-        static ANSWERS_ONLY: AtomicBool = AtomicBool::new(false);
         let room = room_at(vault.clone(), &ANSWERS_ONLY);
         assert_ne!(room(), Some(0), "a mounted vault with room offered none");
         // The NAS unmounts: an empty local mount point is left.

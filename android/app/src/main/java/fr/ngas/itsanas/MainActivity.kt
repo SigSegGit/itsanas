@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
@@ -40,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -62,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -257,7 +261,16 @@ private fun App(shared: List<Uri>) {
         when (val current = screen) {
             Screen.Opening -> Centred { CircularProgressIndicator() }
             Screen.Biometric -> {
-                Centred { CircularProgressIndicator() }
+                // Android can drop its prompt without a word, and a spinner alone
+                // would then be a dead end.
+                Centred {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        TextButton({ screen = Screen.Locked }) {
+                            Text(stringResource(R.string.unlock_use_passphrase))
+                        }
+                    }
+                }
                 LaunchedEffect(Unit) {
                     val activity = context as FragmentActivity
                     Biometric.unlock(activity, { passphrase ->
@@ -340,19 +353,21 @@ private fun App(shared: List<Uri>) {
         Host.current?.let { AskOverlay(it) }
     }
 
-    offered?.let { offer ->
+    // Not over the fingerprint: answering one interrupted the other, on a real phone,
+    // and the screen under them never came back.
+    offered?.takeIf { screen == Screen.Ready }?.let { offer ->
         AlertDialog(
             onDismissRequest = { offered = null },
             title = { Text(stringResource(R.string.update_title, offer.version)) },
             text = { Text(stringResource(R.string.update_body, BuildConfig.VERSION_NAME)) },
             confirmButton = {
                 TextButton({
-                    offered = null
+                    // Without the permission, Android's settings open and this stays
+                    // for the person coming back: the offer is made once a day.
+                    if (context.packageManager.canRequestPackageInstalls()) offered = null
                     scope.launch {
                         try {
-                            if (!Updater.install(context, offer)) {
-                                complaint = context.getString(R.string.update_allow)
-                            }
+                            Updater.install(context, offer)
                         } catch (e: Exception) {
                             complaint = context.getString(R.string.update_failed, e.message ?: "")
                         }
@@ -455,15 +470,53 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var files by remember { mutableStateOf<List<Known>>(emptyList()) }
+    // The folder on screen. The account answers with the nearest one still there.
+    var level by remember { mutableStateOf(Level("", emptyList(), emptyList())) }
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Known?>(null) }
 
-    suspend fun refresh() {
-        files = Account.files()
+    suspend fun refresh(folder: String = level.at) {
+        level = Account.level(folder)
         status = Account.status()
     }
+
+    // A round now, as the button does: in the background the next one can be two
+    // hours away, and a person who adds a file and leaves believes it has left too.
+    // A round nobody asked for says why it failed without stopping them: the first
+    // file on a first device has no machine to reach, and it was added all the same.
+    suspend fun syncOnce(asked: Boolean = false) {
+        // Its own coroutine: awaited, a line still showing when the person leaves is
+        // cancelled inside these catches, and escapes to callers that catch everything.
+        fun tell(line: String) {
+            scope.launch { snackbar.showSnackbar(line) }
+        }
+        try {
+            val plan = Vault.plan(context, foreground = true)
+            Account.syncNow(metadataOnly = !plan.movesContent)
+            refresh()
+            tell(plan.because)
+        } catch (left: CancellationException) {
+            // The person left this screen mid-round. That is no failure, and the
+            // callers catching everything would put it in a dialog over the next one.
+        } catch (error: Throwable) {
+            val why = error.message ?: "the round failed"
+            if (asked) complain(why) else tell(why)
+        }
+    }
+
+    fun open(folder: String) {
+        scope.launch {
+            try {
+                refresh(folder)
+            } catch (error: Throwable) {
+                complain(error.message ?: "could not read the account")
+            }
+        }
+    }
+
+    // Back climbs the folders before it leaves the application.
+    BackHandler(level.at.isNotEmpty()) { open(level.at.substringBeforeLast('/', "")) }
 
     LaunchedEffect(Unit) {
         try {
@@ -478,6 +531,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             if (shared.isNotEmpty()) {
                 refresh()
                 snackbar.showSnackbar(context.getString(R.string.files_added, shared.size))
+                syncOnce()
             }
         } catch (error: Throwable) {
             complain(error.message ?: "could not read the account")
@@ -491,8 +545,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         scope.launch {
             busy = true
             try {
-                Account.add(context, uri, nameOf(context, uri), folder = "")
+                Account.add(context, uri, nameOf(context, uri), folder = level.at)
                 refresh()
+                syncOnce()
             } catch (error: Throwable) {
                 complain(error.message ?: "could not add that file")
             } finally {
@@ -513,6 +568,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             try {
                 PhoneFolder.sync(context)
                 refresh()
+                syncOnce()
             } catch (error: Throwable) {
                 complain(error.message ?: "could not read that folder")
             } finally {
@@ -522,7 +578,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar) { Snackbar(it, Modifier.testTag("files-told")) } },
         topBar = {
             TopAppBar(
                 title = {
@@ -553,12 +609,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                         scope.launch {
                             busy = true
                             try {
-                                val plan = Vault.plan(context, foreground = true)
-                                Account.syncNow(metadataOnly = !plan.movesContent)
-                                refresh()
-                                snackbar.showSnackbar(plan.because)
-                            } catch (error: Throwable) {
-                                complain(error.message ?: "the round failed")
+                                syncOnce(asked = true)
                             } finally {
                                 busy = false
                             }
@@ -642,7 +693,28 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }
 
-            if (files.isEmpty()) {
+            if (level.at.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        { open(level.at.substringBeforeLast('/', "")) },
+                        Modifier.testTag("tree-up"),
+                    ) {
+                        Icon(Icons.Default.ArrowUpward, stringResource(R.string.tree_up))
+                    }
+                    Text(
+                        level.at,
+                        Modifier.testTag("tree-at"),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (level.at.isEmpty() && level.folders.isEmpty() && level.files.isEmpty()) {
                 Centred {
                     Text(
                         stringResource(R.string.files_empty),
@@ -653,7 +725,10 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             }
 
             LazyColumn(Modifier.fillMaxSize()) {
-                items(files, key = { it.path }) { file ->
+                items(level.folders, key = { "folder:${it.path}" }) { folder ->
+                    FolderRow(folder) { open(folder.path) }
+                }
+                items(level.files, key = { "file:${it.path}" }) { file ->
                     FileRow(
                         file = file,
                         onOpen = {
@@ -705,6 +780,47 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
 }
 
 @Composable
+private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
+    Card(
+        onOpen,
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("folder-row"),
+    ) {
+        Row(
+            Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Folder, null, Modifier.padding(end = 12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    folder.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        append(
+                            if (folder.files == 1L) {
+                                stringResource(R.string.tree_one_file, humanSize(folder.size))
+                            } else {
+                                stringResource(R.string.tree_files, folder.files, humanSize(folder.size))
+                            },
+                        )
+                        if (folder.notHere > 0) {
+                            append(" · ${stringResource(R.string.tree_not_here, folder.notHere)}")
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
     Card(
         Modifier
@@ -726,7 +842,6 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                 Text(
                     buildString {
                         append(humanSize(file.size))
-                        if (file.folder.isNotEmpty()) append(" · ${file.folder}")
                         if (!file.here) append(" · ${stringResource(R.string.file_not_here)}")
                     },
                     style = MaterialTheme.typography.labelSmall,

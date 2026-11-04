@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0c
-TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
-WRITTEN-AT: 2026-11-03
-BASE: 0273ac0
+NEXT: 8.10
+TITLE: The next version: a phone hosts, one switch, Settings; then the hand test (§8 10)
+WRITTEN-AT: 2026-11-04
+BASE: 9ea9982
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,25 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-04: a phone runs the daemon's loop.** Nicolas moved his hand test (8.0c) to after §8 10.
+`daemon::host_until` is `itsanas daemon`'s own loop, without the signals or the self-update;
+`host_run::tick` starts and stops it as `itsanas_policy::hosting` says; the app only reports what it
+sees (`Native.hostTick`). `daemon.rs` did not move: it is already in the library. The slot now holds
+`Arc<Node>`, because the loop holds the node too: a change through the page and a sign-out stop the
+loop first. Trap, paid for once: a test of this loop with `local_network` on dials the neighbours and
+opens a port on the developer's router (a mapping for an hour). Tests pass `false`.
+
+**2026-11-03: the first real phone (Galaxy S25, Android 17, wireless adb), and folders on the
+Files screen.** The self-update went 0.1.15 to 0.1.16 with the account intact, and a real folder of
+22 screenshots entered it. The Files screen now reads one folder at a time
+(`crates/itsanas-cli/src/file_tree.rs`, `Native.listAt`), and + adds to the folder on screen. Never
+run the e2e suite on a person's phone: it wipes it. That phone found three more. A file added or a
+folder chosen stayed on it, its next background round being two hours off: a round now follows.
+The update offer sat over the fingerprint, and answering it left a spinner with no way out: it waits
+for an open account, and the spinner has a way to the passphrase. Asked for the install permission,
+the offer vanished for a day: it stays open. No test covers the last two: the emulator has no
+fingerprint and no test reaches an offer, so the next release on that phone is what proves them.
 
 **2026-11-03: a fleet run starts by updating the machines.** A run after the 0.1.16 release tested
 0.1.13 and was green, because row V only asked that the machines agree. Row U now asks each Docker
@@ -111,46 +130,12 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-1. **The Android release key, before any phone that should keep its
-   updates installs the application** (docs/ANDROID-RELEASE.md §1, §1b):
-   Android installs an update only when it is signed with the same key as
-   the installed app, so a phone on a debug-signed build has to be
-   uninstalled -- its node deleted -- to move to the release key. PowerShell:
-
-       D:\Android\jdk\bin\keytool -genkeypair -v -keystore D:\Android\itsanas-release.jks -alias itsanas -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=ITSaNAS, O=ITSomething, C=FR"
-
-   then `android\keystore.properties` (git-ignored), with the password just
-   typed, and both files backed up like the 24 words:
-
-       notepad D:\GitHub\itsanas\android\keystore.properties
-
-   holding these four lines:
-
-       storeFile=D:/Android/itsanas-release.jks
-       storePassword=<the password>
-       keyAlias=itsanas
-       keyPassword=<the password>
-
-   From then on every `release.cmd` builds the APK with it and puts it in
-   the release (`sign-release.ps1`); `-NoApk` leaves it out.
-
-2. **The first test of the phone's self-update, end to end** (after item 1).
-   On the laptop, a 0.1.13 APK signed with the release key, onto the phone
-   (USB debugging on: Settings -> About phone -> Software information ->
-   tap Build number 7 times, then Developer options -> USB debugging):
-
-       cd D:\GitHub\itsanas; git switch main; git pull; bash scripts/build-apk.sh release
-
-       D:\Android\Sdk\platform-tools\adb install -r android\app\build\outputs\apk\release\app-release.apk
-
-   (a phone with a debug-signed ITSaNAS refuses it: uninstall it first,
-   the account comes back from its 24 words). Then bump the version to
-   0.1.14 in `Cargo.toml` through a session, merge, and release:
+0. **Release 0.1.17**, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
+   offers the update when opened, once a day, after the unlock:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
-   On the phone, opening ITSaNAS shows "ITSaNAS 0.1.14 is available":
-   Install, allow ITSaNAS to install apps the first time, confirm.
+       itsanas update
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
@@ -3829,6 +3814,44 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
+    a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`
+    decides when. The study behind it is in the owner's private notes, and its figures are not
+    published. In order:
+
+    a. 🟨 **A phone hosts.** `host_until`, `host_run`, `hosting`, built. **Left:**
+       - Hosts between accounts: "The coordinator lists only the asker's own account and a relay
+         never introduces a machine" (`crates/itsanas-cli/tests/route.rs`), so a phone reaches
+         strangers on its LAN or by a typed address only. PC too. Without this the role reaches
+         almost nobody, and the phone's claim reaches no stranger's book (`Owners::standing` sums
+         only what presented).
+       - Stopped hosting reclaims space only after the owner's `MayEvict`; a manual purge says it
+         loses copies. `still_holding` keeps it answering already.
+       - Release not resting on silent holders: `store.rs` `proved >= 2` is historical, with a red-team
+         test that goes red without it.
+       - A holder reached only through a relay groups under the relay's network (`target.rs`), red
+         team test: ten parked emulators count as one.
+       - Declared space: `held_for_others`, an honesty fix for the local bound.
+       - Count bytes for `metered_used` (always 0 in `host_run::tick`), each way, and `metered` is
+         not cellular.
+    b. ⬜ **One switch, "Contribuer au réseau", on by default**, on every platform in the same page:
+       off greys the section and forgets nothing; `contribute` in the config instead of
+       `pledge_bytes > 0` (`Native_hostTick`); off declares no pledge in `claim_bytes`. **Settings in
+       sections**: battery floor, pace charging, Wi-Fi or mobile data, allowance per hour, day, week
+       or month (default 0), all as `itsanas_policy::Settings`. `Vault.batteryLow` still has 15 fixed.
+    c. ⬜ **Android 15's six hours.** `dataSync` stops at 6 h per 24 h: `onTimeout` + `stopSelf`, the
+       service only while the app is open, background work by a `SyncWorker`/`HostWorker`
+       (WorkManager). `onDestroy` must call `Native.hostStop`: today the thread outlives the
+       service. A process killed reopens locked: one notification per 24 h at most.
+    d. ⬜ **Windows Hello and macOS biometrics**, optional, off by default: the sealed passphrase
+       replaces `passphrase.txt` behind `ServiceControl::stored_passphrase`/`store_passphrase`. The
+       one `unsafe` exception Nicolas granted: update `scripts/check-unsafe.py`; `cargo deny`.
+    e. ⬜ **Legal texts**: `docs/legal/NOTICE.md`, `PRIVACY.md`, `TERMS.md`, embedded and linked from
+       the first screen and "About and notices", from the owner's private audit. AGENTS.md rule 1.
+    f. ⬜ **The Android logo**: compare the render with the favicon and `docs/assets`.
+    g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
+       Wi-Fi, and on battery on Wi-Fi answering only.
 
 9. **Three features Nicolas chose on 2026-11-03**, when everything else open in §8 waited on
    him. In this order; none has a specification yet, so each starts by reading the code named.

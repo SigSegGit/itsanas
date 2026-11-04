@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1586 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 567 are red-team tests.**
+**Last updated: 2026-11-04 — 1601 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 576 are red-team tests.**
 
-**1470 of the 1586 tests have an entry of their own on this page** — an *entry*,
+**1485 of the 1601 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -174,12 +174,12 @@ guarantee and is not one.
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 51 |
-| `itsanas-policy` unit | 23 |
+| `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 325 |
+| `itsanas-cli` unit | 336 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 175 |
@@ -217,11 +217,11 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
-| `placement-audit` | where copies go, audits, reliability, release | 40 |
+| `placement-audit` | where copies go, audits, reliability, release | 45 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 180 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 184 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1033,6 +1033,13 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |
 | **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
+| **`red_team_a_phone_hosts_another_account_and_on_battery_only_answers`** | The daemon's loop on a phone's node: another account stores chunks on it and audits them, and on battery it answers the audit and takes in nothing new. |
+| **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
+| **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
+| **`red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan`** | Over every combination of conditions and settings: nothing runs at the battery floor or with no network, and a metered link never takes in or goes past its allowance. |
+| **`red_team_switching_off_keeps_answering_for_what_it_holds`** | Switched off while holding other members' copies, a machine goes on answering for them. |
+| `charging_takes_in_and_a_battery_only_answers` | The two modes: charging on a free connection takes in, on battery it answers only. |
+| `the_floor_decides_low_and_charging_never_is` | The owner's battery floor decides `Low`; charging never is. |
 | **`red_team_a_file_only_listed_here_can_be_deleted_from_the_account`** | A phone that holds only the listing deletes a file: it stops being listed, and the deletion reaches the machine that holds it. |
 | **`red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`** | An edit the phone had not seen survives its deletion on the laptop, and is listed on the phone again. |
 | `deleting_what_the_account_does_not_have_deletes_nothing` | A path nobody has gets no tombstone. |
@@ -1206,7 +1213,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (325)
+# `itsanas-cli` — unit tests (336)
 
 ## `bench` — measuring this machine (4)
 
@@ -1567,6 +1574,19 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
 | **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
 
+## `file_tree` — an account's flat paths, read one folder at a time (8)
+
+| Test | What it proves |
+|---|---|
+| **`red_team_the_root_shows_folders_and_not_every_file_of_the_account`** | The top of the account lists each folder once and only the files directly in it. |
+| **`red_team_a_folder_counts_everything_below_it`** | The line under a folder counts its files at any depth, their size, and those this device does not hold. |
+| **`red_team_a_folder_with_a_longer_sibling_does_not_take_its_files`** | `Phone2/d.jpg` is not in `Phone`, and a deeper file is not listed one level too high. |
+| **`red_team_a_folder_that_lost_its_last_file_leaves_the_nearest_one_still_there`** | A folder whose last file went answers as the nearest one still there, so the screen is never stranded. |
+| `a_folder_that_never_existed_reads_as_the_root` | A path no file goes through reads as the top of the account. |
+| `an_empty_account_has_an_empty_root` | No file, no folder, whatever was asked. |
+| `a_deep_folder_names_its_whole_path` | A folder two levels down carries the path that opens it. |
+| `a_size_no_real_account_has_does_not_panic` | Sizes that overflow a sum saturate. |
+
 ## `phone_folder` — which files of a phone's chosen folder enter the account (3)
 
 | Test | What it proves |
@@ -1726,7 +1746,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `the_list_marks_this_phone_among_the_account_s_devices` | The devices screen's list: both devices of the account, this phone marked once, `complete` true when enrolled. |
 | **`red_team_the_phone_s_setters_keep_the_split`** | `set_pledge` and `set_keep`, the bodies of `setPledge` and `setKeep`, refuse a pledge under what keep needs and a keep the pledge does not earn, and leave the node file and the node in memory (a process-wide mutex, saved by the next setter) as they were; with no keep, both go through. Reaches the two functions, **not the JNI shims** that lock the node and call them -- those are covered only by reading. Sabotaged five ways (either call dropped; either call moved below its assignments; `check_split` always `Ok`): red. |
 
-# `itsanas-policy` — when to sync, and how much (23)
+# `itsanas-policy` — when to sync, and how much (27)
 
 `src/lib.rs`. A decision table with an argument attached to every row, and no
 dependency on anything — so the phone, the Mac shell and `itsanas daemon` reach

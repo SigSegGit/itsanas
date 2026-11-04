@@ -68,10 +68,36 @@ class FilesTest {
             !Native.list().contains("pending"),
         )
         // On the screen too: the account having them proves nothing a person sees.
-        compose.waitUntil(60_000) {
-            compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size == 2
-        }
+        fun rows(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().size
+        compose.waitUntil(60_000) { rows("folder-row") == 1 }
+        assertTrue("a chosen folder's files lie loose at the top of the account", rows("file-row") == 0)
         E2e.shotBoth("22-files-folder")
+
+        // Down: the account's folders are the folder's own, one tap each.
+        Flows.click(compose, "folder-row")
+        Flows.waitTag(compose, "tree-at", "tapping a folder did not open it")
+        compose.waitUntil(30_000) { rows("folder-row") == 1 }
+        Flows.click(compose, "folder-row")
+        compose.waitUntil(30_000) { rows("file-row") == 1 && rows("folder-row") == 1 }
+        E2e.shotBoth("23-files-in-folder")
+
+        // What + adds lands in the folder on screen, not at the top of the account.
+        val note = "added-here.txt"
+        intending(hasAction(Intent.ACTION_OPEN_DOCUMENT)).respondWith(
+            Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(pickable(note, "in this folder"))),
+        )
+        Flows.click(compose, "files-add")
+        compose.waitUntil(60_000) { rows("file-row") == 2 }
+        assertTrue(
+            "+ inside a folder put the file somewhere else in the account",
+            Native.list().contains("Phone/Camera/$note"),
+        )
+
+        // Up, as far as there is to go, and no further.
+        Flows.click(compose, "tree-up")
+        compose.waitUntil(30_000) { rows("file-row") == 0 && rows("tree-at") == 1 }
+        Flows.click(compose, "tree-up")
+        Flows.waitNoTag(compose, "tree-at", "two steps up from two folders down is not the top of the account")
 
         Flows.click(compose, "phone-folder-stop")
         Flows.waitNoTag(compose, "phone-folder-line", "Stop did not stop the folder")
@@ -95,6 +121,12 @@ class FilesTest {
         Flows.click(compose, "files-add")
         Flows.waitTag(compose, "file-row", "the file chosen with + was never listed, so adding a file does nothing", 90)
         Flows.waitTag(compose, "not-safe", "a file on this phone alone and no warning: losing the phone loses it, unwarned")
+        Flows.waitTag(
+            compose,
+            "files-told",
+            "no round ran after adding a file: it stays on this phone alone for up to two hours, and the person has left",
+            90,
+        )
         E2e.shotBoth("21-files-listed")
         val rows = compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size
         assertTrue("expected exactly one row, saw $rows", rows == 1)

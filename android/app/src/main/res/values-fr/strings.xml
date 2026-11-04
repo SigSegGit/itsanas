@@ -66,6 +66,10 @@
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
     <string name="file_not_here">pas sur ce téléphone</string>
+    <string name="tree_up">Remonter d\'un dossier</string>
+    <string name="tree_one_file">1 fichier · %1$s</string>
+    <string name="tree_files">%1$d fichiers · %2$s</string>
+    <string name="tree_not_here">%1$d absents de ce téléphone</string>
     <string name="delete_title">Supprimer %1$s ?</string>
     <string name="delete_body">Il disparaît de toutes les machines du compte, pas seulement de ce téléphone. Il n\'y a pas d\'annulation.</string>
     <string name="delete_everywhere">Supprimer partout</string>
@@ -75,7 +79,7 @@
     <string name="update_body">Ce téléphone utilise %1$s. Android demande confirmation avant l\'installation.</string>
     <string name="update_install">Installer</string>
     <string name="update_later">Plus tard</string>
-    <string name="update_allow">Autorisez ITSaNAS à installer des applications dans les réglages d\'Android. La proposition reviendra à la prochaine ouverture de l\'application.</string>
+    <string name="unlock_use_passphrase">Utiliser la phrase secrète</string>
     <string name="update_failed">La mise à jour n\'a pas été installée : %1$s</string>
 
     <string name="biometric_title">Déverrouiller par empreinte ou visage ?</string>

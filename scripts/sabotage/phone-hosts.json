@@ -1,0 +1,27 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "host_run"
+  ],
+  "defences": {
+    "hosting: the loop starts": {
+      "file": "crates/itsanas-cli/src/host_run.rs",
+      "live": "if let Some(every) = plan.every.filter(|_| plan.work != HostWork::Nothing) {",
+      "dead": "if let Some(every) = plan.every.filter(|_| false) {"
+    },
+    "hosting: on battery it takes in nothing": {
+      "file": "crates/itsanas-cli/src/daemon.rs",
+      "live": "if answers_only.load(Ordering::Relaxed) || !vault_present(&vault) {",
+      "dead": "if !vault_present(&vault) {"
+    },
+    "hosting: signing out ends the loop": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    // an account that has left this phone.\n    crate::host_run::stop_current();",
+      "dead": "    // an account that has left this phone."
+    }
+  }
+}

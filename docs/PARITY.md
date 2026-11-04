@@ -99,13 +99,13 @@ app, or it is not done there.
 | `itsanas space` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas pledge` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas device` | ✅ | ✅ | ✅ | ✅ |
-| `itsanas listen` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and hosts nothing for others |
-| `itsanas announce` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and publishes no address |
+| `itsanas listen` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas announce` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas leave` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas rejoin` | ✅ | ✅ | ✅ | ⬜ a phone that left logs in again, with a new device id |
 | `itsanas delete-account` | ✅ | ✅ | ✅ | ✅ |
-| `itsanas serve` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and hosts nothing for others |
-| `itsanas daemon` | ✅ | ✅ | ✅ | ⬜ the app runs its rounds in its own sync service |
+| `itsanas serve` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas daemon` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas sync` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas coordinator` | ✅ | ✅ | ✅ | ⬜ a phone is built for one network |
 | `itsanas invite` | ✅ | ✅ | ✅ | ⬜ terminal only: a phone uses an invitation, it does not make one |

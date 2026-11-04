@@ -64,7 +64,7 @@ impl Features {
         remove_account: false,
     };
 
-    /// A phone: its files are in the app, it dials out only, and it has the one
+    /// A phone: its files are in the app, its loop runs when the policy says, and it has the one
     /// network the app was built for.
     pub const PHONE: Self = Self {
         folder: false,

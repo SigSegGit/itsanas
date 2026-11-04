@@ -26,7 +26,7 @@ pub struct HostRun {
 /// stops it without knowing which shell started it.
 pub static CURRENT: Mutex<Option<HostRun>> = Mutex::new(None);
 
-/// Stop this process's loop, and wait for it ([`stop`]).
+/// Stop this process's loop, and wait for it.
 pub fn stop_current() {
     stop(&mut CURRENT.lock().unwrap_or_else(PoisonError::into_inner));
 }

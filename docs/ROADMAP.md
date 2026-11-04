@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1586 test functions, 20 of them `#[ignore]`d into the slow job, and 567 of
+**1601 test functions, 20 of them `#[ignore]`d into the slow job, and 576 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -190,8 +190,11 @@ What is missing before this is a *network* rather than a personal sync tool:
     stops at whatever the sync round reached, which is arrival order, not
     importance. A selection -- newest first, a chosen folder, pinned files --
     is the difference between a budget and a useful budget.
-  - **Network budgets.** Nothing distinguishes wifi from mobile data beyond the
-    existing metered flag, and a phone needs a ceiling per connection type.
+  - **Network budgets.** `itsanas_policy::hosting` has the allowance per period;
+    the bytes moved are not counted yet, and `metered` is not the same as cellular.
+  - **Recovery by e-mail: not for now.** It would be the first identifying data at
+    the coordinator, and it helps only someone who still knows their passphrase.
+  - **The fleet's laptop.** `agent.ps1` has no `update` step for it.
   - **A pledge checked against real free space.** Nothing verifies that a node
     offering 100G has 100G, so the first honest failure happens when a peer's
     data will not fit.
