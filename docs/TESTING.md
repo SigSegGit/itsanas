@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1610 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 582 are red-team tests.**
+**Last updated: 2026-11-04 — 1611 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 583 are red-team tests.**
 
-**1494 of the 1610 tests have an entry of their own on this page** — an *entry*,
+**1495 of the 1611 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -170,7 +170,7 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 133 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 134 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 51 |
@@ -215,7 +215,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
@@ -2529,7 +2529,7 @@ is pinned down, which is what these three do.
 | **`a_device_enrolled_by_an_older_binary_is_found_again_at_the_next_start`** | The operation that breaks a repair conditioned on "the index is empty", and it is one that has been performed on the Pi: **downgrading the coordinator binary**. An older build enrols devices by writing the claims table and knowing nothing of the index, so coming back up the index is *stale* rather than empty and the repair would skip. Those machines would be permanently invisible — `claim_for` knows them, they announce, and `peers_of` never returns them. The condition is row counts disagreeing, which covers empty and stale alike. Found by the Rodin audit of 2026-09-18. |
 | **`a_directory_written_before_the_index_existed_is_repaired_on_open`** | The upgrade. A coordinator running since before this table has claims and no index; reading that as "this account has no devices" would be silent and total — every member told their machines are gone, and the only clue being that it started at an upgrade. The file is repaired on open instead, the same rule as the holder ledger's second ordering. |
 
-# `itsanas-coord` — asking whether a member can be reached (12)
+# `itsanas-coord` — asking whether a member can be reached (13)
 
 The one question a machine cannot answer about itself: a node knows it reached
 the coordinator, because it just did, and nothing tells it whether anything can
@@ -2546,6 +2546,7 @@ refuses to do.
 | **`red_team_a_probe_cannot_be_aimed_at_the_coordinators_own_network`** | A coordinator that dials what a caller names is a port scanner with somebody else's address on it. It dials only what the caller **announced**, which carries that device's own signature, and never a private, loopback, link-local or CGNAT address — which would be a scan of the coordinator's own LAN, the one network a member has no business reaching. Checks six ranges a home actually uses, and the three public shapes the feature exists for. |
 | **`red_team_a_device_with_no_account_cannot_make_the_coordinator_dial_anything`** | Device keys are free keypairs, so completing a handshake identifies a caller and vouches for nothing. The refusal has to name *enrolment*: an unenrolled device also has no presence, so "there is nothing to probe" refuses it by accident today and would stop doing so the day anything else writes a presence. |
 | **`a_withdrawn_device_stops_being_probed_for`** | Withdrawal is the account saying a machine no longer speaks for it. A stolen laptop keeps its key, and must stop buying the coordinator's outbound connections with it. |
+| **`red_team_hosts_lists_only_another_accounts_live_offering_machines`** | `Request::Hosts` lists a machine of another account that offers space and was heard within `PRESENCE_TTL`, and no other: not the asker's own, not one withdrawn, offering nothing, silent or of a suspended account. The client filters some of these again, so this reads the coordinator's own list. Sabotaged by dropping each condition of `hosts_for` (`scripts/sabotage/coord.json`). |
 | **`a_device_that_never_announced_is_told_so_rather_than_probed`** | There is nothing to probe, and the alternative — letting the caller supply an address — is the scanner above. |
 | **`red_team_asking_to_be_probed_again_and_again_buys_one_probe_an_hour`** | Without a budget, a member's daemon turns every round into an outbound connection the coordinator pays for, which is the load this design exists to keep off it. Also checks that the window *reopens*: a machine that really did move must be able to find out it is reachable again. |
 | **`red_team_a_probe_that_reaches_a_different_machine_is_not_a_success`** | The reason the probe is a device-authenticated handshake and not a connection. A forward pointing at the wrong host — the other Pi, a printer, a neighbour on the same public address — is an open port, and reporting it as success tells a member their setup works while every peer that dials them is refused by the device pinning. |
