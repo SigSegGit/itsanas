@@ -58,7 +58,7 @@ fn may_enter(path: &str) -> bool {
             .all(|part| !part.is_empty() && !part.starts_with('.'))
 }
 
-fn recorded(home: &Path) -> HashMap<String, (u64, u64)> {
+pub(crate) fn recorded(home: &Path) -> HashMap<String, (u64, u64)> {
     let text = std::fs::read(home.join(RECORD)).unwrap_or_default();
     String::from_utf8_lossy(&text)
         .lines()

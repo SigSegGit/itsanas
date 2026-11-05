@@ -61,6 +61,14 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-05: a phone's trash (`trash.rs`).** `Supprimer` on the phone now hides the file for X days (30 by
+default, set in the trash), then sends the real delete. It stays a live file of the account, so it counts in
+the space and other machines still show it until then; this phone alone holds the record, so losing it costs
+room, never a file. Files gone from the chosen folder are listed there too, and only a person deletes them.
+Not done: restoring into the chosen folder, whose permission is read-only; a computer's delete stays immediate;
+a file added again under a trashed path stays hidden until restored; no Keep answer, so a file gone from the
+folder stays listed. Not looked at on a real phone.
+
 **2026-11-05: 0.1.17 on the phone: the settings could not be changed.** The page reloaded the hosting
 fields every two seconds, over what was being typed, on every platform: `SettingsTest` went red on it
 before the fix. A phone now has Check for updates in Settings, which ignores the once-a-day limit. Not

@@ -33,6 +33,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 return Result.retry()
             }
         }
+        // What the trash has held long enough leaves here, with the app closed too.
+        runCatching { Native.trashList() }
         val plan = Vault.plan(context, foreground = false)
         if (!plan.connects) return Result.success()
         if (plan.movesContent) runCatching { PhoneFolder.sync(context) }

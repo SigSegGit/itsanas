@@ -492,6 +492,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Known?>(null) }
+    var trashOpen by remember { mutableStateOf(false) }
 
     suspend fun refresh(folder: String = level.at) {
         level = Account.level(folder)
@@ -616,6 +617,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     }
                 },
                 actions = {
+                    IconButton({ trashOpen = true }, Modifier.testTag("trash-open")) {
+                        Icon(Icons.Default.Delete, stringResource(R.string.trash_title))
+                    }
                     IconButton(
                         { folderPicker.launch(null) },
                         Modifier.testTag("phone-folder"),
@@ -769,20 +773,25 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         }
     }
 
+    if (trashOpen) {
+        TrashDialog({ trashOpen = false }, { refresh() }, { complain(it) })
+    }
+
     confirmDelete?.let { file ->
+        val trashContext = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text(stringResource(R.string.delete_title, file.name)) },
             text = {
-                Text(stringResource(R.string.delete_body))
+                Text(stringResource(R.string.delete_body, Trash.days(trashContext)))
             },
             confirmButton = {
-                TextButton({
+                TextButton(modifier = Modifier.testTag("delete-confirm"), onClick = {
                     val doomed = file
                     confirmDelete = null
                     scope.launch {
                         try {
-                            Account.remove(doomed.path)
+                            Trash.put(trashContext, doomed.path)
                             refresh()
                         } catch (error: Throwable) {
                             complain(error.message ?: "could not delete it")
@@ -870,7 +879,7 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                     stringResource(if (file.here) R.string.file_open else R.string.file_fetch),
                 )
             }
-            IconButton(onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
+            IconButton(onDelete, Modifier.testTag("file-delete")) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
         }
     }
 }

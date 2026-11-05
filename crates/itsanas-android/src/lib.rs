@@ -62,6 +62,7 @@ use itsanas_cli::shell::{
     Answer, Backends, Failure, Held, Mode, NO_MACHINE_YET, Network, SecretPrompt, Server, Stop,
     check_words, describe, run_round, targets,
 };
+use itsanas_cli::trash;
 use itsanas_node::Node;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -535,10 +536,12 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_list(
 ) -> jstring {
     answer(&mut env, || {
         with_node(|node| {
+            let hidden = purged_trash(node)?;
             let listing = itsanas_store::catalogue(&node.store, &node.vault)?;
             let files: Vec<_> = listing
                 .files
                 .iter()
+                .filter(|file| !hidden.contains_key(&file.path))
                 .map(|file| {
                     serde_json::json!({
                         "path": file.path,
@@ -572,10 +575,12 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_listAt(
     answer(&mut env, move || {
         let folder = folder?;
         with_node(|node| {
+            let hidden = purged_trash(node)?;
             let listing = itsanas_store::catalogue(&node.store, &node.vault)?;
             let entries: Vec<_> = listing
                 .files
                 .iter()
+                .filter(|file| !hidden.contains_key(&file.path))
                 .map(|file| itsanas_cli::file_tree::Entry {
                     path: file.path.clone(),
                     size: file.size,
@@ -781,6 +786,7 @@ fn folder_wanted(node: &Node, listing: &str) -> Answer {
         .iter()
         .map(folder_file)
         .collect::<Result<Vec<_>, _>>()?;
+    trash::note_listing(&node.home, &listed).map_err(|error| trash_failed(&error))?;
     let wanted: Vec<_> = phone_folder::wanted(&node.home, listed)
         .into_iter()
         .map(|file| {
@@ -837,6 +843,119 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_remove(
                 node.store.flush_segment()?;
             }
             Ok(serde_json::json!({ "removed": removed }).to_string())
+        })
+    })
+}
+
+// -------------------------------------------------------------------- trash
+
+fn trash_failed(error: &std::io::Error) -> Failure {
+    Failure::Usage(format!("the trash could not be written: {error}"))
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
+/// Really delete what is due, then answer what stays in the trash. The record
+/// goes last, so a crash between the two only repeats a delete that finds nothing.
+fn purged_trash(node: &Node) -> Result<std::collections::BTreeMap<String, u64>, Failure> {
+    for path in trash::due(&node.home, unix_now()) {
+        delete_for_good(node, &path)?;
+    }
+    Ok(trash::list(&node.home))
+}
+
+fn delete_for_good(node: &Node, path: &str) -> Result<(), Failure> {
+    if itsanas_store::remove_known(&node.store, &node.vault, path)? {
+        node.store.flush_segment()?;
+    }
+    trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))
+}
+
+/// Put a file in this phone's trash for some days.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashPut(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+    days: JString,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    let days = text(&mut env, &days, "the days");
+    answer(&mut env, move || {
+        let (path, days) = (path?, days?);
+        let days = days
+            .parse()
+            .map_err(|_| Failure::Usage("the days are a whole number".to_owned()))?;
+        with_node(|node| {
+            trash::put(&node.home, &path, unix_now(), days)
+                .map_err(|error| trash_failed(&error))?;
+            Ok("{}".to_owned())
+        })
+    })
+}
+
+/// What is in the trash, and what left the chosen folder.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashList(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        with_node(|node| {
+            let trashed = purged_trash(node)?;
+            let account = itsanas_store::catalogue(&node.store, &node.vault)?
+                .files
+                .into_iter()
+                .map(|file| file.path)
+                .collect();
+            let rows: Vec<_> = trashed
+                .iter()
+                .map(|(path, due)| serde_json::json!({ "path": path, "due": due }))
+                .collect();
+            Ok(serde_json::json!({
+                "now": unix_now(),
+                "trashed": rows,
+                "left": trash::left_the_folder(&node.home, &account),
+            })
+            .to_string())
+        })
+    })
+}
+
+/// Take a file out of the trash.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let path = path?;
+        with_node(|node| {
+            trash::take_out(&node.home, &path).map_err(|error| trash_failed(&error))?;
+            Ok("{}".to_owned())
+        })
+    })
+}
+
+/// Delete a file from every machine, whether trashed or gone from the folder.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashDelete(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let path = path?;
+        with_node(|node| {
+            delete_for_good(node, &path)?;
+            Ok("{}".to_owned())
         })
     })
 }

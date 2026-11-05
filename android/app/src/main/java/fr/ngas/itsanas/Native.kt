@@ -90,6 +90,15 @@ object Native {
     external fun put(path: String, source: String): String
 
     external fun remove(path: String): String
+
+    external fun trashPut(path: String, days: String): String
+
+    external fun trashList(): String
+
+    external fun trashRestore(path: String): String
+
+    external fun trashDelete(path: String): String
+
     /** Which files of the chosen folder to copy: `{"wanted":[...]}`. */
     external fun folderWanted(listing: String): String
     /** Put a copied file of the folder into the account, and record it. */

@@ -49,7 +49,7 @@
 
     <string name="files_empty">Rien ici pour l\'instant. Ajoutez un fichier, ou synchronisez avec l\'une de vos machines.</string>
     <string name="phone_folder_choose">Choisir un dossier à garder dans votre compte</string>
-    <string name="phone_folder_on">Les nouveaux fichiers de %1$s vont seuls dans votre compte. En supprimer un ici le laisse là-bas.</string>
+    <string name="phone_folder_on">Les nouveaux fichiers de %1$s vont seuls dans votre compte. En effacer un de ce dossier du téléphone le laisse dans le compte, et il apparaît dans la corbeille.</string>
     <string name="phone_folder_stop">Arrêter</string>
     <string name="not_synced_hours">Aucune synchronisation avec vos machines depuis %1$d h. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
     <string name="not_synced_days">Aucune synchronisation avec vos machines depuis %1$d jours. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
@@ -71,8 +71,8 @@
     <string name="tree_files">%1$d fichiers · %2$s</string>
     <string name="tree_not_here">%1$d absents de ce téléphone</string>
     <string name="delete_title">Supprimer %1$s ?</string>
-    <string name="delete_body">Il disparaît de toutes les machines du compte, pas seulement de ce téléphone. Il n\'y a pas d\'annulation.</string>
-    <string name="delete_everywhere">Supprimer partout</string>
+    <string name="delete_body">Il va à la corbeille pour %1$d jours, puis disparaît de toutes les machines du compte. Il compte dans votre espace jusque-là.</string>
+    <string name="delete_everywhere">Mettre à la corbeille</string>
     <string name="delete_keep">Le garder</string>
 
     <string name="update_title">ITSaNAS %1$s est disponible</string>
@@ -89,4 +89,12 @@
     <string name="biometric_not_now">Pas maintenant</string>
     <string name="biometric_failed">Le déverrouillage par empreinte ou visage n\'a pas été activé.</string>
 
+    <string name="trash_title">Corbeille</string>
+    <string name="trash_days">Jours avant la suppression définitive</string>
+    <string name="trash_empty">La corbeille est vide.</string>
+    <string name="trash_left">Supprimé définitivement dans %1$d jours</string>
+    <string name="trash_left_folder">Absent du dossier de ce téléphone, encore dans le compte</string>
+    <string name="trash_restore">Restaurer</string>
+    <string name="trash_delete">Supprimer du réseau</string>
+    <string name="trash_delete_body">Il disparaît de toutes les machines du compte. Il n\'y a pas d\'annulation.</string>
 </resources>
