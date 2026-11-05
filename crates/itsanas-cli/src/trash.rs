@@ -96,15 +96,12 @@ pub fn due(home: &Path, now: u64) -> Vec<String> {
         .collect()
 }
 
-/// Remember what the chosen folder holds now. An empty listing says nothing.
+/// Remember what the chosen folder holds now.
 ///
 /// # Errors
 ///
 /// When the file cannot be written; the previous listing then stands.
 pub fn note_listing(home: &Path, listed: &[FolderFile]) -> std::io::Result<()> {
-    if listed.is_empty() {
-        return Ok(());
-    }
     let mut text = String::new();
     for file in listed {
         text.push_str(&file.path);
@@ -184,7 +181,7 @@ mod tests {
         );
     }
 
-    /// Sabotage: drop the empty check in `note_listing`.
+    /// Sabotage: drop the check on `folders` in `left_the_folder`.
     #[test]
     fn red_team_an_empty_listing_does_not_make_every_file_look_gone() {
         let dir = tempfile::tempdir().expect("tempdir");

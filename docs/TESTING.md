@@ -1611,7 +1611,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 |---|---|
 | `a_trashed_file_comes_due_after_its_days_and_not_before` | A delete waits for its delay, and then happens: earlier loses a file the person could still want, never keeps taking their space. |
 | `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
-| **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, leaves the last listing standing, so it never offers every file for deletion. Sabotage: drop the empty check in `note_listing`. |
+| **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, names no folder, so it never offers every file for deletion. Sabotage: drop the check on `folders` in `left_the_folder`. |
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 
 ## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)

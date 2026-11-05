@@ -786,7 +786,7 @@ fn folder_wanted(node: &Node, listing: &str) -> Answer {
         .iter()
         .map(folder_file)
         .collect::<Result<Vec<_>, _>>()?;
-    trash::note_listing(&node.home, &listed).map_err(trash_failed)?;
+    trash::note_listing(&node.home, &listed).map_err(|error| trash_failed(&error))?;
     let wanted: Vec<_> = phone_folder::wanted(&node.home, listed)
         .into_iter()
         .map(|file| {
@@ -849,7 +849,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_remove(
 
 // -------------------------------------------------------------------- trash
 
-fn trash_failed(error: std::io::Error) -> Failure {
+fn trash_failed(error: &std::io::Error) -> Failure {
     Failure::Usage(format!("the trash could not be written: {error}"))
 }
 
@@ -872,7 +872,7 @@ fn delete_for_good(node: &Node, path: &str) -> Result<(), Failure> {
     if itsanas_store::remove_known(&node.store, &node.vault, path)? {
         node.store.flush_segment()?;
     }
-    trash::take_out(&node.home, path).map_err(trash_failed)
+    trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))
 }
 
 /// Put a file in this phone's trash for some days.
@@ -891,7 +891,8 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashPut(
             .parse()
             .map_err(|_| Failure::Usage("the days are a whole number".to_owned()))?;
         with_node(|node| {
-            trash::put(&node.home, &path, unix_now(), days).map_err(trash_failed)?;
+            trash::put(&node.home, &path, unix_now(), days)
+                .map_err(|error| trash_failed(&error))?;
             Ok("{}".to_owned())
         })
     })
@@ -936,7 +937,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     answer(&mut env, move || {
         let path = path?;
         with_node(|node| {
-            trash::take_out(&node.home, &path).map_err(trash_failed)?;
+            trash::take_out(&node.home, &path).map_err(|error| trash_failed(&error))?;
             Ok("{}".to_owned())
         })
     })
