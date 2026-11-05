@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1615 test functions across 42 binaries, 20 of them
+**Last updated: 2026-11-04 — 1616 test functions across 42 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 584 are red-team tests.**
 
-**1499 of the 1615 tests have an entry of their own on this page** — an *entry*,
+**1500 of the 1616 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 346 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 177 |
+| `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -1810,7 +1810,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (200)
+# `itsanas-node` — a node on disk (201)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1999,7 +1999,7 @@ to the peer, each turns the matching test red.
 | **`red_team_a_forged_chain_does_not_stop_a_budgeted_round`** | §8 2c, the phone's door. A budgeted round lists the account from its vault and fetches what it chose; a stranger's segment the host kept lands in that vault, and both the listing and the fetch failed on it, so every budgeted round errored for good and the phone fetched nothing again. Now the chosen file arrives and the round names the refused device. Sabotaged (the catalogue walk strict again; `fetch_only` back on one `apply_replaying`): red both times. Not proven here: the switch to `refresh_tolerant`, which no honest test server can reach (see `red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`). |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (14)
+## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (15)
 
 `src/pledges.rs`. Two accounts on the Freebox VM each pledged 30 GB on a disk
 that could not hold 60 (ROADMAP, "Pledges are not reserved"). Each red-team
@@ -2022,6 +2022,7 @@ not read, the pledge kept whatever the free space.
 | **`red_team_a_phone_is_suggested_its_machines_pledge_only_when_it_has_the_room`** | `suggest`, the table of the phone's Space step: the largest pledge of the account's other machines when it fits in half of what the phone can use ("si le device a l'espace libre pour", Nicolas), otherwise a fifth of what is free under the same half; the keep is what is left, up to what the account earns, in whole GiB; pledge plus keep never eats the headroom (a tenth of the disk, at least 2 GiB). Sabotaged three ways (no half bound; the formula alone; the pledge not taken out of the keep): red. |
 | `what_a_phone_already_holds_counts_towards_what_it_can_use` | `phone_usable`: files already here count, since a budget can release them; a small disk keeps the fixed headroom; less free than the headroom is 0, not a wrapped number. |
 | `a_promise_the_disk_cannot_keep_is_refused_with_its_figures` | `disk_refusal` and `overcommitted` as values each shell words itself: fits, does not fit, not known. No limit on keep still owes the pledge. |
+| `a_phones_slider_leaves_ten_gb_and_takes_the_others_value_only_if_it_fits` | The slider stops 10 GB short of the free space, and the other machines' value is taken only if it fits: otherwise the system runs out of room. |
 
 ## `config` — settings (31)
 

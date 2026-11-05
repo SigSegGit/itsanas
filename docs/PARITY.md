@@ -25,6 +25,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Contribute to the network · `/api/hosting` (the switch and its settings; the battery and mobile-data ones draw on a phone only) | ✅ | ✅ | ✅ | ✅ |
 | Welcome · `/api/state` · `/api/plan` · `/api/run` · `/api/quit` | ✅ | ✅ | ✅ | ✅ |
 | Your account · `/api/name` · `/api/suggest` (existing account first, a positive check before a new one) | ✅ | ✅ | ✅ | ✅ |
+| The space slider in Settings · `/api/space-default` | ⬜ a computer types the space | ⬜ a computer types the space | ⬜ a computer types the space | ✅ |
 | Your folder and your space · `/api/free` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |
 | Space you offer (one suggestion rule on every platform) | ✅ | ✅ | ✅ | ✅ |
 | Files kept here | ✅ | ✅ | ✅ | ✅ |

@@ -225,6 +225,13 @@
           <label for="st-pledge">Space offered to others, in GB</label>
           <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
           <p id="st-pledge-now" class="help"></p>
+          <div data-feature="metered">
+            <input id="st-pledge-slider" type="range" min="0" step="1" aria-label="Space offered to others, in GB">
+            <p class="help">At most the free space of this phone, less 10 GB.</p>
+            <p id="st-pledge-earns" class="earns" aria-live="polite"></p>
+            <button type="button" id="st-pledge-same">Same as my other machines</button>
+            <p id="st-pledge-said" class="help" aria-live="polite"></p>
+          </div>
         </div>
         <div class="field" data-feature="metered">
           <label for="st-charging">Minutes between rounds while charging</label>

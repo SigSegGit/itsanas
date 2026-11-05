@@ -112,6 +112,19 @@ class SettingsTest {
         assertTyped("five seconds after Apply")
     }
 
+    /** An emulator's disk may hold under 10 GB, so the slider moves to 0, which always exists. */
+    @Test
+    fun the_space_slider_fills_the_field_and_the_button_answers() {
+        Flows.createAccount(compose, Flows.freshName())
+        Flows.openSettings(compose)
+        E2e.waitFor("the settings never showed the space slider") { E2e.visible("#st-pledge-slider") }
+        E2e.js("var s = document.getElementById('st-pledge-slider'); s.value = '0'; s.dispatchEvent(new Event('input'))")
+        E2e.waitFor("moving the slider did not reach the field, so Apply would change nothing") { fieldIs("st-pledge", "0") }
+        assertTrue("the slider does not say what the offer earns", E2e.textOf("#st-pledge-earns").isNotEmpty())
+        E2e.tapId("st-pledge-same")
+        E2e.waitFor("the default button said nothing") { E2e.textOf("#st-pledge-said").isNotEmpty() }
+    }
+
     /** The button is the way back when the once-a-day offer went wrong. */
     @Test
     fun check_for_updates_reaches_the_updater() {
