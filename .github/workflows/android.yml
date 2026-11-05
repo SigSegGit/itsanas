@@ -23,7 +23,7 @@ env:
 jobs:
   apk:
     name: The APK assembles
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -66,7 +66,7 @@ jobs:
 
   e2e:
     name: The end-to-end protocol on an emulator
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7

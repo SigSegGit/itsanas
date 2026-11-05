@@ -34,7 +34,7 @@ env:
 jobs:
   fleet:
     name: The acceptance kit on the fleet
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: fleet
     timeout-minutes: 180
     # A step's own `env` is not visible to its `if`, so whether Tailscale is
