@@ -38,7 +38,7 @@ permissions:
 jobs:
   review:
     name: Review the diff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

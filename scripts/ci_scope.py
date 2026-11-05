@@ -256,7 +256,7 @@ def decide(event, labels, files, packages, mentions_mac=()):
         "changed": sorted(crates),
         "affected": sorted(affected),
         "jobs": jobs,
-        "platforms": ["ubuntu-latest", "windows-latest"] + (["macos-latest"] if mac else []),
+        "platforms": ["ubuntu-24.04", "windows-latest"] + (["macos-latest"] if mac else []),
         # A partial run may name a crate with no test of the requested kind
         # (most have no #[ignore]d test); nextest calls that an error. A full
         # run keeps that error: an empty workspace would be a real bug.

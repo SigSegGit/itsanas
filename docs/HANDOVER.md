@@ -61,6 +61,11 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-05: the workflows name Ubuntu 24.04.** `ubuntu-latest` moved to 26.04 run by run: on the same night
+`main` ran on 24.04 and #382 on 26.04, where `qemu-user-static` no longer installs and `check-installers.sh`
+fails on the service files and the tray's counts. A release built there could also raise the glibc the Linux
+binaries ask for, so the pin went in before 0.1.17. Left: those failures on 26.04, to fix before moving the pin.
+
 **2026-11-05: a pull request waits for a Mac only for Mac code.** Nicolas's call, after GitHub's Macs
 took no job through four re-runs of #380. Rejected: a Mac VM on the PC (Apple's licence allows macOS
 VMs only on Apple hardware), and a self-hosted runner, because this repository is public and a fork's

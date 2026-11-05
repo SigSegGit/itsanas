@@ -35,7 +35,7 @@ concurrency:
 jobs:
   version:
     name: The tag matches the workspace version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A binary reports the workspace version, and a node installs a release
     # only if its version is newer than the running one. Tag v0.2.0 on a
     # workspace still at 0.1.0 and every node would install it, still be
@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 22.04, not ubuntu-latest: a binary linked against a newer glibc
+          # 22.04, not ubuntu-24.04: a binary linked against a newer glibc
           # refuses to start on an older one ("GLIBC_2.39 not found"), and the
           # fleet's Raspberry Pi OS and Debian 12 ship glibc 2.36. Building on
           # 22.04 (glibc 2.35) keeps them able to run what testers download.
@@ -147,7 +147,7 @@ jobs:
   draft:
     name: Draft release with the unsigned manifest
     needs: [build, setup-exe]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

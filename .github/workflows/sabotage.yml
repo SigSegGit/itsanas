@@ -24,7 +24,7 @@ permissions:
 jobs:
   plans:
     name: Which plans
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       plans: ${{ steps.list.outputs.plans }}
     steps:
@@ -36,7 +36,7 @@ jobs:
   sabotage:
     name: Sabotage (${{ matrix.plan }})
     needs: plans
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false

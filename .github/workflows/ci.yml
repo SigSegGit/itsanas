@@ -40,7 +40,7 @@ jobs:
   # one decided to skip it and wrote down why (docs/HANDOVER.md §5).
   changes:
     name: What this run tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       full: ${{ steps.plan.outputs.full }}
       reason: ${{ steps.plan.outputs.reason }}
@@ -76,7 +76,7 @@ jobs:
 
   lint:
     name: Format and lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -224,7 +224,7 @@ jobs:
       # for those two to disagree.
       - name: Installers parse and agree with the manifest
         run: |
-          # Preinstalled on ubuntu-latest; the `|| true` is for the day it is
+          # Preinstalled on ubuntu-24.04; the `|| true` is for the day it is
           # not, because a missing linter must not fail a build over syntax it
           # was going to agree with.
           # A trailing `||` continues the line on its own, so there is no
@@ -336,7 +336,7 @@ jobs:
 
   slow-tests:
     name: Expensive tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.slow == 'true'
     steps:
@@ -399,7 +399,7 @@ jobs:
 
   acceptance-local:
     name: Acceptance phases between three local nodes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.acceptance == 'true'
     # `scripts/acceptance.sh` is what the MVP verdict is taken with, on four real
@@ -422,7 +422,7 @@ jobs:
 
   cross-build:
     name: Builds and runs on ARM
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.arm == 'true'
@@ -514,7 +514,7 @@ jobs:
 
   android-core:
     name: Core compiles for Android
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.android == 'true'
     steps:
@@ -569,7 +569,7 @@ jobs:
 
   minimum-rust-version:
     name: Minimum supported Rust version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.msrv == 'true'
     steps:
@@ -587,7 +587,7 @@ jobs:
 
   supply-chain:
     name: Dependency advisories and licences
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -596,7 +596,7 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.coverage == 'true'
     # A subset's coverage is a misleading number and gates nothing, so it is
@@ -622,7 +622,7 @@ jobs:
 
   no-warnings:
     name: No warnings anywhere in this run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Every other job has to pass first, so this only ever judges a green run.
     #
     # Why it exists: on 2026-09-14 every run carried fourteen warnings --

@@ -142,7 +142,7 @@ check("the_milestone_label_runs_the_mac", MAC in pr(["docs/ROADMAP.md"], labels=
 for event in ("push", "schedule", "workflow_dispatch"):
     check(f"{event}_runs_the_mac", MAC in scope.decide(event, [], [], FAKE)["platforms"])
 check("every_run_keeps_linux_and_windows",
-      {"ubuntu-latest", "windows-latest"} <= set(pr(["docs/ROADMAP.md"])["platforms"]))
+      {"ubuntu-24.04", "windows-latest"} <= set(pr(["docs/ROADMAP.md"])["platforms"]))
 
 r = pr(["android/app/src/main/java/fr/ngas/itsanas/Native.kt"])
 check("the_kotlin_side_belongs_to_itsanas_android",
