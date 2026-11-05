@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-05 ~09:30 | même session | hebdo ~92 % ; contexte ~390 k | hors §8 | au bout | 🟨 | 0.1.17 publiée ; saisie des réglages corrigée, bouton de mise à jour ; rien vu sur un vrai téléphone, 0.1.18 à signer | #382, #383 |
 | 2026-11-05 | même session | hebdo non remesuré | hors §8 | au bout | ✅ | Une PR n'attend un Mac que pour du code Mac ; `main` le garde | #381 |
 | 2026-11-04 ~18:20 | ~1 h, surtout de l'attente de CI | même session ; hebdo ~87 % ; contexte ~230 k | hors §8 | au bout | ✅ | L'e2e Android compte pour la vérification exigée ; un job sans runner n'est plus accepté | #380 |
 | 2026-11-04 12:13 | ~1 h, surtout de l'attente de CI | fenêtre 5 h 2 % → 4 % puis nouvelle fenêtre ; hebdo 86 % ; contexte 170 k | hors §8 | au bout | 🟨 | Plantages du téléphone : limite Android de 6 h puis redémarrage refusé, lus par adb ; test et protection, reste à prouver sur le téléphone avec 0.1.17 | #379 |

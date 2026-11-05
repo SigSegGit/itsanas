@@ -772,6 +772,9 @@
 
   async function renderHosting() {
     const values = await api('GET', '/api/hosting');
+    // This runs every two seconds, and somebody may be typing: what they changed
+    // stays on screen until Apply.
+    if (hostingShown && JSON.stringify(hostingForm()) !== hostingShown) { return; }
     $('st-contribute').checked = values.contribute;
     $('st-floor').value = values.batteryFloor;
     $('st-charging').value = values.chargingMinutes;
