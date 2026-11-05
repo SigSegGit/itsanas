@@ -95,7 +95,9 @@ object Native {
 
     external fun trashList(): String
 
-    external fun trashRestore(path: String): String
+    external fun trashRecord(home: String): String
+
+    external fun trashRestore(home: String, path: String): String
 
     external fun trashDelete(path: String): String
 

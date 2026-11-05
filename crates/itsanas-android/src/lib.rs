@@ -926,20 +926,39 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashList(
     })
 }
 
-/// Take a file out of the trash.
+/// What is in the trash, from its record alone: a round holds the node for as
+/// long as it takes, and the screen said the trash was empty meanwhile.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRecord(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+) -> jstring {
+    let home = text(&mut env, &home, "the home");
+    answer(&mut env, move || {
+        let trashed = trash::list(Path::new(&home?));
+        let rows: Vec<_> = trashed
+            .iter()
+            .map(|(path, due)| serde_json::json!({ "path": path, "due": due }))
+            .collect();
+        Ok(serde_json::json!({ "now": unix_now(), "trashed": rows, "left": [] }).to_string())
+    })
+}
+
+/// Take a file out of the trash. Its record alone, like [`Java_fr_ngas_itsanas_Native_trashRecord`].
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     mut env: JNIEnv,
     _class: JClass,
+    home: JString,
     path: JString,
 ) -> jstring {
+    let home = text(&mut env, &home, "the home");
     let path = text(&mut env, &path, "the path");
     answer(&mut env, move || {
-        let path = path?;
-        with_node(|node| {
-            trash::take_out(&node.home, &path).map_err(|error| trash_failed(&error))?;
-            Ok("{}".to_owned())
-        })
+        let (home, path) = (home?, path?);
+        trash::take_out(Path::new(&home), &path).map_err(|error| trash_failed(&error))?;
+        Ok("{}".to_owned())
     })
 }
 

@@ -48,12 +48,20 @@ object Trash {
         Unit
     }
 
-    suspend fun rows(): List<Row> = withContext(Dispatchers.IO) {
-        val answer = JSONObject(Native.trashList())
+    /** At once, from the record. */
+    suspend fun recorded(context: Context): List<Row> = withContext(Dispatchers.IO) {
+        parse(Native.trashRecord(Vault.home(context).absolutePath))
+    }
+
+    /** With what left the folder too, once the node is free: a round may hold it for a while. */
+    suspend fun rows(): List<Row> = withContext(Dispatchers.IO) { parse(Native.trashList()) }
+
+    private fun parse(text: String): List<Row> {
+        val answer = JSONObject(text)
         val now = answer.getLong("now")
         val trashed = answer.getJSONArray("trashed")
         val left = answer.getJSONArray("left")
-        List(trashed.length()) { index ->
+        return List(trashed.length()) { index ->
             val row = trashed.getJSONObject(index)
             Row(row.getString("path"), (row.getLong("due") - now) / (24 * 60 * 60))
         } + List(left.length()) { index -> Row(left.getString(index), null) }
@@ -64,11 +72,13 @@ object Trash {
 fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var rows by remember { mutableStateOf<List<Trash.Row>>(emptyList()) }
+    // Null until read: "empty" said too soon reads as files lost.
+    var rows by remember { mutableStateOf<List<Trash.Row>?>(null) }
     var days by remember { mutableStateOf(Trash.days(context).toString()) }
     var doomed by remember { mutableStateOf<Trash.Row?>(null) }
 
     suspend fun reload() {
+        rows = Trash.recorded(context)
         rows = Trash.rows()
         onChanged()
     }
@@ -102,8 +112,8 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
                     singleLine = true,
                     modifier = Modifier.testTag("trash-days"),
                 )
-                if (rows.isEmpty()) Text(stringResource(R.string.trash_empty))
-                rows.forEach { row ->
+                if (rows?.isEmpty() == true) Text(stringResource(R.string.trash_empty))
+                rows.orEmpty().forEach { row ->
                     Text(row.path)
                     Text(
                         row.daysLeft?.let { stringResource(R.string.trash_left, it) }
@@ -114,7 +124,13 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
                     Row {
                         if (row.daysLeft != null) {
                             TextButton(
-                                { act { withContext(Dispatchers.IO) { Native.trashRestore(row.path) } } },
+                                {
+                                    act {
+                                        withContext(Dispatchers.IO) {
+                                            Native.trashRestore(Vault.home(context).absolutePath, row.path)
+                                        }
+                                    }
+                                },
                                 Modifier.testTag("trash-restore"),
                             ) { Text(stringResource(R.string.trash_restore)) }
                         }
