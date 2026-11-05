@@ -682,7 +682,7 @@ jobs:
           # setup-gradle prints one when the phone app's two jobs save the same
           # Gradle cache at once, and one of them wins. Both describe GitHub's
           # machines, not this project.
-          grep -v             -e "install-action: installation failed due to bash startup failure"             -e "Failed to save: Unable to reserve cache with key gradle-"             found.tsv > unexpected.tsv || true
+          grep -v -e "install-action: installation failed due to bash startup failure" -e "Failed to save: Unable to reserve cache with key gradle-" found.tsv > unexpected.tsv || true
           if [ -s unexpected.tsv ]; then
             echo "this run produced warnings (job, level, message):"
             cat unexpected.tsv
