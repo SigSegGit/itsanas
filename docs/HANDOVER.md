@@ -72,7 +72,7 @@ one required check passed with the e2e red or still running: #378 merged 25 seco
 failed. That failure is not about folders: on #378 and again on #380, `FilesTest` is the run's first test and stops at account creation, where the Confirm tap on the typed-back words changed nothing while the keyboard first opened (cause inferred, not shown). `Flows` taps again after 5 seconds and logs `the Confirm tap did nothing` with whether the button was enabled: grep that in `logcat.txt`. `ci.yml` calls it now,
 as the planned job `android-app`, whenever `itsanas-android` is affected, which any crate it depends
 on makes it. Seen: with the e2e forced to fail, the required check goes red. That run lost its Mac jobs to GitHub's capacity ("not acquired by Runner", result `abandoned`), which the verdict accepted because it listed bad words; it now accepts only success and planned skips. Cost: such a PR waits
-for the emulator, and a flaky e2e blocks a merge until it is re-run.
+for the emulator, and a flaky e2e blocks a merge until it is re-run. The check also reads the phone app's annotations now: a job name's `/` broke its `sed`, and the two jobs racing to save the Gradle cache warned on `main`; that line is allowed, as the bash one was.
 
 **2026-11-04: the phone's crashes were Android's limit on a syncing service.** The Galaxy S25 said
 "more than ten crashes". Its crash log on 0.1.16 names two: `ForegroundServiceDidNotStopInTimeException`

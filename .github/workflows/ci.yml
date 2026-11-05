@@ -677,10 +677,12 @@ jobs:
               -q '.[] | select(.annotation_level != "notice") | .annotation_level + "\t" + (.message | gsub("\n"; " "))' |
               while IFS= read -r line; do printf '%s\t%s\n' "$name" "$line"; done >> found.tsv
           done < runs.tsv
-          # The one allowed line, and only it: taiki-e/install-action prints a
+          # The two allowed lines, and only them. taiki-e/install-action prints a
           # warning when a Windows runner's bash fails to start and it retries.
-          # It describes GitHub's machine, not this project, and passes on retry.
-          grep -v "install-action: installation failed due to bash startup failure" found.tsv > unexpected.tsv || true
+          # setup-gradle prints one when the phone app's two jobs save the same
+          # Gradle cache at once, and one of them wins. Both describe GitHub's
+          # machines, not this project.
+          grep -v             -e "install-action: installation failed due to bash startup failure"             -e "Failed to save: Unable to reserve cache with key gradle-"             found.tsv > unexpected.tsv || true
           if [ -s unexpected.tsv ]; then
             echo "this run produced warnings (job, level, message):"
             cat unexpected.tsv
