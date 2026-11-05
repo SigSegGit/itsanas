@@ -51,7 +51,7 @@
 
     <string name="files_empty">Nothing here yet. Add a file, or sync with one of your machines.</string>
     <string name="phone_folder_choose">Choose a folder to keep in your account</string>
-    <string name="phone_folder_on">New files in %1$s go to your account by themselves. Deleting one here leaves it there.</string>
+    <string name="phone_folder_on">New files in %1$s go to your account by themselves. Erasing one from that folder on the phone leaves it in the account, and it shows in the trash.</string>
     <string name="phone_folder_stop">Stop</string>
     <string name="not_synced_hours">Not synced with any of your machines for %1$d h. Check that this phone is online and that your other machines are on.</string>
     <string name="not_synced_days">Not synced with any of your machines for %1$d days. Check that this phone is online and that your other machines are on.</string>
@@ -73,8 +73,8 @@
     <string name="tree_files">%1$d files · %2$s</string>
     <string name="tree_not_here">%1$d not on this phone</string>
     <string name="delete_title">Delete %1$s?</string>
-    <string name="delete_body">It goes from every machine in this account, not just this phone. There is no undo.</string>
-    <string name="delete_everywhere">Delete everywhere</string>
+    <string name="delete_body">It goes to the trash for %1$d days, then leaves every machine of the account. It still counts in your space until then.</string>
+    <string name="delete_everywhere">Move to trash</string>
     <string name="delete_keep">Keep it</string>
 
     <string name="update_title">ITSaNAS %1$s is available</string>
@@ -90,4 +90,12 @@
     <string name="biometric_on">Turn on</string>
     <string name="biometric_not_now">Not now</string>
     <string name="biometric_failed">Fingerprint or face unlock was not turned on.</string>
+    <string name="trash_title">Trash</string>
+    <string name="trash_days">Days before a file is really deleted</string>
+    <string name="trash_empty">The trash is empty.</string>
+    <string name="trash_left">Deleted for good in %1$d days</string>
+    <string name="trash_left_folder">Gone from the folder on this phone, still in the account</string>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_delete">Delete from the network</string>
+    <string name="trash_delete_body">It disappears from every machine of the account. There is no undo.</string>
 </resources>

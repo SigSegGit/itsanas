@@ -40,6 +40,7 @@ mod placing;
 mod portable;
 pub mod rounds;
 mod safety;
+pub mod trash;
 pub use safety::{note_phone_contact, phone_silence};
 mod setup;
 pub mod shell;

@@ -115,9 +115,4 @@ object Account {
             }
         }
 
-    suspend fun remove(path: String) = withContext(Dispatchers.IO) {
-        Native.remove(path)
-        Unit
-    }
-
 }

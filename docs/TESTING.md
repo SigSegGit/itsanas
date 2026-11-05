@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1611 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 583 are red-team tests.**
+**Last updated: 2026-11-04 — 1615 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 584 are red-team tests.**
 
-**1495 of the 1611 tests have an entry of their own on this page** — an *entry*,
+**1499 of the 1615 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 342 |
+| `itsanas-cli` unit | 346 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 177 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 187 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 188 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1223,7 +1223,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (342)
+# `itsanas-cli` — unit tests (346)
 
 ## `bench` — measuring this machine (4)
 
@@ -1604,6 +1604,15 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_file_is_copied_once_and_again_when_it_changes`** | A new file is asked for, a recorded one is not, a changed size or date is, and the newest line of the record wins. |
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
+
+## `trash` — a phone's trash: what waits before a real delete (4)
+
+| Test | What it proves |
+|---|---|
+| `a_trashed_file_comes_due_after_its_days_and_not_before` | A delete waits for its delay, and then happens: earlier loses a file the person could still want, never keeps taking their space. |
+| `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
+| **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, leaves the last listing standing, so it never offers every file for deletion. Sabotage: drop the empty check in `note_listing`. |
+| `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 
 ## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)
 
