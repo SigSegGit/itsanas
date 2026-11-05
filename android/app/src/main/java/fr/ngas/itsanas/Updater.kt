@@ -27,6 +27,10 @@ import java.net.URL
 object Updater {
     private const val LATEST = "https://github.com/SigSegGit/itsanas/releases/latest/download"
 
+    /** How many checks the person asked for have finished: what a test can see of a toast. */
+    @Volatile
+    var askedChecks = 0
+
     /** A newer release the signed manifest offers. */
     data class Offer(val version: String, val size: Long, val manifest: String, val signature: String)
 

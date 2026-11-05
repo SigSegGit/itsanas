@@ -2306,6 +2306,12 @@ fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
     // A computer has no fingerprint to set; a phone does, and is told.
     let phone = page.api("POST", "/api/host", "name=biometric&value=on");
     assert_eq!(phone.status, 200, "{}", phone.body);
+    let check = page.api("POST", "/api/host", "name=update");
+    assert_eq!(
+        check.status, 200,
+        "a phone's update button was refused, so a failed offer has no way back: {}",
+        check.body
+    );
     let other = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
     let desktop = other.api("POST", "/api/host", "name=biometric&value=on");
     assert_eq!(

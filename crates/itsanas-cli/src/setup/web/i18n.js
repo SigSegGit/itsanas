@@ -397,7 +397,8 @@ window.I18N = {
     'About and legal': 'À propos et mentions légales',
     'Licence (AGPL-3.0)': 'Licence (AGPL-3.0)',
     'Source code': 'Code source',
-    'ITSaNAS asks github.com for the signed release, at most once a day.':
+    'Check for updates': 'Vérifier les mises à jour',
+    'By itself, ITSaNAS asks github.com for the signed release at most once a day.':
       'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',
     'I forgot my passphrase': 'J’ai oublié ma phrase de passe',
     'Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.':

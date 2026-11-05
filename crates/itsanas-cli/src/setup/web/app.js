@@ -1313,6 +1313,9 @@
         api('POST', '/api/host', { name: pair[1], value: box.checked ? 'on' : 'off' }).catch(function (e) { say(e.message); });
       });
     });
+    $('st-check-update').addEventListener('click', function () {
+      api('POST', '/api/host', { name: 'update' }).catch(function (e) { say(e.message); });
+    });
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
   }
