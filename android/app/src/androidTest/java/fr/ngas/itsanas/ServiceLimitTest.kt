@@ -21,12 +21,15 @@ class ServiceLimitTest {
     @get:Rule val compose = createEmptyComposeRule()
 
     @Before fun before() {
+        // Google's services may sync the settings back while the test runs.
+        E2e.shell("cmd device_config set_sync_disabled_for_tests persistent")
         E2e.shell("cmd device_config put activity_manager $LIMIT 5000")
         E2e.begin(compose)
     }
 
     @After fun after() {
         E2e.shell("cmd device_config delete activity_manager $LIMIT")
+        E2e.shell("cmd device_config set_sync_disabled_for_tests none")
         E2e.end()
     }
 
@@ -38,6 +41,7 @@ class ServiceLimitTest {
         }
 
         // The limit counts only while the app is off the screen.
+        E2e.shell("cmd device_config put activity_manager $LIMIT 5000")
         E2e.shell("input keyevent KEYCODE_HOME")
         E2e.waitFor("the service outlived its limit, and Android kills an app for that", 60) {
             !SyncService.running

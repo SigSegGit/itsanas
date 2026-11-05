@@ -26,6 +26,19 @@ class TrashTest {
         Flows.waitNoTag(compose, "file-row", "a file in the trash is still listed among the files")
     }
 
+    /** A tap right after another dialog closed can land on nothing: tap again if nothing opened. */
+    private fun openTrash() {
+        var tapped = 0L
+        E2e.waitFor("the trash never opened") {
+            val open = Flows.has(compose, "trash-close")
+            if (!open && System.nanoTime() - tapped > 3_000_000_000L) {
+                Flows.click(compose, "trash-open")
+                tapped = System.nanoTime()
+            }
+            open
+        }
+    }
+
     @Test
     fun a_deleted_file_can_be_restored_and_only_a_second_answer_removes_it() {
         Flows.createAccount(compose, Flows.freshName())
@@ -35,7 +48,7 @@ class TrashTest {
         assertFalse("a file in the trash is still in the listing", Native.list().contains(name))
         assertTrue("the trash lost the file", Native.trashList().contains(name))
 
-        Flows.click(compose, "trash-open")
+        openTrash()
         Flows.waitTag(compose, "trash-restore", "the trash does not offer the file back")
         Flows.click(compose, "trash-restore")
         Flows.waitNoTag(compose, "trash-restore", "restoring did nothing")
@@ -44,7 +57,7 @@ class TrashTest {
         assertTrue("a restored file is not in the account", Native.list().contains(name))
 
         deleteOnScreen()
-        Flows.click(compose, "trash-open")
+        openTrash()
         Flows.waitTag(compose, "trash-delete", "the trash does not offer to delete the file")
         Flows.click(compose, "trash-delete")
         assertTrue("a file is still in the trash before the second answer", Native.trashList().contains(name))

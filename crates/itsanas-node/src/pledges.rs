@@ -344,6 +344,26 @@ pub const PHONE_HEADROOM_MIN: u64 = 2 * GIB;
 /// many of the disk.
 pub const PHONE_HEADROOM_SHARE: u64 = 10;
 
+/// What the space slider on a phone leaves free, so the system keeps room.
+pub const PHONE_SLIDER_ROOM: u64 = 10 * GIB;
+
+/// The most a phone's space slider offers, in whole GiB.
+#[must_use]
+pub const fn slider_max_gb(free: u64) -> u64 {
+    free.saturating_sub(PHONE_SLIDER_ROOM) / GIB
+}
+
+/// The other machines' pledge in whole GiB, when this phone has room for it.
+#[must_use]
+pub const fn same_as_others_gb(other: u64, free: u64) -> Option<u64> {
+    let gb = other / GIB;
+    if gb > 0 && gb <= slider_max_gb(free) {
+        Some(gb)
+    } else {
+        None
+    }
+}
+
 /// What a phone can give this account and the network, out of `free` and the
 /// `local` bytes of its own files it already holds (they are off `free`, and a
 /// budget can release them), less the headroom.
@@ -502,6 +522,31 @@ pub fn describe(others: &[Promise], stale: &[String], size: impl Fn(u64) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_phones_slider_leaves_ten_gb_and_takes_the_others_value_only_if_it_fits() {
+        assert_eq!(
+            slider_max_gb(30 * GIB),
+            20,
+            "the slider left the system less than 10 GB"
+        );
+        assert_eq!(
+            slider_max_gb(5 * GIB),
+            0,
+            "a nearly full phone was offered space it lacks"
+        );
+        assert_eq!(same_as_others_gb(20 * GIB, 30 * GIB), Some(20));
+        assert_eq!(
+            same_as_others_gb(21 * GIB, 30 * GIB),
+            None,
+            "the other machines' value would eat the room kept for the system"
+        );
+        assert_eq!(
+            same_as_others_gb(0, 30 * GIB),
+            None,
+            "no other machine offers anything"
+        );
+    }
 
     /// ARCHITECTURE §7, "local free space below reserve": the host is about to
     /// start failing writes. Sabotage: `<=` in the filter, or no filter.

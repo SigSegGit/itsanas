@@ -397,6 +397,10 @@ window.I18N = {
     'About and legal': 'À propos et mentions légales',
     'Licence (AGPL-3.0)': 'Licence (AGPL-3.0)',
     'Source code': 'Code source',
+    'At most the free space of this phone, less 10 GB.': "Au plus l'espace libre de ce téléphone, moins 10 Go.",
+    'Same as my other machines': 'Comme mes autres machines',
+    'No other machine offers space yet.': "Aucune autre machine n'offre encore d'espace.",
+    'This phone does not have room for that.': "Ce téléphone n'a pas la place pour ça.",
     'Check for updates': 'Vérifier les mises à jour',
     'By itself, ITSaNAS asks github.com for the signed release at most once a day.':
       'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',

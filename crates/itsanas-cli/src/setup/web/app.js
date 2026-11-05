@@ -1316,6 +1316,35 @@
         api('POST', '/api/host', { name: pair[1], value: box.checked ? 'on' : 'off' }).catch(function (e) { say(e.message); });
       });
     });
+    const room = Number(state.defaults.slider_max_gb) || 0;
+    const slider = $('st-pledge-slider');
+    function showShare() {
+      const offered = parseInt($('st-pledge').value || slider.value, 10);
+      $('st-pledge-earns').textContent = t('You offer') + ' ' + offered + ' GB → ' + t('you get about') + ' ' +
+        Math.floor(offered * state.defaults.split_own / state.defaults.split_network) + ' GB ' + t('for your own files on the network.');
+    }
+    slider.max = String(room);
+    slider.value = String(Math.min(room, state.settings.pledge_gb || 0));
+    slider.addEventListener('input', function () { $('st-pledge').value = slider.value; showShare(); });
+    $('st-pledge').addEventListener('input', function () {
+      if (/^\d+$/.test($('st-pledge').value)) { slider.value = $('st-pledge').value; showShare(); }
+    });
+    showShare();
+    $('st-pledge-same').addEventListener('click', async function () {
+      try {
+        const reply = await api('POST', '/api/space-default', {});
+        if (reply.same_gb > 0) {
+          slider.value = String(reply.same_gb);
+          $('st-pledge').value = String(reply.same_gb);
+          showShare();
+          $('st-pledge-said').textContent = t('The same as your other machines.');
+        } else if (reply.other_gb > 0) {
+          $('st-pledge-said').textContent = t('Your other machines offer') + ' ' + reply.other_gb + ' GB. ' + t('This phone does not have room for that.');
+        } else {
+          $('st-pledge-said').textContent = t('No other machine offers space yet.');
+        }
+      } catch (e) { $('st-pledge-said').textContent = e.message; }
+    });
     $('st-check-update').addEventListener('click', function () {
       api('POST', '/api/host', { name: 'update' }).catch(function (e) { say(e.message); });
     });

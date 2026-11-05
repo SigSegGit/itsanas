@@ -820,6 +820,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/theme") => choose_theme(ctx, request),
         ("POST", "/api/host") => host_setting(ctx, request),
         ("POST", "/api/suggest") => suggest(ctx, request),
+        ("POST", "/api/space-default") => space_default(ctx),
         ("POST", "/api/forgot") if ctx.mode == Mode::Settings => start_forgot(ctx),
         ("POST", "/api/words") if ctx.mode == Mode::Settings => start_words(ctx),
         ("POST", "/api/passphrase") if ctx.mode == Mode::Settings => start_passphrase(ctx),
@@ -970,6 +971,31 @@ fn suggest(ctx: &Context, request: &Request) -> Response {
     ]))
 }
 
+/// `POST /api/space-default`: what the account's machines offer, and whether
+/// this phone has room for the same. Asked on the button only: it is a request
+/// to the coordinator.
+fn space_default(ctx: &Context) -> Response {
+    if let Some(refusal) = Features::refuse(ctx.backends.features.metered, "space slider") {
+        return refusal;
+    }
+    let config = Config::load(&Node::config_path(&ctx.home)).unwrap_or_default();
+    let fixed = ctx
+        .backends
+        .fixed_coordinator
+        .as_ref()
+        .map(|(address, _)| address.as_str());
+    let other = fixed
+        .or(config.coordinator.as_deref())
+        .and_then(|address| (ctx.backends.pledge)(address, &config.username))
+        .unwrap_or(0);
+    let free = fs4::available_space(&ctx.base).unwrap_or(0);
+    let same = itsanas_node::pledges::same_as_others_gb(other, free);
+    ok_json(object(&[
+        ("other_gb", (other >> 30).to_string()),
+        ("same_gb", same.unwrap_or(0).to_string()),
+    ]))
+}
+
 /// What the pages start from: the folder, the suggestion, the coordinator.
 fn defaults_json(ctx: &Context) -> String {
     let free = fs4::available_space(&ctx.base).ok();
@@ -997,6 +1023,10 @@ fn defaults_json(ctx: &Context) -> String {
         ),
         ("free", optional(free.map(format_size).as_deref())),
         ("free_bytes", free.unwrap_or(0).to_string()),
+        (
+            "slider_max_gb",
+            itsanas_node::pledges::slider_max_gb(free.unwrap_or(0)).to_string(),
+        ),
         (
             "coordinator",
             quote(&ctx.backends.fixed_coordinator.as_ref().map_or_else(
@@ -1160,6 +1190,13 @@ fn settings_json(home: &Path) -> String {
         (
             "pledge",
             quote(&format_size(config.as_ref().map_or(0, |c| c.pledge_bytes))),
+        ),
+        (
+            "pledge_gb",
+            config
+                .as_ref()
+                .map_or(0, |c| c.pledge_bytes >> 30)
+                .to_string(),
         ),
         (
             "folder",
