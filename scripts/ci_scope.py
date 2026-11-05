@@ -118,6 +118,12 @@ JOBS = {
 
 MILESTONE_LABEL = "milestone"
 
+# What a Mac alone can check. GitHub's Macs can stay out of reach for hours (four
+# re-runs of one pull request on 2026-11-04), so a pull request asks for one only
+# here; `main`, the nightly run and the milestone label always do.
+MAC_PATHS = ("crates/itsanas-touchid/", "install/macos", "scripts/itsanas-menubar")
+MAC_BRANCH = 'target_os = "macos"'
+
 
 def full_reason(event, labels, files):
     """Why this run must test everything, or None."""
@@ -175,9 +181,10 @@ def args_for(names):
     return " ".join(f"-p {name}" for name in sorted(names))
 
 
-def decide(event, labels, files, packages):
+def decide(event, labels, files, packages, mentions_mac=()):
     """The whole decision. `packages` maps crate name -> {"dir": "crates/x",
-    "deps": [names], "lib": bool}. Returns a dict; see `plan()` for its use."""
+    "deps": [names], "lib": bool}; `mentions_mac` lists the changed files with a
+    Mac branch in them. Returns a dict; see `plan()` for its use."""
     every = set(packages)
     reason = full_reason(event, labels, files)
     unknown = []
@@ -235,6 +242,12 @@ def decide(event, labels, files, packages):
         "coverage": job(False, "", "coverage is measured on full runs only"),
     }
     assert set(jobs) == set(JOBS)
+    mac = (
+        event != "pull_request"
+        or MILESTONE_LABEL in labels
+        or bool(mentions_mac)
+        or any(path.startswith(MAC_PATHS) for path in files)
+    )
 
     libs = {name for name in affected if packages[name].get("lib")}
     return {
@@ -243,6 +256,7 @@ def decide(event, labels, files, packages):
         "changed": sorted(crates),
         "affected": sorted(affected),
         "jobs": jobs,
+        "platforms": ["ubuntu-latest", "windows-latest"] + (["macos-latest"] if mac else []),
         # A partial run may name a crate with no test of the requested kind
         # (most have no #[ignore]d test); nextest calls that an error. A full
         # run keeps that error: an empty workspace would be a real bug.
@@ -287,6 +301,22 @@ def changed_files(base_ref):
     return [line.strip() for line in out.stdout.splitlines() if line.strip()]
 
 
+def with_mac_branch(files):
+    """The changed files that say what a Mac does; a deleted one says nothing."""
+    found = []
+    for path in files:
+        # Code only: this script and the docs quote the words without being Mac code.
+        if not path.endswith((".rs", ".toml")):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as source:
+                if MAC_BRANCH in source.read():
+                    found.append(path)
+        except OSError:
+            pass
+    return found
+
+
 def plan():
     event = os.environ.get("EVENT", "")
     # A push has no pull request, and toJSON of its labels is `null`.
@@ -303,7 +333,7 @@ def plan():
         except Exception as error:
             print(f"git diff failed ({error}); planning a full run")
             event = "pull_request (git diff failed)"
-    result = decide(event, labels, files, packages)
+    result = decide(event, labels, files, packages, with_mac_branch(files))
 
     outputs = {key: str(result["jobs"][job]["run"]).lower() for job, key in JOBS.items()}
     outputs.update(
@@ -313,6 +343,7 @@ def plan():
         doc_args=result["doc_args"],
         build_args=result["build_args"],
         smoke=str(result["smoke"]).lower(),
+        platforms=json.dumps(result["platforms"], separators=(",", ":")),
         plan=json.dumps({job: result["jobs"][job] for job in JOBS}, separators=(",", ":")),
     )
     lines = [f"{k}={v}" for k, v in outputs.items()]

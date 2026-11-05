@@ -125,6 +125,25 @@ check("an_installer_change_runs_the_installers_and_no_rust_test",
       runs(r) == {"installers-run"}, sorted(runs(r)))
 r = pr(["scripts/acceptance.sh"])
 check("an_acceptance_script_change_runs_acceptance", runs(r) == {"acceptance-local"}, sorted(runs(r)))
+# GitHub's Macs can stay out of reach for hours, and a pull request must not wait on them for
+# code no Mac reads. `main` still runs them, so a Mac break shows there, after the merge.
+MAC = "macos-latest"
+check("a_pull_request_skips_the_mac", MAC not in pr(["crates/itsanas-crypto/src/lib.rs"])["platforms"])
+check("a_full_run_on_a_pull_request_skips_the_mac", MAC not in pr(["Cargo.lock"])["platforms"])
+for path in ("crates/itsanas-touchid/src/lib.rs", "install/macos.sh", "scripts/itsanas-menubar.js"):
+    check(f"mac_code_runs_the_mac_{re.sub(r'[^a-z]+', '_', path.lower()).strip('_')}", MAC in pr([path])["platforms"])
+r = scope.decide("pull_request", [], ["crates/itsanas-wire/src/frame.rs"], FAKE, mentions_mac=["crates/itsanas-wire/src/frame.rs"])
+check("a_file_with_a_mac_branch_runs_the_mac", MAC in r["platforms"])
+check("a_mac_branch_is_found_in_real_code", scope.with_mac_branch(["crates/itsanas-cli/src/update.rs"]) != [])
+check("this_script_and_the_docs_do_not_count_as_mac_code",
+      scope.with_mac_branch(["scripts/ci_scope.py", "docs/ROADMAP.md"]) == [])
+check("a_deleted_file_has_no_mac_branch", scope.with_mac_branch(["crates/gone.rs"]) == [])
+check("the_milestone_label_runs_the_mac", MAC in pr(["docs/ROADMAP.md"], labels=["milestone"])["platforms"])
+for event in ("push", "schedule", "workflow_dispatch"):
+    check(f"{event}_runs_the_mac", MAC in scope.decide(event, [], [], FAKE)["platforms"])
+check("every_run_keeps_linux_and_windows",
+      {"ubuntu-latest", "windows-latest"} <= set(pr(["docs/ROADMAP.md"])["platforms"]))
+
 r = pr(["android/app/src/main/java/fr/ngas/itsanas/Native.kt"])
 check("the_kotlin_side_belongs_to_itsanas_android",
       r["affected"] == ["itsanas-android"], r["affected"])
@@ -228,6 +247,12 @@ for job, key in scope.JOBS.items():
         check(f"ci_{job.replace('-', '_')}_tests_the_planned_crates_not_the_workspace",
               uses_args and "--workspace" not in re.sub(r"#.*", "", body),
               f"job {job} must take its crates from the plan")
+
+for job in ("test", "installers-run"):
+    check(f"ci_{job.replace('-', '_')}_takes_its_machines_from_the_plan",
+          "os: ${{ fromJSON(needs.changes.outputs.platforms) }}" in blocks.get(job, ""),
+          f"a machine written into job {job} runs whatever the plan decided")
+check("ci_publishes_the_machines", "platforms: ${{ steps.plan.outputs.platforms }}" in blocks["changes"])
 
 # Beside ci.yml, the phone app's jobs would be outside the one required check.
 android_yml = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
