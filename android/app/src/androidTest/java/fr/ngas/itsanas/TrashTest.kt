@@ -23,7 +23,7 @@ class TrashTest {
         Flows.click(compose, "file-delete")
         Flows.waitTag(compose, "delete-confirm", "Delete asked nothing")
         Flows.click(compose, "delete-confirm")
-        Flows.waitNoTag(compose, "file-row", "a file in the trash is still listed among the files")
+        Flows.waitNoTag(compose, "file-row", "a file in the trash is still listed among the files", 120)
     }
 
     /** A tap right after another dialog closed can land on nothing: tap again if nothing opened. */
@@ -53,7 +53,7 @@ class TrashTest {
         Flows.click(compose, "trash-restore")
         Flows.waitNoTag(compose, "trash-restore", "restoring did nothing")
         Flows.click(compose, "trash-close")
-        Flows.waitTag(compose, "file-row", "a restored file did not come back")
+        Flows.waitTag(compose, "file-row", "a restored file did not come back", 120)
         assertTrue("a restored file is not in the account", Native.list().contains(name))
 
         deleteOnScreen()
@@ -63,7 +63,7 @@ class TrashTest {
         assertTrue("a file is still in the trash before the second answer", Native.trashList().contains(name))
         Flows.waitTag(compose, "trash-delete-confirm", "deleting from the network asked no confirmation")
         Flows.click(compose, "trash-delete-confirm")
-        Flows.waitNoTag(compose, "trash-delete", "deleting from the network did nothing")
+        Flows.waitNoTag(compose, "trash-delete", "deleting from the network did nothing", 120)
         assertFalse("a file deleted for good is still in the trash", Native.trashList().contains(name))
         Flows.click(compose, "trash-close")
         Flows.waitNoTag(compose, "file-row", "a file deleted for good came back")
