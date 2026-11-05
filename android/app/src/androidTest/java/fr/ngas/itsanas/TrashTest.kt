@@ -32,7 +32,7 @@ class TrashTest {
         E2e.waitFor("the trash never opened") {
             val open = Flows.has(compose, "trash-close")
             if (!open && System.nanoTime() - tapped > 3_000_000_000L) {
-                openTrash()
+                Flows.click(compose, "trash-open")
                 tapped = System.nanoTime()
             }
             open
