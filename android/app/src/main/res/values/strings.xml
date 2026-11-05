@@ -79,6 +79,7 @@
 
     <string name="update_title">ITSaNAS %1$s is available</string>
     <string name="update_body">This phone runs %1$s. Android asks before installing it.</string>
+    <string name="update_none">ITSaNAS %1$s is the latest version.</string>
     <string name="update_install">Install</string>
     <string name="update_later">Later</string>
     <string name="unlock_use_passphrase">Use the passphrase</string>

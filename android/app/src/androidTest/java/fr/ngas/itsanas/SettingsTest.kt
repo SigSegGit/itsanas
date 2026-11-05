@@ -84,6 +84,46 @@ class SettingsTest {
         Flows.waitTag(compose, "files-add", "the new passphrase does not open the account", 90)
     }
 
+    private fun fieldIs(id: String, value: String) =
+        E2e.pageHas("document.getElementById('$id').value === '$value'")
+
+    private fun assertTyped(moment: String) {
+        assertTrue("$moment, the minutes went back: nobody can change them", fieldIs("st-charging", "10"))
+        assertTrue("$moment, the battery level went back: nobody can change it", fieldIs("st-floor", "30"))
+        assertTrue("$moment, the mobile data stayed at its old value: nobody can allow any", fieldIs("st-allowance", "2"))
+        assertTrue("$moment, the period went back to its old value", fieldIs("st-period", "day"))
+    }
+
+    /** The page reloads every two seconds, on a real phone over what was being typed. */
+    @Test
+    fun what_is_typed_in_the_settings_stays_and_apply_keeps_it() {
+        Flows.createAccount(compose, Flows.freshName())
+        Flows.openSettings(compose)
+        E2e.waitFor("the settings never showed the minutes") { E2e.visible("#st-charging") && !fieldIs("st-charging", "") }
+        E2e.typeInto("st-charging", "10")
+        E2e.typeInto("st-floor", "30")
+        E2e.typeInto("st-allowance", "2")
+        E2e.js("document.getElementById('st-period').value = 'day'")
+        E2e.pause(5_000)
+        assertTyped("five seconds after typing")
+        E2e.tapId("apply")
+        E2e.waitFor("Apply said nothing") { E2e.textOf("#st-said").isNotEmpty() }
+        E2e.pause(5_000)
+        assertTyped("five seconds after Apply")
+    }
+
+    /** The button is the way back when the once-a-day offer went wrong. */
+    @Test
+    fun check_for_updates_reaches_the_updater() {
+        Flows.createAccount(compose, Flows.freshName())
+        Flows.openSettings(compose)
+        val before = Updater.askedChecks
+        E2e.tapId("st-check-update")
+        E2e.waitFor("the update button did nothing, so a person who missed the offer waits a day", 60) {
+            Updater.askedChecks > before
+        }
+    }
+
     private fun chooseTheme(word: String) {
         E2e.js(
             "(function(){var s=document.getElementById('st-theme');s.value='$word';" +

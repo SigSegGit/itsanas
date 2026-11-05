@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -145,6 +146,7 @@ private fun App(shared: List<Uri>) {
     var screen by remember { mutableStateOf<Screen>(Screen.Opening) }
     var complaint by remember { mutableStateOf<String?>(null) }
     var offered by remember { mutableStateOf<Updater.Offer?>(null) }
+    var offerAsked by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun page(mode: String): Screen = withContext(Dispatchers.IO) {
@@ -204,6 +206,21 @@ private fun App(shared: List<Uri>) {
             val current = screen
             try {
                 when (name) {
+                    "update" -> scope.launch {
+                        try {
+                            val offer = Updater.check()
+                            if (offer == null) {
+                                val latest = context.getString(R.string.update_none, BuildConfig.VERSION_NAME)
+                                Toast.makeText(context, latest, Toast.LENGTH_LONG).show()
+                            }
+                            offerAsked = offer != null
+                            offered = offer
+                        } catch (e: Exception) {
+                            complaint = context.getString(R.string.update_failed, e.message ?: "")
+                        } finally {
+                            Updater.askedChecks += 1
+                        }
+                    }
                     "closed" -> if (current is Screen.Page) {
                         screen = if (value == "done") {
                             // The engine leaves the node closed: open it here, or
@@ -354,8 +371,8 @@ private fun App(shared: List<Uri>) {
     }
 
     // Not over the fingerprint: answering one interrupted the other, on a real phone,
-    // and the screen under them never came back.
-    offered?.takeIf { screen == Screen.Ready }?.let { offer ->
+    // and the screen under them never came back. Settings asked for this one.
+    offered?.takeIf { screen == Screen.Ready || (offerAsked && screen is Screen.Page) }?.let { offer ->
         AlertDialog(
             onDismissRequest = { offered = null },
             title = { Text(stringResource(R.string.update_title, offer.version)) },

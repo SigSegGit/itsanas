@@ -61,6 +61,11 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-05: 0.1.17 on the phone: the settings could not be changed.** The page reloaded the hosting
+fields every two seconds, over what was being typed, on every platform: `SettingsTest` went red on it
+before the fix. A phone now has Check for updates in Settings, which ignores the once-a-day limit. Not
+looked at on a real phone: the button's dialog and its message when up to date. Hence 0.1.18.
+
 **2026-11-05: the workflows name Ubuntu 24.04.** `ubuntu-latest` moved to 26.04 run by run: on the same night
 `main` ran on 24.04 and #382 on 26.04, where `qemu-user-static` no longer installs and `check-installers.sh`
 fails on the service files and the tray's counts. A release built there could also raise the glibc the Linux

@@ -888,6 +888,14 @@ fn host_setting(ctx: &Context, request: &Request) -> Response {
         Err(why) => return Response::refuse(400, &why),
     };
     let features = ctx.backends.features;
+    // Not a setting: a phone's shell asks GitHub, a computer has `itsanas update`.
+    if field(&form, "name") == Some("update") {
+        if let Some(refusal) = Features::refuse(features.metered, "update check") {
+            return refusal;
+        }
+        ctx.backends.host.event("update", "check");
+        return ok_json(object(&[("name", quote("update"))]));
+    }
     let (name, enabled, what) = match field(&form, "name") {
         Some("biometric") => (
             "biometric",
