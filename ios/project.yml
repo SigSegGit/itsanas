@@ -60,6 +60,7 @@ targets:
       - target: ITSaNAS
     settings:
       base:
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/itsanas-ios/include
         GENERATE_INFOPLIST_FILE: YES
 schemes:
   ITSaNAS:
