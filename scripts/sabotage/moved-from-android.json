@@ -8,37 +8,37 @@
   ],
   "defences": {
     "unlock: no passphrase check on a held node": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "        itsanas_node::node::Identity::secrets(home, passphrase)?;\n",
       "dead": ""
     },
     "fetch: config.peers alone": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "    let targets = targets(node);\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this",
       "dead": "    let targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node.config.peers.iter().map(|peer| (peer.clone(), None)).collect();\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this"
     },
     "sync: no ensure_enrolled": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "    let _ = itsanas_node::coordinator::ensure_enrolled(node, now);\n",
       "dead": ""
     },
     "sync: no refresh_others_pledged": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "    let _ = itsanas_node::coordinator::refresh_others_pledged(node);\n",
       "dead": ""
     },
     "put: no refresh": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "    refresh_old_pledges(node, std::time::SystemTime::now());\n",
       "dead": ""
     },
     "put: no age check": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "if Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {",
       "dead": "if false && Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {"
     },
     "put: nothing remembers the attempt": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "        let _ = node.remember_others_pledged(Node::others_pledged(&node.home));\n",
       "dead": ""
     },
@@ -53,7 +53,7 @@
       "dead": "use_coordinator(&TEST_NETWORK, &address?, &device?, true)"
     },
     "pin: open does not pin": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "let node = network.pin(Node::open(home, passphrase)?)?;",
       "dead": "let node = Node::open(home, passphrase)?;"
     },
@@ -93,13 +93,13 @@
       "dead": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) == page.wrapping_sub(1))"
     },
     "status: a phone is always safe": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "\"safe\": itsanas_cli::account_is_safe(&coverage),",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "\"safe\": crate::account_is_safe(&coverage),",
       "dead": "\"safe\": true,"
     },
     "open: nothing finished": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "    itsanas_cli::shell::after_open(&node, now);\n",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "    crate::shell::after_open(&node, now);\n",
       "dead": ""
     },
     "open: no sweep": {
@@ -108,28 +108,28 @@
       "dead": ""
     },
     "alerts: the phone hides a failed machine": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "\"failing\": itsanas_cli::machines_failing(node, itsanas_discover::now_unix())?,",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "\"failing\": crate::machines_failing(node, itsanas_discover::now_unix())?,",
       "dead": "\"failing\": 0,"
     },
     "alerts: the phone hides its silence": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "\"silentFor\": itsanas_cli::phone_silence(&node.home, itsanas_discover::now_unix()),",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "\"silentFor\": crate::phone_silence(&node.home, itsanas_discover::now_unix()),",
       "dead": "\"silentFor\": Option::<u64>::None,"
     },
     "alerts: a round records no contact": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "itsanas_cli::note_phone_contact(&node.home, totals.reached > 0, now);",
-      "dead": "itsanas_cli::note_phone_contact(&node.home, false, now);"
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "crate::note_phone_contact(&node.home, totals.reached > 0, now);",
+      "dead": "crate::note_phone_contact(&node.home, false, now);"
     },
     "alerts: the wait never starts": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "itsanas_cli::note_phone_contact(&node.home, false, now);\n        return Err",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "crate::note_phone_contact(&node.home, false, now);\n        return Err",
       "dead": "return Err"
     },
     "alerts: looking at a phone starts no wait": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "itsanas_cli::note_phone_contact(&node.home, false, itsanas_discover::now_unix());",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "crate::note_phone_contact(&node.home, false, itsanas_discover::now_unix());",
       "dead": ""
     },
     "folder: recorded before the store has it": {
@@ -143,8 +143,8 @@
       "dead": ".filter_map(|row| folder_file(row).ok())\n        .collect::<Vec<_>>();"
     },
     "alerts: the phone hides a refusing vault": {
-      "file": "crates/itsanas-android/src/lib.rs",
-      "live": "\"vaultRefuses\": itsanas_cli::vault_refuses(node).is_some(),",
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "\"vaultRefuses\": crate::vault_refuses(node).is_some(),",
       "dead": "\"vaultRefuses\": false,"
     }
   }

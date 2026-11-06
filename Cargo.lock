@@ -856,6 +856,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-ios"
+version = "0.1.18"
+dependencies = [
+ "itsanas-cli",
+ "itsanas-node",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "itsanas-net"
 version = "0.1.18"
 dependencies = [

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1616 test functions, 20 of them `#[ignore]`d into the slow job, and 584 of
+**1624 test functions, 20 of them `#[ignore]`d into the slow job, and 587 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -449,7 +449,7 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with 13 jobs: one that decides what a pull request tests (see
+- CI with 14 jobs: one that decides what a pull request tests (see
   "Selective CI" under Known ceilings), lint (format, clippy at `-D warnings`, rustdoc, and the
   five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
   tests, **the installers actually installing** on a machine of each kind, an
@@ -1611,7 +1611,7 @@ Now a first job, `changes` (`scripts/ci_scope.py`), reads
 **every crate that depends on one, transitively, dev-dependencies included**.
 The tests, the expensive tests, ARM and MSRV run on that set; installers only
 when `install/`, `scripts/smoke.sh` or `itsanas-cli` is affected; acceptance
-only for the two binaries or its scripts; android-app whenever `itsanas-android` is affected; android-core only for the crates it
+only for the two binaries or its scripts; android-app whenever `itsanas-android` is affected; ios-app (a macOS runner) whenever `itsanas-ios`, `ios/` or `scripts/build-ios.sh` is; android-core only for the crates it
 checks; coverage only on full runs. Lint, every doc gate and `cargo deny`
 always run. A docs-only or scripts-only PR runs no Rust test job. A PR asks for
 a Mac only when it touches Mac code (`MAC_PATHS`, or a changed file with a

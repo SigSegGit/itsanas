@@ -69,6 +69,7 @@ FAKE = {
     "itsanas-cli": {"dir": "crates/itsanas-cli", "deps": ["itsanas-sync", "itsanas-wire"], "lib": False},
     "itsanas-coordinator": {"dir": "crates/itsanas-coordinator", "deps": ["itsanas-wire"], "lib": False},
     "itsanas-android": {"dir": "crates/itsanas-android", "deps": ["itsanas-store"], "lib": False},
+    "itsanas-ios": {"dir": "crates/itsanas-ios", "deps": ["itsanas-cli"], "lib": True},
 }
 
 
@@ -100,7 +101,7 @@ check("doctests_skip_crates_without_a_library",
 
 r = pr(["crates/itsanas-wire/src/frame.rs"])
 check("a_leaf_change_tests_its_dependents_and_nothing_else",
-      r["affected"] == ["itsanas-cli", "itsanas-coordinator", "itsanas-wire"], r["affected"])
+      r["affected"] == ["itsanas-cli", "itsanas-coordinator", "itsanas-ios", "itsanas-wire"], r["affected"])
 r = pr(["crates/itsanas-coordinator/src/main.rs"])
 check("a_change_without_android_core_skips_android",
       not r["jobs"]["android-core"]["run"] and r["jobs"]["android-core"]["why"])
@@ -150,7 +151,15 @@ check("the_kotlin_side_belongs_to_itsanas_android",
 check("a_kotlin_change_runs_the_phone_app", r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
 r = pr(["scripts/android-e2e.sh"])
 check("an_e2e_script_change_runs_the_phone_app", r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
+r = pr(["ios/ITSaNAS/Core.swift"])
+check("the_swift_side_belongs_to_itsanas_ios",
+      r["affected"] == ["itsanas-ios"], r["affected"])
+check("a_swift_change_runs_the_iphone_app", r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])
+r = pr(["crates/itsanas-cli/src/phone.rs"])
+check("a_change_to_what_both_phones_call_runs_the_iphone_app",
+      r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])
 r = pr(["docs/ROADMAP.md"])
+check("a_docs_change_skips_the_iphone_app", not r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])
 check("a_docs_change_skips_the_phone_app", not r["jobs"]["android-app"]["run"], r["jobs"]["android-app"])
 
 for path in ("Cargo.lock", "Cargo.toml", "rust-toolchain.toml", ".config/nextest.toml",
@@ -242,7 +251,7 @@ for job, key in scope.JOBS.items():
         check(f"ci_{job.replace('-', '_')}_is_gated_on_its_own_output",
               job_if is not None and gate in job_if.group(1) and "needs: changes" in body,
               f"expected `if: ... {gate}` and `needs: changes` on job {job}")
-    if job not in ("coverage", "android-core", "android-app", "installers-run", "acceptance-local"):
+    if job not in ("coverage", "android-core", "android-app", "ios-app", "installers-run", "acceptance-local"):
         uses_args = any(a in body for a in ("test_args", "build_args", "doc_args"))
         check(f"ci_{job.replace('-', '_')}_tests_the_planned_crates_not_the_workspace",
               uses_args and "--workspace" not in re.sub(r"#.*", "", body),

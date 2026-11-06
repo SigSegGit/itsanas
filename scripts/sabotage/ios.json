@@ -1,0 +1,31 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-ios",
+    "--lib"
+  ],
+  "defences": {
+    "reply: a second reply replaces the first": {
+      "file": "crates/itsanas-ios/src/host.rs",
+      "live": "    if !mail.waiting.remove(&id) {\n",
+      "dead": "    if !mail.waiting.contains(&id) {\n"
+    },
+    "reply: a reply to nobody is kept": {
+      "file": "crates/itsanas-ios/src/host.rs",
+      "live": "    if !mail.waiting.remove(&id) {\n        return false;\n    }\n",
+      "dead": "    mail.waiting.remove(&id);\n"
+    },
+    "c: null read as empty": {
+      "file": "crates/itsanas-ios/src/c.rs",
+      "live": "        return Err(Failure::Usage(format!(\"{what} was not given\")));\n",
+      "dead": "        return Ok(String::new());\n"
+    },
+    "ask: a left page's question stays on screen": {
+      "file": "crates/itsanas-ios/src/host.rs",
+      "live": "            mail.pending.retain(|request| request.id != id);\n",
+      "dead": ""
+    }
+  }
+}

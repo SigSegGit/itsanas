@@ -35,6 +35,7 @@ mod jobs;
 mod lifecycle;
 pub mod limits;
 mod natpmp;
+pub mod phone;
 pub mod phone_folder;
 mod placing;
 mod portable;

@@ -127,6 +127,8 @@ SURFACES = [
         'itsanas-release/tests/release.rs',
         'itsanas-android/src/lib.rs',
         'itsanas-android/src/host.rs',
+        'itsanas-ios/src/host.rs',
+        'itsanas-ios/src/tests.rs',
     ]),
 ]
 

@@ -83,7 +83,7 @@ INERT_PREFIXES = ("docs/", ".claude/", ".github/ISSUE_TEMPLATE/")
 
 # `crates/itsanas-android` compiles the Kotlin side's declarations in with
 # include_str! and checks the two agree, so the app's sources belong to it.
-OTHER_CRATE_DIRS = {"android/": "itsanas-android"}
+OTHER_CRATE_DIRS = {"android/": "itsanas-android", "ios/": "itsanas-ios"}
 
 # The crates the android-core job checks. check-ci-scope.py compares this with
 # the job's own `-p` list, so the two cannot drift apart.
@@ -112,6 +112,7 @@ JOBS = {
     "cross-build": "arm",
     "android-core": "android",
     "android-app": "android_app",
+    "ios-app": "ios_app",
     "minimum-rust-version": "msrv",
     "coverage": "coverage",
 }
@@ -236,6 +237,11 @@ def decide(event, labels, files, packages, mentions_mac=()):
             "itsanas-android" in affected or touched("scripts/build-apk") or touched("scripts/android-e2e"),
             "the phone app's code or its build is affected",
             "neither itsanas-android, the Kotlin side nor the APK scripts are affected",
+        ),
+        "ios-app": job(
+            "itsanas-ios" in affected or touched("scripts/build-ios"),
+            "the iPhone app's code or its build is affected",
+            "neither itsanas-ios, the Swift side nor scripts/build-ios.sh is affected",
         ),
         "minimum-rust-version": job(rust, "affected crates", nothing),
         # Coverage of a subset is a misleading number, and it gates nothing.
