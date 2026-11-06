@@ -58,8 +58,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    delete_for_good, get_file, list_all, list_at, open_into, passphrase_rule, purged_trash,
-    put_file, status_of, sync_node, trash_failed, unix_now,
+    delete_for_good, get_file, list_at, open_into, passphrase_rule, purged_trash, put_file,
+    status_of, sync_node, trash_failed, unix_now,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -502,7 +502,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_list(
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    answer(&mut env, || with_node(list_all))
+    answer(&mut env, || with_node(itsanas_cli::phone::list_all))
 }
 
 /// One folder of the account: the folders in it and the files directly in it.
