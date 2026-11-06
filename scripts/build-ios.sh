@@ -1,0 +1,46 @@
+#!/bin/sh
+# Build the iPhone app on a Mac: the Rust core for the phone and for the
+# simulator, then the Xcode project from ios/project.yml.
+#
+#   sh scripts/build-ios.sh          core and project; open ios/ITSaNAS.xcodeproj
+#   sh scripts/build-ios.sh test     and run the Swift tests on a simulator
+#   sh scripts/build-ios.sh ipa      and package target/ITSaNAS-unsigned.ipa
+#   sh scripts/build-ios.sh ci       test, then ipa
+#
+# Needs Xcode, XcodeGen (`brew install xcodegen`) and
+# `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
+# The core is built before the project, never by it: an app linked against a
+# stale libitsanas_ios.a runs yesterday's core with no error anywhere.
+set -eu
+cd "$(dirname "$0")/.."
+
+# The first iPhone SE stops at iOS 15; 14 is the floor this app keeps.
+export IPHONEOS_DEPLOYMENT_TARGET=14.0
+export IPHONESIMULATOR_DEPLOYMENT_TARGET=14.0
+
+cargo build --release --locked -p itsanas-ios --target aarch64-apple-ios
+cargo build --release --locked -p itsanas-ios --target aarch64-apple-ios-sim
+(cd ios && xcodegen generate)
+
+what="${1:-}"
+
+if [ "$what" = test ] || [ "$what" = ci ]; then
+    simulator=$(xcrun simctl list devices available |
+        sed -n 's/^ *\(iPhone [^(]*[^ (]\) *(.*/\1/p' | head -n 1)
+    [ -n "$simulator" ] || { echo "no iPhone simulator is installed" >&2; exit 1; }
+    xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
+        -destination "platform=iOS Simulator,name=$simulator" \
+        -derivedDataPath target/ios-test test
+fi
+
+if [ "$what" = ipa ] || [ "$what" = ci ]; then
+    # Unsigned: whoever installs it signs it with their own Apple ID, on their
+    # Mac or in the tool that installs it.
+    xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS -configuration Release \
+        -sdk iphoneos -derivedDataPath target/ios-build CODE_SIGNING_ALLOWED=NO build
+    rm -rf target/ios-ipa target/ITSaNAS-unsigned.ipa
+    mkdir -p target/ios-ipa/Payload
+    cp -R target/ios-build/Build/Products/Release-iphoneos/ITSaNAS.app target/ios-ipa/Payload/
+    (cd target/ios-ipa && zip -qr ../ITSaNAS-unsigned.ipa Payload)
+    echo "target/ITSaNAS-unsigned.ipa"
+fi

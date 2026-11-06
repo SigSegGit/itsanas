@@ -13,6 +13,10 @@ exception stops meaning anything:
   symbol is undefined behaviour at link time. That crate relaxes the lint and
   uses the attribute -- and writes no unsafe *code* at all.
 
+* **`itsanas-ios`** is the same door for the iPhone: Swift calls C symbols,
+  and C hands its strings over as raw pointers. Reading one, and taking back
+  one the app was given, are two unsafe blocks, both in `src/c.rs`.
+
 * **`itsanas-drive/src/projfs.rs`** binds five Win32 functions. Windows calls
   back into this process with raw pointers; there is no version of that which
   is safe code. It is one file, and the allowance stops at its edge.
@@ -54,6 +58,7 @@ CRATES = ROOT / "crates"
 # this script is not looking, or is now inheriting a `forbid` it cannot satisfy.
 MAY_RELAX = {
     "itsanas-android": "the JVM export attribute",
+    "itsanas-ios": "the C export attribute and the C strings",
     "itsanas-drive": "the ProjFS callbacks",
     "itsanas-touchid": "the LAContext call",
 }
@@ -63,6 +68,7 @@ MAY_RELAX = {
 # binding, and the binding is what the exception is for.
 MAY_WRITE_UNSAFE = {
     "itsanas-drive/src/projfs.rs",
+    "itsanas-ios/src/c.rs",
     "itsanas-touchid/src/lib.rs",
 }
 

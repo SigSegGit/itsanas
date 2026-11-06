@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1616 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 584 are red-team tests.**
+**Last updated: 2026-11-04 — 1624 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 587 are red-team tests.**
 
-**1500 of the 1616 tests have an entry of their own on this page** — an *entry*,
+**1508 of the 1624 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,6 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 346 |
 | `itsanas-android` unit | 24 |
+| `itsanas-ios` unit | 8 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -221,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 188 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 191 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -2094,6 +2095,25 @@ from a host over a real socket, and one of them opened.
 | **`red_team_files_written_by_a_phone_that_logged_out_reach_the_next_login`** | Why withdrawing a phone is safe: it writes a file, pushes it to a real sibling and logs out; a new login dialling that sibling lists the file and reads it. The check before the logout says `onlyHere` 0, after its own round, so nobody is warned for nothing. Sabotaged twice (the new login asks the host for no claims: its roster refuses the old phone's chain, and the file is listed and cannot be read; coverage read before the round): red. |
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
+
+# `itsanas-ios` — the C boundary (8)
+
+`src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
+what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
+tests above exercise it; what is tested here is the boundary itself. **The Swift
+is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
+(`scripts/build-ios.sh ci`), against the core linked into the app ([IOS.md](IOS.md)).
+
+| Test | What it establishes |
+| --- | --- |
+| `an_answer_is_an_envelope_the_app_can_read` | An answer is `{"ok": …}`, and a call with no account open is `{"error": "<sentence>"}` and nothing else: the app reads one string, never a return code beside it. |
+| **`red_team_a_missing_string_is_refused_not_read`** | A null passphrase is refused as not given, never read as the empty passphrase; a null home is no home; freeing null does nothing. Sabotaged (null read as ""): red. |
+| `a_page_with_no_such_name_is_refused` | Only `setup` and `settings` start a page. |
+| `a_reply_to_nobody_is_not_taken` | The app is told a reply to no question was not taken. |
+| `the_header_declares_exactly_what_the_crate_exports` | `include/itsanas.h`, all Swift sees, names exactly the `extern "C"` functions of `src/lib.rs`. |
+| `a_question_reaches_the_app_and_its_answer_reaches_the_engine` | A passphrase asked by the page's engine reaches the app through the mailbox, and what the app answers is what the engine gets. |
+| **`red_team_a_stray_reply_cannot_answer_the_next_question`** | A reply to a question nobody asked, or a second reply to one already answered, is dropped and left nowhere: the next passphrase asked cannot be a secret its owner never typed. Sabotaged (a second reply taken; a reply to nobody kept): red. |
+| **`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`** | Once its page is left, an engine is told the screen was closed instead of waiting, and its question is taken off the app's screen. Sabotaged (the question left in the mailbox): red. |
 
 # `itsanas-drive` — the account as a folder (21)
 

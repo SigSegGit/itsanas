@@ -431,7 +431,8 @@ produces it in one command.
 | The core | unchanged, cross-compiled |
 | Keystore, configuration, one sync round | `crates/itsanas-node`, shared with the command line |
 | The setup engine and Settings, as a page | `crates/itsanas-cli` (a library plus the thin binary): the account, devices, space and removal logic every shell shares, served on 127.0.0.1 for the app's web view |
-| The JNI boundary | `crates/itsanas-android`, the only crate that relaxes the unsafe lint |
+| What the phone shells ask the core | `crates/itsanas-cli/src/phone.rs`, called by this crate and by `crates/itsanas-ios` ([IOS.md](IOS.md)) |
+| The JNI boundary | `crates/itsanas-android`, which relaxes the unsafe lint for its export attribute |
 | The application | `android/`, Kotlin and Compose, about 900 lines |
 
 **`itsanas-node` is the part worth explaining.** All of it used to live inside

@@ -1,0 +1,35 @@
+[package]
+name = "itsanas-ios"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The C boundary: everything Swift is allowed to ask the core"
+
+[lib]
+# `staticlib` is what Xcode links into the app; `rlib` is what the tests of
+# this crate link against on every other machine of the CI.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# The shared account, device and round code, the page, and what every phone
+# shell asks of it (`itsanas_cli::phone`), the same lines Android calls.
+itsanas-cli = { version = "0.1.0", path = "../itsanas-cli" }
+itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
+serde_json = "1.0.145"
+zeroize = "1.9.0"
+
+# Deliberately NOT `workspace = true`, for the reason `itsanas-android` gives:
+# an app calls these entry points by name, so they carry
+# `#[unsafe(no_mangle)]`, and C hands over its strings as raw pointers. The
+# unsafe code is two blocks in `src/c.rs`, and `scripts/check-unsafe.py`
+# fails if it spreads to another file.
+[lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

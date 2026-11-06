@@ -26,7 +26,7 @@ Three properties have to hold at once, and each one constrains the design:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│  itsanas (CLI)   itsanas-android (JNI)   … other shells             │
+│  itsanas (CLI)   itsanas-android (JNI)   itsanas-ios (C)   …        │
 ├───────────────────────────────────────────────────────────────────────┤
 │  itsanas-node                                                         │
 │  keystore, configuration, and one sync round that honours what this   │

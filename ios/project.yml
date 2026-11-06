@@ -1,0 +1,73 @@
+# The iPhone app, as XcodeGen describes it. The .xcodeproj is generated from
+# this file (`xcodegen generate` in ios/) and is not kept in git: a project
+# file written by hand is thousands of lines nobody reviews.
+#
+# The Rust core is linked as a static library built beforehand by
+# scripts/build-ios.sh, one per SDK.
+name: ITSaNAS
+options:
+  bundleIdPrefix: fr.ngas
+  deploymentTarget:
+    iOS: "14.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.18"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Signing is the owner's, on his Mac or in the app that installs the
+    # package: nothing here names a team.
+    CODE_SIGN_STYLE: Automatic
+targets:
+  ITSaNAS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ITSaNAS
+    info:
+      path: ITSaNAS/Info.plist
+      properties:
+        CFBundleDisplayName: ITSaNAS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchStoryboardName: ""
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # The page is served by the core on 127.0.0.1 and nowhere else.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # Files the app saves can be seen in the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.ngas.itsanas
+        SWIFT_OBJC_BRIDGING_HEADER: ITSaNAS/Bridging.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/itsanas-ios/include
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/../target/aarch64-apple-ios/release
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/../target/aarch64-apple-ios-sim/release
+        OTHER_LDFLAGS: -litsanas_ios
+    dependencies:
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: WebKit.framework
+  ITSaNASTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ITSaNASTests
+    dependencies:
+      - target: ITSaNAS
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/itsanas-ios/include
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  ITSaNAS:
+    build:
+      targets:
+        ITSaNAS: all
+        ITSaNASTests: [test]
+    test:
+      targets:
+        - ITSaNASTests
