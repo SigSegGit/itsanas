@@ -56,30 +56,49 @@ sh scripts/build-ios.sh test
 open ios/ITSaNAS.xcodeproj
 ```
 
-## Installing on an iPhone
+## Releasing an iOS build
 
-Apple lets an app onto an iPhone only when it is signed by an Apple ID. Two
-ways, both done by the owner of the Apple ID, who types it in Apple's own
-tools:
+The repository has a release workflow at `.github/workflows/release-ios.yml`.
+It builds the unsigned package and uploads it to a GitHub Release asset named
+`ITSaNAS-unsigned.ipa`. This is intentionally not an App Store build: an iPhone
+app must be signed by Apple before it can run on a device.
 
-**From the Mac, with Xcode** (free Apple ID: the signature lasts 7 days, then
-the app is installed again the same way):
+Use it in either of these ways:
+
+- Manual run: Actions → `iOS release` → `Run workflow`
+- Tag push: push a tag such as `ios-v0.1.0`
+
+The asset on the release is the same package the CI job keeps as an artifact:
+unsigned, for sideloading, not for the App Store.
+
+## Installing on an iPhone with a free Apple ID
+
+Apple lets an app onto an iPhone only when it is signed by an Apple ID. A free
+Apple ID can do this, but the certificate expires after about 7 days, and then
+you install the build again. The free option is enough for personal use; it is
+not the same as the App Store or TestFlight.
+
+### From a Mac, with Xcode
 
 1. Plug the iPhone into the Mac and trust the Mac on the phone.
 2. `sh scripts/build-ios.sh`, then `open ios/ITSaNAS.xcodeproj`.
 3. Xcode → Settings → Accounts: add the Apple ID.
-4. Target ITSaNAS → Signing & Capabilities: choose the team of that Apple ID;
-   if `fr.ngas.itsanas` is refused, change the bundle identifier to one of
-   your own.
+4. Select the ITSaNAS target → Signing & Capabilities: choose the team of that
+   Apple ID. If `fr.ngas.itsanas` is refused, change the bundle identifier to
+   one of your own.
 5. Choose the iPhone as destination, then Product → Run.
-6. On the phone: Settings → General → Device Management (or Profiles &
-   Device Management) → trust the developer.
+6. On the phone: Settings → General → Device Management (or Profiles & Device
+   Management) → trust the developer.
 
-**From Windows, with the package from CI:** download the artifact
-`ITSaNAS-unsigned-ipa` of a green run, and install it with a sideloading tool
-that signs it with an Apple ID (Sideloadly, AltStore). The same 7-day limit
-applies with a free Apple ID; an Apple Developer Program membership makes it a
-year and opens TestFlight.
+### From Windows, with the package from CI or a GitHub release
+
+1. Download the `ITSaNAS-unsigned.ipa` from the GitHub Actions artifact or the
+   GitHub Release.
+2. Install it with a sideloading tool that signs it with your Apple ID, such as
+   AltStore or SideStore (Sideloadly also works).
+3. The same 7-day limit applies with a free Apple ID; after that, sign again.
+4. The signed app is for your own phone; distribution to other people still
+   needs an Apple-supported distribution route.
 
 ## From the PC, with the iPhone on USB
 
