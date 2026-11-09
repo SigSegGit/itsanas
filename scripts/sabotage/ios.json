@@ -7,6 +7,16 @@
     "--lib"
   ],
   "defences": {
+    "background: opens with no finger": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "        let Some(passphrase) = keychain::for_the_engine() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());",
+      "dead": "        let Some(passphrase) = keychain::unlock() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());"
+    },
+    "background: the trash never empties": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "    let _ = trash_list(&node);\n    let round",
+      "dead": "    let round"
+    },
     "reply: a second reply replaces the first": {
       "file": "crates/itsanas-ios/src/host.rs",
       "live": "    if !mail.waiting.remove(&id) {\n",

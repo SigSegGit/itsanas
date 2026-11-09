@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1631 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 592 are red-team tests.**
+**Last updated: 2026-11-04 — 1634 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 593 are red-team tests.**
 
-**1515 of the 1631 tests have an entry of their own on this page** — an *entry*,
+**1518 of the 1634 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 347 |
 | `itsanas-android` unit | 24 |
-| `itsanas-ios` unit | 14 |
+| `itsanas-ios` unit | 17 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 196 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 197 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -2097,7 +2097,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (14)
+# `itsanas-ios` — the C boundary (17)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
@@ -2111,6 +2111,9 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 | **`red_team_a_missing_string_is_refused_not_read`** | A null passphrase is refused as not given, never read as the empty passphrase; a null home is no home; freeing null does nothing. Sabotaged (null read as ""): red. |
 | `a_remembered_passphrase_comes_back_until_it_is_forgotten` | The Keychain side of the service keeps the passphrase and forgets it at Sign out; refusing to keep it failed a step of setup, and the new account with it. |
 | **`red_team_a_passphrase_that_does_not_open_is_not_remembered`** | A mistyped passphrase is not kept, one that opened is, the kept one opens the account again, and a forgotten one opens nothing. Sabotaged (kept before the check): red. |
+| **`red_team_touch_id_keeps_a_background_pass_from_opening_the_account`** | With Touch ID on, a round iOS grants opens nothing and says so; opening would make the finger guard nothing while the app is away. Sabotaged (reads the guarded item): red. |
+| `a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round` | Nothing kept: no round. A kept passphrase opens the account, the round is tried, and the node is left to the app to close. |
+| `a_background_pass_deletes_what_the_trash_has_held_long_enough` | A file past its days is deleted in the pass, with the app closed. Sabotaged (no trash): red. |
 | **`red_team_a_left_pages_news_does_not_close_the_next_page`** | A `closed` left in the mailbox by the last page is not read by the next one, which would close as it opens. Sabotaged (old news kept): red. |
 | `a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted` | Through the C entry points against a real node: a file in the trash is not listed, the trash shows it, restoring brings it back, and a delete from the trash does not come back. |
 | **`red_team_touch_id_keeps_the_passphrase_from_the_engine`** | With Touch ID on, the engine is told no passphrase is remembered and cannot replace the guarded one; turning it off keeps the passphrase; Sign out turns it off. Sabotaged (the engine reads it; Sign out leaves it on): red. |

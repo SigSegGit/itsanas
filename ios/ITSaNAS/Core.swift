@@ -57,6 +57,10 @@ enum Core {
     static func put(_ path: String, from source: String) throws { _ = try take(itsanas_put(path, source)) }
     static func sync() throws -> [String: Any] { try object(itsanas_sync(false)) }
     static func status() throws -> [String: Any] { try object(itsanas_status()) }
+    static func backgroundPass(metadataOnly: Bool) throws -> [String: Any] {
+        try object(itsanas_background_pass(home, metadataOnly))
+    }
+
     static func passphraseRule() throws -> [String: Any] { try object(itsanas_passphrase_rule()) }
 
     /// Whether this iPhone has a finger or a face enrolled to unlock with.

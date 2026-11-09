@@ -19,6 +19,19 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(try Core.openRemembered(), "a phone with nothing kept opened an account")
     }
 
+    func testBothBackgroundGrantsAreDeclared() {
+        let declared = Bundle(for: AppDelegate.self)
+            .object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
+        XCTAssertEqual(
+            Set(declared), [Background.refresh, Background.processing],
+            "registering an undeclared identifier ends the app at launch")
+    }
+
+    func testABackgroundPassWithNothingRememberedDoesNothing() throws {
+        Core.close()
+        XCTAssertEqual(try Core.backgroundPass(metadataOnly: true)["ran"] as? Bool, false)
+    }
+
     func testNothingIsListedWithNoAccountOpen() {
         Core.close()
         XCTAssertThrowsError(try Core.listAt(""), "a closed account answered a listing")

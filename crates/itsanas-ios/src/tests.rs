@@ -195,6 +195,90 @@ fn a_reply_to_nobody_is_not_taken() {
 }
 
 /// The exported names, read from this crate's own source.
+#[test]
+fn red_team_touch_id_keeps_a_background_pass_from_opening_the_account() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    keychain::set("a passphrase").expect("kept");
+    assert!(keychain::set_guarded(true), "Touch ID did not turn on");
+    let slot = Mutex::new(None);
+    let said = background_pass(&slot, &home, &nowhere(), NOW, true);
+    let opened = slot.lock().expect("slot").is_some();
+    keychain::forget();
+    assert_eq!(
+        said.expect("a pass that cannot open is not a fault"),
+        r#"{"ran":false}"#
+    );
+    assert!(
+        !opened,
+        "the account opened with no finger: Touch ID would guard nothing while the app is away"
+    );
+}
+
+#[test]
+fn a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    let slot = Mutex::new(None);
+    let said = background_pass(&slot, &home, &nowhere(), NOW, true).expect("nothing kept");
+    assert_eq!(
+        said, r#"{"ran":false}"#,
+        "a phone with nothing kept claimed a round"
+    );
+    keychain::set("a passphrase").expect("kept");
+    let failure = background_pass(&slot, &home, &nowhere(), NOW, true)
+        .expect_err("a phone with no machine reached one");
+    let opened = slot.lock().expect("slot").is_some();
+    keychain::forget();
+    assert!(
+        matches!(failure, Failure::Usage(_)),
+        "the pass stopped before its round: {failure:?}"
+    );
+    assert!(
+        opened,
+        "the pass closed the node itself: a person back on the screen would lose it"
+    );
+}
+
+#[test]
+fn a_background_pass_deletes_what_the_trash_has_held_long_enough() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    open_into(&NODE, &home, "a passphrase", &nowhere(), NOW).expect("open");
+    let source = dir.path().join("photo");
+    std::fs::write(&source, b"content").expect("source");
+    let c_source = std::ffi::CString::new(source.to_str().expect("utf-8")).expect("path");
+    let c_home = std::ffi::CString::new(home.to_str().expect("utf-8")).expect("path");
+    let file = c"photo";
+    take(itsanas_put(file.as_ptr(), c_source.as_ptr()));
+    take(itsanas_trash_put(file.as_ptr(), 0));
+
+    let _ = background_pass(&NODE, &home, &nowhere(), NOW, true);
+
+    take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));
+    let listing = take(itsanas_list_at(c"".as_ptr()));
+    take(itsanas_close());
+    assert!(
+        !listing["ok"].as_str().expect("ok").contains("photo"),
+        "a file past its days stayed: with the app closed the trash would never empty"
+    );
+}
+
 fn exported() -> std::collections::BTreeSet<String> {
     include_str!("lib.rs")
         .lines()
