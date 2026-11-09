@@ -1,3 +1,4 @@
+import LocalAuthentication
 import UIKit
 
 /// Asks the passphrase and opens the account.
@@ -47,6 +48,21 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
     @objc private func tryRemembered() {
         guard !tried, view.window != nil, UIApplication.shared.applicationState == .active else { return }
         tried = true
+        guard Core.fingerNeeded else {
+            openRemembered()
+            return
+        }
+        // A finger refused, or no finger enrolled now, leaves the passphrase
+        // field, which still opens the account.
+        LAContext().evaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics,
+            localizedReason: NSLocalizedString("Unlock your account", comment: "")
+        ) { granted, _ in
+            if granted { DispatchQueue.main.async { self.openRemembered() } }
+        }
+    }
+
+    private func openRemembered() {
         DispatchQueue.global(qos: .userInitiated).async {
             let opened = (try? Core.openRemembered()) ?? false
             DispatchQueue.main.async {

@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-09 ~21:50 | ~15 min avant CI | 5 h 68 % → voir bilan ; contexte ~175 k | hors §8 | au bout | 🟨 | iPhone : Touch ID verrouille l'écran au lieu de lier la phrase au doigt, la passe de fond tourne avec ; rien vu sur l'iPhone | à venir |
 | 2026-11-09 ~21:15 | ~20 min avant CI | 5 h 55 % → voir bilan ; contexte ~130 k | hors §8 | au bout | 🟨 | iPhone : une passe `BGTaskScheduler` (liste, corbeille, contenu sur secteur), jamais avec Touch ID ; rien vu sur l'iPhone | à venir |
 | 2026-11-09 ~17:15 | ~30 min avant CI | hebdo 0 → voir bilan ; contexte ~290 k | hors §8 | au bout | 🟨 | iPhone : Keychain, Settings sans hébergement ni mise à jour, Sign out et Remove suivis, ancien `closed` purgé ; puis Touch ID et corbeille ; rien vu sur l'iPhone | #391 et suivante |
 | 2026-11-06 ~17:15 | ~40 min avant CI | hebdo 100 %, sur l'usage en supplément (~3 €) ; 5 h 28→30 % ; contexte ~220 k | hors §8 | au bout | 🟨 | Base iOS : `itsanas_cli::phone` partagé avec Android, crate C `itsanas-ios`, appli Swift WKWebView iOS 14, job macOS ; Nicolas l'a menée au vert et installée sur son iPhone | #387 |

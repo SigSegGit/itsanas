@@ -51,6 +51,9 @@ enum Core {
         try object(itsanas_open_remembered(home))["opened"] as? Bool ?? false
     }
 
+    /// Whether this screen must have a finger before it opens the account.
+    static var fingerNeeded: Bool { itsanas_finger_needed() }
+
     static func close() { _ = try? take(itsanas_close()) }
     static func listAt(_ folder: String) throws -> [String: Any] { try object(itsanas_list_at(folder)) }
     static func get(_ path: String, to destination: String) throws { _ = try take(itsanas_get(path, destination)) }

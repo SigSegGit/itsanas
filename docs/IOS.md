@@ -26,16 +26,20 @@ a question nobody waits on is dropped
 whose page was left stops asking
 (`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`).
 
-**The passphrase stays in the Keychain**, on this device and readable only
-while it is unlocked, once it has opened the account
+**The passphrase stays in the Keychain**, on this device and readable from the
+first unlock after the phone starts, once it has opened the account
 (`red_team_a_passphrase_that_does_not_open_is_not_remembered`). Coming back to
 the app opens the account with it; Sign out forgets it
 (`a_remembered_passphrase_comes_back_until_it_is_forgotten`).
 
-**Touch ID or Face ID can guard it**, from Settings. The item then needs the
-finger enrolled today, the engine is told there is no remembered passphrase
-(`red_team_touch_id_keeps_the_passphrase_from_the_engine`), and it does not turn
-on with nothing to guard
+**Touch ID or Face ID can lock the app's screen**, from Settings. The unlock
+screen then asks for a finger before opening the account
+(`red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger`), and a refused
+finger leaves the passphrase field. It locks the screen and does not encrypt the
+item, which a round in the background has to read. The engine is told there is
+no remembered passphrase
+(`red_team_touch_id_keeps_the_passphrase_from_the_engine`), and the lock does not
+turn on with nothing to open
 (`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`).
 
 **A delete waits in a trash**, 30 days on this phone, as on Android: swipe a
@@ -52,9 +56,8 @@ when: a short refresh brings the listing, a longer task on the charger moves
 contents unless the network is metered
 (`a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round`). The
 trash empties in it too
-(`a_background_pass_deletes_what_the_trash_has_held_long_enough`). With Touch ID
-on nothing runs, since no finger can open the account
-(`red_team_touch_id_keeps_a_background_pass_from_opening_the_account`).
+(`a_background_pass_deletes_what_the_trash_has_held_long_enough`). It runs with Touch ID on too
+(`a_background_pass_runs_with_touch_id_on`).
 
 **The unsafe code is two blocks**, in `crates/itsanas-ios/src/c.rs`: reading a C
 string and taking back one the app was given. `scripts/check-unsafe.py` fails

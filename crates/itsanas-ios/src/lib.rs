@@ -157,7 +157,16 @@ fn open_remembered(
         return Ok(serde_json::json!({ "opened": false }).to_string());
     };
     open_into(slot, home, &passphrase, network, now)?;
+    // Best effort: an item kept by an older build was bound to the finger, and
+    // no round could read it. Writing it again gives it today's protection.
+    let _ = keychain::set(&passphrase);
     Ok(serde_json::json!({ "opened": true }).to_string())
+}
+
+/// Whether the unlock screen must have a finger before it opens the account.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_finger_needed() -> bool {
+    keychain::guarded()
 }
 
 /// Close the node and stop the page, releasing the store.
@@ -285,9 +294,9 @@ fn background_pass(
     let poisoned = |_| Failure::Usage("the node lock was poisoned by a panic".to_owned());
     let closed = slot.lock().map_err(poisoned)?.is_none();
     if closed {
-        // Not `unlock`: with Touch ID on there is nobody to put a finger, and
-        // with the phone locked the Keychain gives nothing either.
-        let Some(passphrase) = keychain::for_the_engine() else {
+        // Not `for_the_engine`: the finger locks the screen, and nobody sees
+        // a screen here. Only a phone not unlocked since it started gives nothing.
+        let Some(passphrase) = keychain::unlock() else {
             return Ok(serde_json::json!({ "ran": false }).to_string());
         };
         open_into(slot, home, &passphrase, network, now)?;

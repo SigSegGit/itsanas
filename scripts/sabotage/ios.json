@@ -7,10 +7,15 @@
     "--lib"
   ],
   "defences": {
-    "background: opens with no finger": {
+    "background: stops with Touch ID on": {
       "file": "crates/itsanas-ios/src/lib.rs",
-      "live": "        let Some(passphrase) = keychain::for_the_engine() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());",
-      "dead": "        let Some(passphrase) = keychain::unlock() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());"
+      "live": "        let Some(passphrase) = keychain::unlock() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());",
+      "dead": "        let Some(passphrase) = keychain::for_the_engine() else {\n            return Ok(serde_json::json!({ \"ran\": false }).to_string());"
+    },
+    "touch id: the screen asks no finger": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "pub extern \"C\" fn itsanas_finger_needed() -> bool {\n    keychain::guarded()\n",
+      "dead": "pub extern \"C\" fn itsanas_finger_needed() -> bool {\n    false\n"
     },
     "background: the trash never empties": {
       "file": "crates/itsanas-ios/src/lib.rs",
@@ -44,7 +49,7 @@
     },
     "keychain: the passphrase is not kept": {
       "file": "crates/itsanas-ios/src/host.rs",
-      "live": "        keychain::from_the_engine(passphrase)\n            .map_err(|why| CliError::Usage(format!(\"the Keychain refused it: {why}\")))?;\n",
+      "live": "        keychain::set(passphrase)\n            .map_err(|why| CliError::Usage(format!(\"the Keychain refused it: {why}\")))?;\n",
       "dead": ""
     },
     "open: a wrong passphrase remembered": {
@@ -59,8 +64,8 @@
     },
     "touch id: on with nothing": {
       "file": "crates/itsanas-ios/src/keychain.rs",
-      "live": "    let Some(passphrase) = unlock() else {\n        return false;\n    };\n",
-      "dead": "    let Some(passphrase) = unlock().or_else(|| Some(Zeroizing::new(String::new()))) else {\n        return false;\n    };\n"
+      "live": "        unlock().is_some() && system::set(GUARDED, \"on\").is_ok()\n",
+      "dead": "        system::set(GUARDED, \"on\").is_ok()\n"
     },
     "touch id: sign out leaves it on": {
       "file": "crates/itsanas-ios/src/keychain.rs",
