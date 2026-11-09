@@ -119,6 +119,12 @@ fn a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted() {
         trash["ok"].as_str().expect("ok").contains("photo"),
         "the trash does not show what was put in it: {trash}"
     );
+    let node = NODE.lock().expect("node").clone().expect("open");
+    assert!(
+        trash_list(&node).expect("the trash").contains("photo"),
+        "the trash both phones read does not show what was put in it"
+    );
+    drop(node);
     take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));
     assert!(listed("photo"), "a restored file did not come back");
     take(itsanas_trash_put(file.as_ptr(), 30));
