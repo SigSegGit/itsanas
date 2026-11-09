@@ -215,7 +215,7 @@ impl ServiceControl for PhoneService {
     }
 
     fn store_passphrase(&self, passphrase: &Secret) -> Result<String> {
-        keychain::from_the_engine(passphrase)
+        keychain::set(passphrase)
             .map_err(|why| CliError::Usage(format!("the Keychain refused it: {why}")))?;
         Ok("the phone's Keychain holds it".to_owned())
     }
@@ -330,13 +330,13 @@ pub(crate) mod tests {
             .expect("store");
         assert_eq!(
             keychain::unlock().as_deref().map(String::as_str),
-            Some("kept"),
-            "the engine replaced the guarded passphrase with one no finger guards"
+            Some("other"),
+            "a passphrase the page changed was not kept: the next opening would fail"
         );
         PhoneHost.event("biometric", "off");
         assert_eq!(
             service.stored_passphrase().as_deref().map(String::as_str),
-            Some("kept"),
+            Some("other"),
             "turning Touch ID off lost the passphrase"
         );
         PhoneHost.event("biometric", "on");

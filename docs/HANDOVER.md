@@ -65,7 +65,7 @@ words and translated; what passed shows no detail.
 Nicolas sideloaded the #387 build with a free Apple ID: it runs. Reading the shell against the engine then showed: `store_passphrase`
 refused, which failed setup's Secret step (now the Keychain, this device only); Settings offered hosting and an update check (`Features::IPHONE`); only `closed`
 was handled, so Sign out and Remove left the screen up; a page's old `closed` could close the next one. None of the fixes is seen on a phone yet.
-Then Touch ID (a Keychain item bound to the current fingers, `keychain.rs`) and the trash (`phone.rs` now shared). Then `BGTaskScheduler` (`Background.swift`, `itsanas_background_pass`): a granted round opens with the Keychain, never with Touch ID on, and only Swift closes the node, because only it knows if a person came back. Left: the trash's days as a setting, an iOS column in PARITY. Trap: `hosting` is neither phone-only nor computer-only.
+Then Touch ID (a lock on the unlock screen, `LAContext`; the Keychain item is not bound to the finger, so a round in the background can read it, `keychain.rs`) and the trash (`phone.rs` now shared). Then `BGTaskScheduler` (`Background.swift`, `itsanas_background_pass`): a granted round opens with the Keychain, Touch ID on or off, and only Swift closes the node, because only it knows if a person came back. Left: the trash's days as a setting, an iOS column in PARITY. Trap: `hosting` is neither phone-only nor computer-only.
 
 **2026-11-05: a phone's space slider.** In Settings, up to the phone's free space less 10 GB
 (`PHONE_SLIDER_ROOM`), saying what the offer earns; the button takes the account's largest pledge if it fits.

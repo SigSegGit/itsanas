@@ -196,7 +196,7 @@ fn a_reply_to_nobody_is_not_taken() {
 
 /// The exported names, read from this crate's own source.
 #[test]
-fn red_team_touch_id_keeps_a_background_pass_from_opening_the_account() {
+fn a_background_pass_runs_with_touch_id_on() {
     let _turn = host::tests::SERIAL
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
@@ -210,13 +210,26 @@ fn red_team_touch_id_keeps_a_background_pass_from_opening_the_account() {
     let said = background_pass(&slot, &home, &nowhere(), NOW, true);
     let opened = slot.lock().expect("slot").is_some();
     keychain::forget();
-    assert_eq!(
-        said.expect("a pass that cannot open is not a fault"),
-        r#"{"ran":false}"#
-    );
     assert!(
-        !opened,
-        "the account opened with no finger: Touch ID would guard nothing while the app is away"
+        opened && said.is_err(),
+        "no round with Touch ID on: whoever locks the screen stops syncing; said {said:?}"
+    );
+}
+
+#[test]
+fn red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    assert!(!itsanas_finger_needed(), "a finger asked with the lock off");
+    keychain::set("a passphrase").expect("kept");
+    assert!(keychain::set_guarded(true), "Touch ID did not turn on");
+    let needed = itsanas_finger_needed();
+    keychain::forget();
+    assert!(
+        needed,
+        "Touch ID on and no finger asked: the app opens for whoever holds the phone"
     );
 }
 
