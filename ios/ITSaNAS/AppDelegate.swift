@@ -10,6 +10,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Background.register()
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = UINavigationController(rootViewController: AppDelegate.first())
         window.makeKeyAndVisible()
@@ -27,6 +28,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidEnterBackground(_ application: UIApplication) {
         Core.pageStop()
         Core.close()
+        Background.schedule()
         guard let navigation = window?.rootViewController as? UINavigationController else { return }
         navigation.setViewControllers([AppDelegate.first()], animated: false)
     }

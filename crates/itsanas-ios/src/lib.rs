@@ -256,6 +256,51 @@ pub extern "C" fn itsanas_status() -> *mut c_char {
     answer(|| with_node(status_of))
 }
 
+/// What iOS grants while the app is off the screen: one round with the account's
+/// machines. `{"ran":false}` when nothing can open the account without a person.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_background_pass(home: *const c_char, metadata_only: bool) -> *mut c_char {
+    let home = home_of(home);
+    answer(move || {
+        background_pass(
+            &NODE,
+            &home?,
+            &Network::official(),
+            itsanas_cli::phone::unix_now(),
+            metadata_only,
+        )
+    })
+}
+
+/// Open the account if it is closed and do what Android's worker does: the
+/// trash, then a round. The node stays open: only the app knows whether a
+/// person came back meanwhile, and closing it then would pull it from under them.
+fn background_pass(
+    slot: &Mutex<Option<Arc<Node>>>,
+    home: &Path,
+    network: &Network,
+    now: u64,
+    metadata_only: bool,
+) -> Answer {
+    let poisoned = |_| Failure::Usage("the node lock was poisoned by a panic".to_owned());
+    let closed = slot.lock().map_err(poisoned)?.is_none();
+    if closed {
+        // Not `unlock`: with Touch ID on there is nobody to put a finger, and
+        // with the phone locked the Keychain gives nothing either.
+        let Some(passphrase) = keychain::for_the_engine() else {
+            return Ok(serde_json::json!({ "ran": false }).to_string());
+        };
+        open_into(slot, home, &passphrase, network, now)?;
+    }
+    let Some(node) = slot.lock().map_err(poisoned)?.clone() else {
+        return Ok(serde_json::json!({ "ran": false }).to_string());
+    };
+    // What the trash has held long enough leaves with the app closed too.
+    let _ = trash_list(&node);
+    let round = sync_node(&node, metadata_only, now)?;
+    Ok(serde_json::json!({ "ran": true, "round": round }).to_string())
+}
+
 // -------------------------------------------------------------------- page
 
 /// Nobody touched the page for this long: it stops, as Android's does.

@@ -47,6 +47,15 @@ not yet a setting here.
 choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses
 (`red_team_an_iphone_is_refused_hosting_whatever_the_page_hides`).
 
+**A round runs while the app is away**, when iOS grants the time and chooses
+when: a short refresh brings the listing, a longer task on the charger moves
+contents unless the network is metered
+(`a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round`). The
+trash empties in it too
+(`a_background_pass_deletes_what_the_trash_has_held_long_enough`). With Touch ID
+on nothing runs, since no finger can open the account
+(`red_team_touch_id_keeps_a_background_pass_from_opening_the_account`).
+
 **The unsafe code is two blocks**, in `crates/itsanas-ios/src/c.rs`: reading a C
 string and taking back one the app was given. `scripts/check-unsafe.py` fails
 if it spreads.
@@ -60,7 +69,7 @@ free Apple ID.
 | --- | --- |
 | A foreground service keeps the node open and syncing | No equivalent. The app closes the store when it leaves the screen |
 | Hosting for other members while charging | Not offered: iOS ends a background process within minutes |
-| Scheduled sync by the policy | A later step: `BGTaskScheduler` grants a few minutes when iOS chooses |
+| Scheduled sync by the policy | `BGTaskScheduler` runs a round when iOS grants one; see above |
 | Install an APK by hand | Every app is signed by an Apple ID, see below |
 
 ## Building
