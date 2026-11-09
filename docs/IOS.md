@@ -1,7 +1,7 @@
 # The iPhone app
 
 A first version: open the account, list it folder by folder, add a file,
-fetch a file, run a round, and the shared page for creating the account and
+fetch a file, delete it to a trash, run a round, and the shared page for creating the account and
 for Settings. It runs on iOS 14 and later, which includes the first iPhone SE
 (it stops at iOS 15).
 
@@ -31,6 +31,17 @@ while it is unlocked, once it has opened the account
 (`red_team_a_passphrase_that_does_not_open_is_not_remembered`). Coming back to
 the app opens the account with it; Sign out forgets it
 (`a_remembered_passphrase_comes_back_until_it_is_forgotten`).
+
+**Touch ID or Face ID can guard it**, from Settings. The item then needs the
+finger enrolled today, the engine is told there is no remembered passphrase
+(`red_team_touch_id_keeps_the_passphrase_from_the_engine`), and it does not turn
+on with nothing to guard
+(`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`).
+
+**A delete waits in a trash**, 30 days on this phone, as on Android: swipe a
+file; the trash button restores it or deletes it from every machine
+(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The days are
+not yet a setting here.
 
 **Settings hides what an iPhone does not do**: lending space, the mobile-data
 choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses

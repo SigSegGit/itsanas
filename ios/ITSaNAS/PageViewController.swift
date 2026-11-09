@@ -62,6 +62,10 @@ final class PageViewController: UIViewController {
 
     private func event(_ args: [String]) {
         // The page's end, leaving the account, or removing it: this screen goes.
+        if args.first == "biometric_failed" {
+            show(NSLocalizedString("Touch ID could not be turned on. Unlock with your passphrase once, then try again.", comment: ""))
+            return
+        }
         guard let name = args.first, ["closed", "signedOut", "account_removed", "removed"].contains(name)
         else { return }
         poll?.invalidate()

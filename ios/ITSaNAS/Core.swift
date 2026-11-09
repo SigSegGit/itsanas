@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 
 /// A fault the core reported: the sentence the command line prints for it.
 struct CoreError: LocalizedError {
@@ -58,9 +59,22 @@ enum Core {
     static func status() throws -> [String: Any] { try object(itsanas_status()) }
     static func passphraseRule() throws -> [String: Any] { try object(itsanas_passphrase_rule()) }
 
+    /// Whether this iPhone has a finger or a face enrolled to unlock with.
+    static var biometricAvailable: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+    }
+
+    /// How long a deleted file waits, as on Android by default.
+    static let trashDays: UInt64 = 30
+
+    static func trashPut(_ path: String) throws { _ = try take(itsanas_trash_put(path, trashDays)) }
+    static func trashList() throws -> [String: Any] { try object(itsanas_trash_list()) }
+    static func trashRestore(_ path: String) throws { _ = try take(itsanas_trash_restore(home, path)) }
+    static func trashDelete(_ path: String) throws { _ = try take(itsanas_trash_delete(path)) }
+
     static func pageStart(mode: String) throws -> URL {
         try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
-        let text = try take(itsanas_page_start(home, mode, false))
+        let text = try take(itsanas_page_start(home, mode, biometricAvailable))
         guard let url = URL(string: text) else { throw CoreError(message: "the page gave no address") }
         return url
     }

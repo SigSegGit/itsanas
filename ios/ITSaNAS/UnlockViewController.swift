@@ -4,7 +4,9 @@ import UIKit
 final class UnlockViewController: UIViewController, UITextFieldDelegate {
     private let field = UITextField()
     private let message = UILabel()
-    private var trying = false
+    /// Once per screen: the system's Touch ID sheet makes the app inactive, so
+    /// a cancelled finger would otherwise ask again the moment it is dismissed.
+    private var tried = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -43,12 +45,11 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
     /// The Keychain's passphrase, when there is one, so that coming back to
     /// the app does not ask for it. A stale one only leaves this screen up.
     @objc private func tryRemembered() {
-        guard !trying, view.window != nil, UIApplication.shared.applicationState == .active else { return }
-        trying = true
+        guard !tried, view.window != nil, UIApplication.shared.applicationState == .active else { return }
+        tried = true
         DispatchQueue.global(qos: .userInitiated).async {
             let opened = (try? Core.openRemembered()) ?? false
             DispatchQueue.main.async {
-                self.trying = false
                 if opened { self.showFiles() }
             }
         }

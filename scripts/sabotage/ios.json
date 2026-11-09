@@ -34,13 +34,28 @@
     },
     "keychain: the passphrase is not kept": {
       "file": "crates/itsanas-ios/src/host.rs",
-      "live": "        keychain::set(passphrase)\n            .map_err(|why| CliError::Usage(format!(\"the Keychain refused it: {why}\")))?;\n",
+      "live": "        keychain::from_the_engine(passphrase)\n            .map_err(|why| CliError::Usage(format!(\"the Keychain refused it: {why}\")))?;\n",
       "dead": ""
     },
     "open: a wrong passphrase remembered": {
       "file": "crates/itsanas-ios/src/lib.rs",
       "live": "    let opened = open_into(slot, home, passphrase, network, now)?;\n    // Best effort: an account that opened is not refused for this.\n    let _ = keychain::set(passphrase);\n",
       "dead": "    let _ = keychain::set(passphrase);\n    let opened = open_into(slot, home, passphrase, network, now)?;\n"
+    },
+    "touch id: the engine reads it": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "    if guarded() { None } else { unlock() }\n",
+      "dead": "    unlock()\n"
+    },
+    "touch id: on with nothing": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "    let Some(passphrase) = unlock() else {\n        return false;\n    };\n",
+      "dead": "    let Some(passphrase) = unlock().or_else(|| Some(Zeroizing::new(String::new()))) else {\n        return false;\n    };\n"
+    },
+    "touch id: sign out leaves it on": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "    system::forget(PASSPHRASE);\n    system::forget(GUARDED);\n",
+      "dead": "    system::forget(PASSPHRASE);\n"
     }
   }
 }

@@ -211,11 +211,11 @@ impl ServiceControl for PhoneService {
     }
 
     fn stored_passphrase(&self) -> Option<Secret> {
-        keychain::get()
+        keychain::for_the_engine()
     }
 
     fn store_passphrase(&self, passphrase: &Secret) -> Result<String> {
-        keychain::set(passphrase)
+        keychain::from_the_engine(passphrase)
             .map_err(|why| CliError::Usage(format!("the Keychain refused it: {why}")))?;
         Ok("the phone's Keychain holds it".to_owned())
     }
@@ -260,11 +260,15 @@ pub(crate) struct PhoneHost;
 
 impl Host for PhoneHost {
     fn event(&self, name: &str, value: &str) {
+        // Done here, as the page saves it: the page reads `value` straight after.
+        if name == "biometric" && !keychain::set_guarded(value == "on") {
+            tell("event", &["biometric_failed", ""]);
+        }
         tell("event", &[name, value]);
     }
 
-    fn value(&self, _name: &str) -> Option<String> {
-        None
+    fn value(&self, name: &str) -> Option<String> {
+        (name == "biometric").then(|| if keychain::guarded() { "on" } else { "off" }.to_owned())
     }
 }
 
@@ -303,6 +307,65 @@ pub(crate) mod tests {
             "chosen words",
             "the passphrase typed is not the one the account is made with"
         );
+    }
+
+    #[test]
+    fn red_team_touch_id_keeps_the_passphrase_from_the_engine() {
+        let _turn = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        keychain::forget();
+        drain();
+        let service = PhoneService;
+        service
+            .store_passphrase(&Zeroizing::new("kept".to_owned()))
+            .expect("store");
+        PhoneHost.event("biometric", "on");
+        assert_eq!(PhoneHost.value("biometric").as_deref(), Some("on"));
+        assert!(
+            service.stored_passphrase().is_none(),
+            "the engine read a passphrase only a finger may release: a step of setup opens the \
+             account without one"
+        );
+        service
+            .store_passphrase(&Zeroizing::new("other".to_owned()))
+            .expect("store");
+        assert_eq!(
+            keychain::unlock().as_deref().map(String::as_str),
+            Some("kept"),
+            "the engine replaced the guarded passphrase with one no finger guards"
+        );
+        PhoneHost.event("biometric", "off");
+        assert_eq!(
+            service.stored_passphrase().as_deref().map(String::as_str),
+            Some("kept"),
+            "turning Touch ID off lost the passphrase"
+        );
+        PhoneHost.event("biometric", "on");
+        service.forget_passphrase().expect("forget");
+        assert_eq!(
+            PhoneHost.value("biometric").as_deref(),
+            Some("off"),
+            "Sign out left Touch ID on: the next account would be guarded by the last one's finger"
+        );
+        drain();
+    }
+
+    #[test]
+    fn red_team_touch_id_with_nothing_remembered_stays_off_and_says_so() {
+        let _turn = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        keychain::forget();
+        drain();
+        PhoneHost.event("biometric", "on");
+        assert_eq!(
+            PhoneHost.value("biometric").as_deref(),
+            Some("off"),
+            "Touch ID reads as on with nothing for it to release"
+        );
+        let news = next_request();
+        assert!(
+            news.contains("biometric_failed"),
+            "the person is not told Touch ID did not turn on: {news}"
+        );
+        drain();
     }
 
     #[test]

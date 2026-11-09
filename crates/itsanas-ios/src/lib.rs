@@ -36,7 +36,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node,
+    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
+    trash_list, trash_put, trash_restore,
 };
 use itsanas_cli::shell::{
     Answer, Backends, Failure, Features, Held, Mode, Network, SecretPrompt, Server, Stop,
@@ -152,7 +153,7 @@ fn open_remembered(
     network: &Network,
     now: u64,
 ) -> Answer {
-    let Some(passphrase) = keychain::get() else {
+    let Some(passphrase) = keychain::unlock() else {
         return Ok(serde_json::json!({ "opened": false }).to_string());
     };
     open_into(slot, home, &passphrase, network, now)?;
@@ -205,6 +206,40 @@ pub extern "C" fn itsanas_put(path: *const c_char, source: *const c_char) -> *mu
     answer(move || {
         let (path, source) = (path?, source?);
         with_node(|node| put_file(node, &path, &source))
+    })
+}
+
+/// Put a file of the account in this phone's trash for `days`.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_trash_put(path: *const c_char, days: u64) -> *mut c_char {
+    let path = c::text(path, "the path");
+    answer(move || {
+        let path = path?;
+        with_node(|node| trash_put(node, &path, days))
+    })
+}
+
+/// What is in the trash. Deletes what is due first.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_trash_list() -> *mut c_char {
+    answer(|| with_node(trash_list))
+}
+
+/// Take a file out of the trash.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_trash_restore(home: *const c_char, path: *const c_char) -> *mut c_char {
+    let home = home_of(home);
+    let path = c::text(path, "the path");
+    answer(move || trash_restore(&home?, &path?))
+}
+
+/// Delete a file from every machine now.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_trash_delete(path: *const c_char) -> *mut c_char {
+    let path = c::text(path, "the path");
+    answer(move || {
+        let path = path?;
+        with_node(|node| trash_delete(node, &path))
     })
 }
 

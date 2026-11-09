@@ -151,6 +151,44 @@ pub fn put_file(node: &Node, path: &str, source: &str) -> Answer {
     .to_string())
 }
 
+/// Put a file in this phone's trash for `days`.
+pub fn trash_put(node: &Node, path: &str, days: u64) -> Answer {
+    trash::put(&node.home, path, unix_now(), days).map_err(|error| trash_failed(&error))?;
+    Ok("{}".to_owned())
+}
+
+/// What is in the trash, after deleting what is due, and what left the folder.
+pub fn trash_list(node: &Node) -> Answer {
+    let trashed = purged_trash(node)?;
+    let account = itsanas_store::catalogue(&node.store, &node.vault)?
+        .files
+        .into_iter()
+        .map(|file| file.path)
+        .collect();
+    let rows: Vec<_> = trashed
+        .iter()
+        .map(|(path, due)| serde_json::json!({ "path": path, "due": due }))
+        .collect();
+    Ok(serde_json::json!({
+        "now": unix_now(),
+        "trashed": rows,
+        "left": trash::left_the_folder(&node.home, &account),
+    })
+    .to_string())
+}
+
+/// Take a file out of the trash: its record alone, no node needed.
+pub fn trash_restore(home: &Path, path: &str) -> Answer {
+    trash::take_out(home, path).map_err(|error| trash_failed(&error))?;
+    Ok("{}".to_owned())
+}
+
+/// Delete a file from every machine now.
+pub fn trash_delete(node: &Node, path: &str) -> Answer {
+    delete_for_good(node, path)?;
+    Ok("{}".to_owned())
+}
+
 #[must_use]
 pub fn trash_failed(error: &std::io::Error) -> Failure {
     Failure::Usage(format!("the trash could not be written: {error}"))
