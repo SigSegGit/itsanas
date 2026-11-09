@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use crate::keychain;
 use itsanas_cli::shell::{CliError, Host, Result, Secret, SecretPrompt, ServiceControl};
 use zeroize::Zeroizing;
 
@@ -66,6 +67,14 @@ pub(crate) fn tell(kind: &'static str, args: &[&str]) {
             .collect(),
         reply: false,
     });
+}
+
+/// A new page starts with an empty mailbox. News left by the page before it
+/// (`closed`, above all) would otherwise be read as this page's, and close it
+/// the moment it opens. Questions end with their engine, which has been told
+/// its page is gone.
+pub(crate) fn forget_old_news() {
+    mailbox().pending.clear();
 }
 
 /// Ask the app and wait for its answer: `None` when the person went Back.
@@ -190,8 +199,9 @@ impl SecretPrompt for PhonePrompt {
     }
 }
 
-/// The app is its own service, and the first version keeps no passphrase:
-/// it is asked each time the app opens the account.
+/// The app is its own service, and the Keychain keeps the passphrase. The
+/// engine stores it as a step of setup: refusing here failed the step, and a
+/// new account with it.
 #[derive(Debug, Default)]
 pub(crate) struct PhoneService;
 
@@ -201,17 +211,18 @@ impl ServiceControl for PhoneService {
     }
 
     fn stored_passphrase(&self) -> Option<Secret> {
-        None
+        keychain::get()
     }
 
-    fn store_passphrase(&self, _passphrase: &Secret) -> Result<String> {
-        Err(CliError::Usage(
-            "this phone does not keep the passphrase; it is asked when the app opens".to_owned(),
-        ))
+    fn store_passphrase(&self, passphrase: &Secret) -> Result<String> {
+        keychain::set(passphrase)
+            .map_err(|why| CliError::Usage(format!("the Keychain refused it: {why}")))?;
+        Ok("the phone's Keychain holds it".to_owned())
     }
 
     fn forget_passphrase(&self) -> Result<&'static str> {
-        Ok("this phone keeps no passphrase")
+        keychain::forget();
+        Ok("the phone's Keychain forgot it")
     }
 
     fn installed(&self) -> bool {
@@ -291,6 +302,25 @@ pub(crate) mod tests {
             got.as_str(),
             "chosen words",
             "the passphrase typed is not the one the account is made with"
+        );
+    }
+
+    #[test]
+    fn a_remembered_passphrase_comes_back_until_it_is_forgotten() {
+        let _turn = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        let service = PhoneService;
+        service
+            .store_passphrase(&Zeroizing::new("kept".to_owned()))
+            .expect("setup's step fails, and the account with it, when this is refused");
+        assert_eq!(
+            service.stored_passphrase().as_deref().map(String::as_str),
+            Some("kept"),
+            "the phone asks a passphrase it was told to remember"
+        );
+        service.forget_passphrase().expect("forget");
+        assert!(
+            service.stored_passphrase().is_none(),
+            "a signed-out phone can still open the account"
         );
     }
 

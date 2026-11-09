@@ -303,6 +303,13 @@ impl Backends {
         }
     }
 
+    /// What this phone offers, when it is not what every phone does.
+    #[must_use]
+    pub fn with_features(mut self, features: Features) -> Self {
+        self.features = features;
+        self
+    }
+
     /// Whether this phone can unlock with a fingerprint or a face: the feature
     /// is the phone's to say, not the library's.
     #[must_use]
@@ -1712,6 +1719,9 @@ fn start_job(
 /// The switch and its settings, read from the file: asking must not disturb a
 /// loop that is running.
 fn hosting_values(ctx: &Context) -> Response {
+    if let Some(refusal) = Features::refuse(ctx.backends.features.hosting, "hosting") {
+        return refusal;
+    }
     match itsanas_node::config::Config::load(&Node::config_path(&ctx.home)) {
         Ok(config) => ok_json(hosting::to_json(&config)),
         Err(error) => Response::refuse(409, &error.to_string()),
@@ -1720,6 +1730,9 @@ fn hosting_values(ctx: &Context) -> Response {
 
 /// Save them on the open node, so the next look of the policy reads them.
 fn hosting_save(ctx: &Context, request: &Request) -> Response {
+    if let Some(refusal) = Features::refuse(ctx.backends.features.hosting, "hosting") {
+        return refusal;
+    }
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,
         Err(why) => return Response::refuse(400, &why),

@@ -10,7 +10,7 @@ use super::http::Response;
 
 /// What this shell can do. Every field has a `data-feature` of its name in
 /// `index.html`; `every_feature_is_named_in_the_page` fails otherwise.
-// Eleven independent switches, one per thing a shell may lack: not a state machine
+// Independent switches, one per thing a shell may lack: not a state machine
 // in disguise, so the lint's advice (an enum) would only hide the table.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +45,8 @@ pub struct Features {
     /// computer removes a machine with `install/clean` and the tray, which also
     /// take the service away; the page does not yet.
     pub remove_account: bool,
+    /// Lend space to other members. An iPhone ends an app it does not show.
+    pub hosting: bool,
 }
 
 impl Features {
@@ -62,6 +64,7 @@ impl Features {
         biometric: false,
         metered: false,
         remove_account: false,
+        hosting: true,
     };
 
     /// A phone: its files are in the app, its loop runs when the policy says, and it has the one
@@ -79,11 +82,22 @@ impl Features {
         biometric: true,
         metered: true,
         remove_account: true,
+        hosting: true,
+    };
+
+    /// An iPhone: a phone that cannot serve anybody in the background, is
+    /// installed by whoever signs it (so it has no update to check for), and
+    /// has no mobile-data policy because it has no background sync.
+    pub const IPHONE: Self = Self {
+        hosting: false,
+        metered: false,
+        biometric: false,
+        ..Self::PHONE
     };
 
     /// Every feature, by the name the page uses.
     #[must_use]
-    pub const fn all(self) -> [(&'static str, bool); 12] {
+    pub const fn all(self) -> [(&'static str, bool); 13] {
         [
             ("folder", self.folder),
             ("background_choice", self.background_choice),
@@ -97,6 +111,7 @@ impl Features {
             ("biometric", self.biometric),
             ("metered", self.metered),
             ("remove_account", self.remove_account),
+            ("hosting", self.hosting),
         ]
     }
 
@@ -189,6 +204,15 @@ mod tests {
         let phone = Features::PHONE.all();
         let desktop = Features::DESKTOP.all();
         for ((name, on_phone), (_, on_desktop)) in phone.into_iter().zip(desktop) {
+            // Every Android phone and computer lends space; only an iPhone cannot.
+            if name == "hosting" {
+                assert!(on_phone && on_desktop, "{name}");
+                assert!(
+                    Features::IPHONE.all().contains(&("hosting", false)),
+                    "an iPhone offered hosting"
+                );
+                continue;
+            }
             let phone_only = matches!(
                 name,
                 "keep_question" | "biometric" | "metered" | "remove_account"

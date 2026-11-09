@@ -20,6 +20,8 @@ void itsanas_free(char *answer);
 bool itsanas_exists(const char *home);
 char *itsanas_passphrase_rule(void);
 char *itsanas_open(const char *home, const char *passphrase);
+/* {"opened":false} when the Keychain holds no passphrase. */
+char *itsanas_open_remembered(const char *home);
 char *itsanas_close(void);
 
 char *itsanas_list_at(const char *folder);

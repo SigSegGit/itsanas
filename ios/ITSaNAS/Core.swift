@@ -45,6 +45,11 @@ enum Core {
 
     static func exists() -> Bool { itsanas_exists(home) }
     static func open(passphrase: String) throws { _ = try take(itsanas_open(home, passphrase)) }
+    /// Whether the Keychain's passphrase opened the account.
+    static func openRemembered() throws -> Bool {
+        try object(itsanas_open_remembered(home))["opened"] as? Bool ?? false
+    }
+
     static func close() { _ = try? take(itsanas_close()) }
     static func listAt(_ folder: String) throws -> [String: Any] { try object(itsanas_list_at(folder)) }
     static func get(_ path: String, to destination: String) throws { _ = try take(itsanas_get(path, destination)) }

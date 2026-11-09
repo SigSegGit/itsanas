@@ -61,6 +61,12 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-09: an iPhone (#387 and the PR after it).** `crates/itsanas-ios` and `ios/`, on `itsanas_cli::phone`; `docs/IOS.md`.
+Nicolas sideloaded the #387 build with a free Apple ID: it runs. Reading the shell against the engine then showed: `store_passphrase`
+refused, which failed setup's Secret step (now the Keychain, this device only); Settings offered hosting and an update check (`Features::IPHONE`); only `closed`
+was handled, so Sign out and Remove left the screen up; a page's old `closed` could close the next one. None of the fixes is seen on a phone yet.
+Left: `BGTaskScheduler`, Touch ID, delete and the trash, an iOS column in PARITY. Trap: `hosting` is neither phone-only nor computer-only.
+
 **2026-11-05: a phone's space slider.** In Settings, up to the phone's free space less 10 GB
 (`PHONE_SLIDER_ROOM`), saying what the offer earns; the button takes the account's largest pledge if it fits.
 Apply stays the way to save, and that restarts the engine. Not looked at on a real phone.

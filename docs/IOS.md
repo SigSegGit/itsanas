@@ -26,9 +26,22 @@ a question nobody waits on is dropped
 whose page was left stops asking
 (`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`).
 
+**The passphrase stays in the Keychain**, on this device and readable only
+while it is unlocked, once it has opened the account
+(`red_team_a_passphrase_that_does_not_open_is_not_remembered`). Coming back to
+the app opens the account with it; Sign out forgets it
+(`a_remembered_passphrase_comes_back_until_it_is_forgotten`).
+
+**Settings hides what an iPhone does not do**: lending space, the mobile-data
+choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses
+(`red_team_an_iphone_is_refused_hosting_whatever_the_page_hides`).
+
 **The unsafe code is two blocks**, in `crates/itsanas-ios/src/c.rs`: reading a C
 string and taking back one the app was given. `scripts/check-unsafe.py` fails
 if it spreads.
+
+The #387 build has been installed by hand on a first iPhone SE, signed with a
+free Apple ID.
 
 ## What iOS does not allow that Android does
 

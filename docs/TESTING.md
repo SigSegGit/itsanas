@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1624 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 587 are red-team tests.**
+**Last updated: 2026-11-04 — 1628 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 590 are red-team tests.**
 
-**1508 of the 1624 tests have an entry of their own on this page** — an *entry*,
+**1512 of the 1628 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,9 +179,9 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 346 |
+| `itsanas-cli` unit | 347 |
 | `itsanas-android` unit | 24 |
-| `itsanas-ios` unit | 8 |
+| `itsanas-ios` unit | 11 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 191 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 194 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1224,7 +1224,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (346)
+# `itsanas-cli` — unit tests (347)
 
 ## `bench` — measuring this machine (4)
 
@@ -1387,7 +1387,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (47)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (48)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1446,6 +1446,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `the_usb_section_has_a_handler_for_each_of_its_controls` | Every button and input of `#st-usb` (Another folder…, Copy here, the path, Refresh) has an `addEventListener` in app.js; app.js calls `/api/keys`, `/api/copy-to-key` and `/api/pick`, and goes to the section when the address says `section=key` or `#key`. |
 | `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
 | **`red_team_every_feature_of_a_shell_is_named_in_the_page`** | Every field of `Features` has an element of `index.html` carrying `data-feature` of its name, and the page names no feature the shell lacks: a feature no element names cannot be hidden from a shell without it. Sabotaged (one name changed): red. |
+| **`red_team_an_iphone_is_refused_hosting_whatever_the_page_hides`** | `/api/hosting` answers 403 on an iPhone, which ends an app it does not show: a member would lend space nobody can reach. |
 | **`red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides`** | On a phone's features the routes of the folder, the disks, the USB key, another account and pause or the interval answer 403 with a sentence, syncing now stays, and a computer is refused a fingerprint it does not have: hiding is not the control. Sabotaged (each gate opened in turn, except the folder picker, which would open a real dialog): red. |
 | **`red_team_a_fixed_coordinator_is_the_one_the_name_check_asks_whatever_the_form_says`** | With a coordinator the shell fixed, `/api/name` asks it and not the address in the form, and `/api/state` offers it: a phone cannot be pointed at a network of somebody else's naming. Sabotaged (form first; fixed one not offered): red. |
 | `the_name_check_tells_a_person_joining_what_the_account_s_machines_offer` | `/api/name` answers `taken`, `invalid` with the reason and other_pledge_bytes: the largest pledge of the account's machines only to a person joining, null for a new account, for a name nobody holds and for a name no coordinator would take. |
@@ -2096,7 +2097,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (8)
+# `itsanas-ios` — the C boundary (11)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
@@ -2108,6 +2109,9 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 | --- | --- |
 | `an_answer_is_an_envelope_the_app_can_read` | An answer is `{"ok": …}`, and a call with no account open is `{"error": "<sentence>"}` and nothing else: the app reads one string, never a return code beside it. |
 | **`red_team_a_missing_string_is_refused_not_read`** | A null passphrase is refused as not given, never read as the empty passphrase; a null home is no home; freeing null does nothing. Sabotaged (null read as ""): red. |
+| `a_remembered_passphrase_comes_back_until_it_is_forgotten` | The Keychain side of the service keeps the passphrase and forgets it at Sign out; refusing to keep it failed a step of setup, and the new account with it. |
+| **`red_team_a_passphrase_that_does_not_open_is_not_remembered`** | A mistyped passphrase is not kept, one that opened is, the kept one opens the account again, and a forgotten one opens nothing. Sabotaged (kept before the check): red. |
+| **`red_team_a_left_pages_news_does_not_close_the_next_page`** | A `closed` left in the mailbox by the last page is not read by the next one, which would close as it opens. Sabotaged (old news kept): red. |
 | `a_page_with_no_such_name_is_refused` | Only `setup` and `settings` start a page. |
 | `a_reply_to_nobody_is_not_taken` | The app is told a reply to no question was not taken. |
 | `the_header_declares_exactly_what_the_crate_exports` | `include/itsanas.h`, all Swift sees, names exactly the `extern "C"` functions of `src/lib.rs`. |

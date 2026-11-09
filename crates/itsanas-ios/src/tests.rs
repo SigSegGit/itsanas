@@ -68,6 +68,74 @@ fn a_page_with_no_such_name_is_refused() {
 }
 
 #[test]
+fn red_team_a_left_pages_news_does_not_close_the_next_page() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    while host::next_request() != "{}" {}
+    host::tell("event", &["closed", "left"]);
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().to_str().expect("a UTF-8 path");
+    let home = std::ffi::CString::new(home).expect("a path");
+    let said = take(itsanas_page_start(
+        home.as_ptr(),
+        c"settings".as_ptr(),
+        false,
+    ));
+    assert!(said.get("ok").is_some(), "the page did not start: {said}");
+    let news = host::next_request();
+    take(itsanas_page_stop());
+    assert_eq!(
+        news, "{}",
+        "the last page's closing was read as this one's: Settings closes as it opens"
+    );
+}
+
+const NOW: u64 = 1_000_000;
+
+fn nowhere() -> Network {
+    Network {
+        address: "127.0.0.1:1".to_owned(),
+        device: None,
+    }
+}
+
+#[test]
+fn red_team_a_passphrase_that_does_not_open_is_not_remembered() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    let slot = Mutex::new(None);
+    assert!(open_and_remember(&slot, &home, "not it", &nowhere(), NOW).is_err());
+    assert!(
+        keychain::get().is_none(),
+        "a mistyped passphrase was remembered: the app would try it at every opening"
+    );
+    open_and_remember(&slot, &home, "a passphrase", &nowhere(), NOW).expect("open");
+    assert_eq!(
+        keychain::get().as_deref().map(String::as_str),
+        Some("a passphrase"),
+        "a passphrase that opened was not remembered: it is asked at every return to the app"
+    );
+    *slot.lock().expect("slot") = None;
+    let said = open_remembered(&slot, &home, &nowhere(), NOW).expect("remembered");
+    assert_eq!(
+        said, r#"{"opened":true}"#,
+        "the Keychain's passphrase opened nothing"
+    );
+    keychain::forget();
+    let said = open_remembered(&slot, &home, &nowhere(), NOW).expect("nothing kept");
+    assert_eq!(
+        said, r#"{"opened":false}"#,
+        "a forgotten passphrase still opened"
+    );
+}
+
+#[test]
 fn a_reply_to_nobody_is_not_taken() {
     let _turn = host::tests::SERIAL
         .lock()
@@ -106,7 +174,7 @@ fn the_header_declares_exactly_what_the_crate_exports() {
         .collect();
     let exported = exported();
     assert!(
-        exported.len() >= 14,
+        exported.len() >= 15,
         "the source was not read: {exported:?}"
     );
     assert_eq!(

@@ -61,6 +61,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:biometric` | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Windows Hello, optional | ⬜ no reader this program can ask | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Touch ID, optional | ✅ |
 | `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
 | `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
+| `feature:hosting` | ✅ | ✅ | ✅ | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
 
 ## The commands

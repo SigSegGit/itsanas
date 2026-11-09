@@ -83,6 +83,7 @@
     [/\bune fenêtre ITSaNAS séparée\b/g, 'un écran ITSaNAS séparé'],
     [/\bUne fenêtre ITSaNAS séparée s’est ouverte\b/g, 'Un écran ITSaNAS séparé s’est ouvert'],
   ];
+  let hostingOffered = true;
   let onPhone = false;
 
   function phoneWords(text) {
@@ -771,6 +772,7 @@
   }
 
   async function renderHosting() {
+    if (!hostingOffered) { return; }
     const values = await api('GET', '/api/hosting');
     // This runs every two seconds, and somebody may be typing: what they changed
     // stays on screen until Apply.
@@ -1360,6 +1362,7 @@
     });
     // Only a phone goes without the advanced settings (features.rs).
     onPhone = !features.advanced;
+    hostingOffered = features.hosting;
     translatePage($('lang').value);
   }
 

@@ -27,6 +27,7 @@
 
 mod c;
 mod host;
+mod keychain;
 
 use std::ffi::c_char;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ use itsanas_cli::phone::{
     get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node,
 };
 use itsanas_cli::shell::{
-    Answer, Backends, Failure, Held, Mode, Network, SecretPrompt, Server, Stop,
+    Answer, Backends, Failure, Features, Held, Mode, Network, SecretPrompt, Server, Stop,
 };
 use itsanas_node::Node;
 use zeroize::Zeroizing;
@@ -105,7 +106,7 @@ pub extern "C" fn itsanas_open(home: *const c_char, passphrase: *const c_char) -
     let home = home_of(home);
     let passphrase = c::text(passphrase, "the passphrase").map(Zeroizing::new);
     answer(move || {
-        open_into(
+        open_and_remember(
             &NODE,
             &home?,
             &passphrase?,
@@ -113,6 +114,49 @@ pub extern "C" fn itsanas_open(home: *const c_char, passphrase: *const c_char) -
             itsanas_cli::phone::unix_now(),
         )
     })
+}
+
+/// Unlock, and remember a passphrase that did open the account: iOS ends the
+/// app whenever it likes, and asking again each time would be the whole app.
+fn open_and_remember(
+    slot: &Mutex<Option<Arc<Node>>>,
+    home: &Path,
+    passphrase: &str,
+    network: &Network,
+    now: u64,
+) -> Answer {
+    let opened = open_into(slot, home, passphrase, network, now)?;
+    // Best effort: an account that opened is not refused for this.
+    let _ = keychain::set(passphrase);
+    Ok(opened)
+}
+
+/// Open the account with the passphrase the Keychain holds:
+/// `{"opened":false}` when it holds none.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_open_remembered(home: *const c_char) -> *mut c_char {
+    let home = home_of(home);
+    answer(move || {
+        open_remembered(
+            &NODE,
+            &home?,
+            &Network::official(),
+            itsanas_cli::phone::unix_now(),
+        )
+    })
+}
+
+fn open_remembered(
+    slot: &Mutex<Option<Arc<Node>>>,
+    home: &Path,
+    network: &Network,
+    now: u64,
+) -> Answer {
+    let Some(passphrase) = keychain::get() else {
+        return Ok(serde_json::json!({ "opened": false }).to_string());
+    };
+    open_into(slot, home, &passphrase, network, now)?;
+    Ok(serde_json::json!({ "opened": true }).to_string())
 }
 
 /// Close the node and stop the page, releasing the store.
@@ -210,6 +254,7 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
         other => return Err(Failure::Usage(format!("no page is called {other}"))),
     };
     stop_page();
+    host::forget_old_news();
     let network = Network::official();
     let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let backends = Backends::of_a_phone(
@@ -222,7 +267,10 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
         Arc::new(Held(&NODE)),
         (network.address, network.device),
     )
-    .with_biometric(biometric);
+    .with_features(Features {
+        biometric,
+        ..Features::IPHONE
+    });
     let server = Server::bind(home, None, mode, home, backends)?;
     let url = server.url();
     *PAGE

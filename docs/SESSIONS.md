@@ -40,7 +40,8 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
-| 2026-11-06 ~17:15 | ~40 min avant CI | hebdo 100 %, sur l'usage en supplément (~3 €) ; 5 h 28→30 % ; contexte ~220 k | hors §8 | au bout | 🟨 | Base iOS : `itsanas_cli::phone` partagé avec Android, crate C `itsanas-ios`, appli Swift WKWebView iOS 14, job macOS ; jamais lancée sur un iPhone | à venir |
+| 2026-11-09 ~17:15 | ~30 min avant CI | hebdo 0 → voir bilan ; contexte ~290 k | hors §8 | au bout | 🟨 | iPhone : Keychain, Settings sans hébergement ni mise à jour, Sign out et Remove suivis, ancien `closed` purgé ; rien vu sur l'iPhone | à venir |
+| 2026-11-06 ~17:15 | ~40 min avant CI | hebdo 100 %, sur l'usage en supplément (~3 €) ; 5 h 28→30 % ; contexte ~220 k | hors §8 | au bout | 🟨 | Base iOS : `itsanas_cli::phone` partagé avec Android, crate C `itsanas-ios`, appli Swift WKWebView iOS 14, job macOS ; Nicolas l'a menée au vert et installée sur son iPhone | #387 |
 | 2026-11-05 ~09:30 | même session | hebdo ~92 % ; contexte ~390 k | hors §8 | au bout | 🟨 | 0.1.17 publiée ; saisie des réglages, bouton de mise à jour, corbeille et curseur d'espace ; rien vu sur un vrai téléphone, 0.1.18 à signer | #382 à #385 |
 | 2026-11-05 | même session | hebdo non remesuré | hors §8 | au bout | ✅ | Une PR n'attend un Mac que pour du code Mac ; `main` le garde | #381 |
 | 2026-11-04 ~18:20 | ~1 h, surtout de l'attente de CI | même session ; hebdo ~87 % ; contexte ~230 k | hors §8 | au bout | ✅ | L'e2e Android compte pour la vérification exigée ; un job sans runner n'est plus accepté | #380 |

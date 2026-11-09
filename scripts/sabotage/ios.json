@@ -26,6 +26,21 @@
       "file": "crates/itsanas-ios/src/host.rs",
       "live": "            mail.pending.retain(|request| request.id != id);\n",
       "dead": ""
+    },
+    "page: old news kept": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "    host::forget_old_news();\n",
+      "dead": ""
+    },
+    "keychain: the passphrase is not kept": {
+      "file": "crates/itsanas-ios/src/host.rs",
+      "live": "        keychain::set(passphrase)\n            .map_err(|why| CliError::Usage(format!(\"the Keychain refused it: {why}\")))?;\n",
+      "dead": ""
+    },
+    "open: a wrong passphrase remembered": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "    let opened = open_into(slot, home, passphrase, network, now)?;\n    // Best effort: an account that opened is not refused for this.\n    let _ = keychain::set(passphrase);\n",
+      "dead": "    let _ = keychain::set(passphrase);\n    let opened = open_into(slot, home, passphrase, network, now)?;\n"
     }
   }
 }

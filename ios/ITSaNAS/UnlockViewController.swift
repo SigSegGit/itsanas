@@ -4,6 +4,7 @@ import UIKit
 final class UnlockViewController: UIViewController, UITextFieldDelegate {
     private let field = UITextField()
     private let message = UILabel()
+    private var trying = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -31,6 +32,32 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
         ])
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(tryRemembered),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
+        tryRemembered()
+    }
+
+    /// The Keychain's passphrase, when there is one, so that coming back to
+    /// the app does not ask for it. A stale one only leaves this screen up.
+    @objc private func tryRemembered() {
+        guard !trying, view.window != nil, UIApplication.shared.applicationState == .active else { return }
+        trying = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let opened = (try? Core.openRemembered()) ?? false
+            DispatchQueue.main.async {
+                self.trying = false
+                if opened { self.showFiles() }
+            }
+        }
+    }
+
+    private func showFiles() {
+        navigationController?.setViewControllers([FilesViewController(folder: "")], animated: true)
+    }
+
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         unlock()
         return true
@@ -45,7 +72,7 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
                 switch outcome {
                 case .success:
                     self.field.text = nil
-                    self.navigationController?.setViewControllers([FilesViewController(folder: "")], animated: true)
+                    self.showFiles()
                 case .failure(let error):
                     self.message.text = error.localizedDescription
                 }
