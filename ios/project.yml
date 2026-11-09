@@ -33,6 +33,7 @@ targets:
         UILaunchStoryboardName: ""
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSFaceIDUsageDescription: Unlock your ITSaNAS account with your face.
         # The page is served by the core on 127.0.0.1 and nowhere else.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

@@ -15,6 +15,10 @@ final class CoreTests: XCTestCase {
         XCTAssertNotNil(rule["min"] as? Int, "the app would state no minimum: \(rule)")
     }
 
+    func testNoAccountIsOpenedWithNothingRemembered() throws {
+        XCTAssertFalse(try Core.openRemembered(), "a phone with nothing kept opened an account")
+    }
+
     func testNothingIsListedWithNoAccountOpen() {
         Core.close()
         XCTAssertThrowsError(try Core.listAt(""), "a closed account answered a listing")

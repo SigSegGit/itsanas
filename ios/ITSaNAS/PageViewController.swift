@@ -61,10 +61,21 @@ final class PageViewController: UIViewController {
     }
 
     private func event(_ args: [String]) {
-        guard args.first == "closed" else { return }
+        // The page's end, leaving the account, or removing it: this screen goes.
+        if args.first == "biometric_failed" {
+            show(NSLocalizedString("Touch ID could not be turned on. Unlock with your passphrase once, then try again.", comment: ""))
+            return
+        }
+        guard let name = args.first, ["closed", "signedOut", "account_removed", "removed"].contains(name)
+        else { return }
         poll?.invalidate()
-        Core.pageStop()
-        navigationController?.setViewControllers([AppDelegate.first()], animated: true)
+        // Off the main thread: the engine may hold the node, and closing waits for it.
+        DispatchQueue.global(qos: .userInitiated).async {
+            Core.close()
+            DispatchQueue.main.async {
+                self.navigationController?.setViewControllers([AppDelegate.first()], animated: true)
+            }
+        }
     }
 
     private func ask(_ id: UInt64, _ title: String, _ detail: String?, secure: Bool) {

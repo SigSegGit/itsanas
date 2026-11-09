@@ -1,4 +1,6 @@
 /target
+/ios-ipa/
+*.ipa
 **/*.rs.bk
 *.pdb
 

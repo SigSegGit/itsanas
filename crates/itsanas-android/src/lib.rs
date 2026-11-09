@@ -58,8 +58,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    delete_for_good, get_file, list_at, open_into, passphrase_rule, purged_trash, put_file,
-    status_of, sync_node, trash_failed, unix_now,
+    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
+    trash_failed, trash_list, trash_put, trash_restore, unix_now,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -679,11 +679,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashPut(
         let days = days
             .parse()
             .map_err(|_| Failure::Usage("the days are a whole number".to_owned()))?;
-        with_node(|node| {
-            trash::put(&node.home, &path, unix_now(), days)
-                .map_err(|error| trash_failed(&error))?;
-            Ok("{}".to_owned())
-        })
+        with_node(|node| trash_put(node, &path, days))
     })
 }
 
@@ -693,26 +689,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashList(
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    answer(&mut env, || {
-        with_node(|node| {
-            let trashed = purged_trash(node)?;
-            let account = itsanas_store::catalogue(&node.store, &node.vault)?
-                .files
-                .into_iter()
-                .map(|file| file.path)
-                .collect();
-            let rows: Vec<_> = trashed
-                .iter()
-                .map(|(path, due)| serde_json::json!({ "path": path, "due": due }))
-                .collect();
-            Ok(serde_json::json!({
-                "now": unix_now(),
-                "trashed": rows,
-                "left": trash::left_the_folder(&node.home, &account),
-            })
-            .to_string())
-        })
-    })
+    answer(&mut env, || with_node(trash_list))
 }
 
 /// What is in the trash, from its record alone: a round holds the node for as
@@ -746,8 +723,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     let path = text(&mut env, &path, "the path");
     answer(&mut env, move || {
         let (home, path) = (home?, path?);
-        trash::take_out(Path::new(&home), &path).map_err(|error| trash_failed(&error))?;
-        Ok("{}".to_owned())
+        trash_restore(Path::new(&home), &path)
     })
 }
 
@@ -761,10 +737,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashDelete(
     let path = text(&mut env, &path, "the path");
     answer(&mut env, move || {
         let path = path?;
-        with_node(|node| {
-            delete_for_good(node, &path)?;
-            Ok("{}".to_owned())
-        })
+        with_node(|node| trash_delete(node, &path))
     })
 }
 

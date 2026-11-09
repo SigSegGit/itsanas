@@ -21,6 +21,14 @@ itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 serde_json = "1.0.145"
 zeroize = "1.9.0"
 
+[target.'cfg(target_os = "ios")'.dependencies]
+# The Keychain, for the remembered passphrase: the crate the macOS build
+# already uses, so no unsafe code of this project's.
+security-framework = "3"
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
 # Deliberately NOT `workspace = true`, for the reason `itsanas-android` gives:
 # an app calls these entry points by name, so they carry
 # `#[unsafe(no_mangle)]`, and C hands over its strings as raw pointers. The

@@ -2264,6 +2264,26 @@ fn red_team_every_feature_of_a_shell_is_named_in_the_page() {
 }
 
 #[test]
+fn red_team_an_iphone_is_refused_hosting_whatever_the_page_hides() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = Features::IPHONE;
+        b.phone = true;
+    });
+    for (method, body) in [("GET", ""), ("POST", "contribute=on")] {
+        let reply = page.api(method, "/api/hosting", body);
+        assert_eq!(
+            reply.status, 403,
+            "{method} /api/hosting was answered on an iPhone, which ends an app it does not \
+             show: a member would lend space nobody can reach ({})",
+            reply.body
+        );
+    }
+}
+
+#[test]
 fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("node");

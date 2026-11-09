@@ -23,12 +23,14 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
             UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(sync)),
         ]
         if folder.isEmpty {
-            navigationItem.leftBarButtonItem = UIBarButtonItem(
-                title: NSLocalizedString("Settings", comment: ""), style: .plain,
-                target: self, action: #selector(settings))
+            navigationItem.leftBarButtonItems = [
+                UIBarButtonItem(
+                    title: NSLocalizedString("Settings", comment: ""), style: .plain,
+                    target: self, action: #selector(settings)),
+                UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(trash)),
+            ]
         }
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
-        reload()
     }
 
     private func reload() {
@@ -58,6 +60,15 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
 
     @objc private func settings() {
         navigationController?.pushViewController(PageViewController(mode: "settings"), animated: true)
+    }
+
+    @objc private func trash() {
+        navigationController?.pushViewController(TrashViewController(), animated: true)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        reload()
     }
 
     @objc private func add() {
@@ -105,6 +116,18 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
             share.popoverPresentationController?.sourceView = tableView.cellForRow(at: indexPath)
             self.present(share, animated: true)
         })
+    }
+
+    override func tableView(
+        _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        guard indexPath.row >= folders.count else { return nil }
+        let path = files[indexPath.row - folders.count]["path"] as? String ?? ""
+        let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Delete", comment: "")) { _, _, done in
+            self.work { try Core.trashPut(path) }
+            done(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete])
     }
 
     private func show(_ message: String) {

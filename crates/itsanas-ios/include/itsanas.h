@@ -20,11 +20,17 @@ void itsanas_free(char *answer);
 bool itsanas_exists(const char *home);
 char *itsanas_passphrase_rule(void);
 char *itsanas_open(const char *home, const char *passphrase);
+/* {"opened":false} when the Keychain holds no passphrase. */
+char *itsanas_open_remembered(const char *home);
 char *itsanas_close(void);
 
 char *itsanas_list_at(const char *folder);
 char *itsanas_get(const char *path, const char *destination);
 char *itsanas_put(const char *path, const char *source);
+char *itsanas_trash_put(const char *path, uint64_t days);
+char *itsanas_trash_list(void);
+char *itsanas_trash_restore(const char *home, const char *path);
+char *itsanas_trash_delete(const char *path);
 char *itsanas_sync(bool metadata_only);
 char *itsanas_status(void);
 
