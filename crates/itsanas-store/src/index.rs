@@ -369,13 +369,18 @@ impl Index {
         // tells the two apart: `Locked` is reported once the lock has been
         // held for `LOCK_PATIENCE`.
         let started = std::time::Instant::now();
+        let mut tries: u64 = 0;
         let db = loop {
             match Database::create(path) {
                 Ok(db) => break db,
                 Err(redb::DatabaseError::DatabaseAlreadyOpen)
                     if started.elapsed() < LOCK_PATIENCE =>
                 {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    // A pause that varies: at a fixed 20 ms, a probe coming back
+                    // just as regularly met every try for the whole patience,
+                    // once in 100 opens on the ARM runner.
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(1 + tries % 7));
                 }
                 // redb takes an exclusive lock on the file. Reporting that as
                 // a generic database error leaves the operator staring at
