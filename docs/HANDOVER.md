@@ -83,7 +83,10 @@ the scenarios read English texts while the page said the right thing in French (
 app's locale and the page's `language` file); the fingerprint offer's dialog dims the screen, which read as a
 night mode that never ended (`Biometric.answered` before each scenario); a coordinator literal `127.0.0.1` is
 refused by the config on purpose, so the tunnel is named `localhost`. Then 29 of 29. The iPhone SE (iOS 15.8,
-ITSaNAS 0.1.18) is read with pymobiledevice3 from a venv. `acceptance-local.sh` ran whole on the FAT32 disk E:
+ITSaNAS 0.1.18) is read with pymobiledevice3 from a venv; its first runs showed the reader outliving the
+script on Windows and system lines that only name the app counted as the app's: it now logs to a file,
+kills the reader itself, and keeps the app process's lines only. With the app left closed it says FAIL, as
+it must. `acceptance-local.sh` ran whole on the FAT32 disk E:
 (`ACCEPTANCE_DIR`): every disk phase passed; its two address checks assumed a machine publishes `127.0.0.1`,
 and this laptop publishes its global IPv6 (`prefer_global_ipv6`): the first check now accepts it, the
 second (`doctor` explaining a loopback address) still fails on such a machine, and is left for a session

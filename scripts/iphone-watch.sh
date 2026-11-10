@@ -28,6 +28,7 @@ out="${IPHONE_OUT:-$here/ios/build/watch}"
 receipts="$HOME/.itsanas-receipts"
 mkdir -p "$out/crashes" "$receipts"
 : >"$out/syslog.txt"
+: >"$out/raw.txt"
 
 if command -v pymobiledevice3 >/dev/null 2>&1; then
     tool=pymobiledevice3
@@ -46,11 +47,13 @@ fi
 
 started="$(date +%s)"
 echo "== reading the iPhone's log ($tool); the hand test can start"
-filter() { grep --line-buffered -i 'itsanas' >>"$out/syslog.txt" || true; }
+# The reader writes to a file, and is the process killed at the end: a reader
+# behind a pipe outlived the script on Windows, where nothing tells it the
+# pipe closed until it writes again.
 if [ "$tool" = pymobiledevice3 ]; then
-    pymobiledevice3 syslog live 2>/dev/null | filter &
+    pymobiledevice3 syslog live >"$out/raw.txt" 2>/dev/null &
 else
-    idevicesyslog 2>/dev/null | filter &
+    idevicesyslog >"$out/raw.txt" 2>/dev/null &
 fi
 reader=$!
 stop() { kill "$reader" 2>/dev/null || true; wait "$reader" 2>/dev/null || true; }
@@ -63,6 +66,10 @@ else
 fi
 stop
 trap - EXIT
+# The app's own lines: its process, `ITSaNAS[pid]` or `ITSaNAS{subsystem}[pid]`.
+# The system names the app in lines of its own (installation, scheduling), and
+# those say nothing of whether it runs.
+grep -E '(^|[[:space:]])ITSaNAS(\{[^}]*\})?\[[0-9]+\]' "$out/raw.txt" >"$out/syslog.txt" || true
 
 echo "== the crash reports"
 if [ "$tool" = pymobiledevice3 ]; then
