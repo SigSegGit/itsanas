@@ -2465,6 +2465,67 @@ fn an_audit_confirms_a_host_that_is_still_holding_the_data() {
     });
 }
 
+/// One of the account's own devices that let chunks go (a phone over its
+/// budget) loses those records and nothing else: no failure, no sanction, and
+/// an old sanction lifted. Sabotage: count the failures of an own device.
+#[test]
+fn red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar() {
+    let master = alice();
+    let owner = node(&master, 1);
+    let phone = node(&master, 2);
+    let chunks = owner
+        .store
+        .write_file("kept.txt", b"kept on the phone until its budget said no")
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+    with_server(&phone, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+    for chunk in &chunks {
+        phone
+            .vault
+            .remove_chunk(owner.store.owner(), chunk)
+            .expect("let go");
+    }
+    // A sanction from before, as the version without this left on every PC.
+    for _ in 0..itsanas_store::FAILURES_BEFORE_PAUSE {
+        owner
+            .store
+            .note_audit(&phone.device.device_id(), false)
+            .expect("old");
+    }
+    with_server(&phone, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        let report = session::audit_as(&owner.store, &mut client, 16, true).expect("audit");
+        assert!(
+            !report.found_a_liar() && report.own,
+            "the account's own phone was called a liar for its budget: {report:?}"
+        );
+    });
+    assert!(
+        owner
+            .store
+            .unreliable_devices()
+            .expect("records")
+            .is_empty(),
+        "an own device that let chunks go keeps the icon orange, and nothing it can do lifts it"
+    );
+    for chunk in &chunks {
+        assert!(
+            owner
+                .store
+                .remote_holders(chunk)
+                .expect("holders")
+                .is_empty(),
+            "a chunk the phone let go still counts as a copy on it"
+        );
+    }
+}
+
 #[test]
 fn red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder() {
     // THE ATTACK, and it costs nothing: accept everything offered, delete it

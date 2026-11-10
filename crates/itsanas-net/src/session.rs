@@ -2185,13 +2185,16 @@ pub struct AuditReport {
     /// its outstanding failures; enough of them lift the sanction. This flag is
     /// how a caller tells that round apart from an ordinary one.
     pub probing: bool,
+    /// Whether the peer was one of this account's own devices, whose missing
+    /// chunks were withdrawn without counting against it.
+    pub own: bool,
 }
 
 impl AuditReport {
-    /// Whether anything was found to be missing.
+    /// Whether anything was found to be missing from another account's host.
     #[must_use]
     pub const fn found_a_liar(&self) -> bool {
-        self.failed > 0
+        self.failed > 0 && !self.own
     }
 }
 
@@ -2236,6 +2239,22 @@ impl AuditReport {
 /// records are the ones it is paused *for*, and drawing from them would make
 /// the way back unreachable.
 pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<AuditReport> {
+    audit_as(store, client, limit, false)
+}
+
+/// [`audit`], saying whether the peer is one of this account's own devices.
+///
+/// An own device keeps what its budget lets it and lets the rest go: a phone
+/// does it every day. A chunk it no longer has is a record to withdraw, not a
+/// lie, so nothing is held against it. Held against it, the sanction would
+/// never lift either: its probe is a chunk of this account, which it is free to
+/// let go again, and the person sees an orange icon for a phone in a drawer.
+pub fn audit_as(
+    store: &Store,
+    client: &mut PeerClient,
+    limit: usize,
+    own: bool,
+) -> Result<AuditReport> {
     let owner = store.owner();
     let peer = client.peer_device();
     let mut report = AuditReport::default();
@@ -2305,7 +2324,10 @@ pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<Aud
     // challenges in a single round has failed once — it is one host in one
     // state — and counting each chunk separately would pause it on the first
     // round rather than the third, which is the whole point of the threshold.
-    if report.asked > 0 {
+    if own {
+        store.forget_failures(&peer)?;
+        report.own = true;
+    } else if report.asked > 0 {
         report.record = Some(store.note_audit(&peer, report.failed == 0)?);
     }
 

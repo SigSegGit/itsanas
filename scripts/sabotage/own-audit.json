@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "two_nodes",
+    "--",
+    "own_device_that_let_chunks_go"
+  ],
+  "defences": {
+    "audit: an own device's failures do not count": {
+      "file": "crates/itsanas-net/src/session.rs",
+      "live": "    if own {\n        store.forget_failures(&peer)?;",
+      "dead": "    if false {\n        store.forget_failures(&peer)?;"
+    }
+  }
+}
