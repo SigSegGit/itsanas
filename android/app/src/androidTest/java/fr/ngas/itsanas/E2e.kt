@@ -1,6 +1,9 @@
 package fr.ngas.itsanas
 
 import android.app.Activity
+import android.app.LocaleManager
+import android.os.Build
+import android.os.LocaleList
 import android.os.ParcelFileDescriptor
 import android.view.View
 import android.view.ViewGroup
@@ -69,7 +72,29 @@ object E2e {
         val answer = Native.useCoordinatorForTests(address, args.getString("coordinatorDevice").orEmpty())
         check(answer.contains(address)) { "the test coordinator was not taken: $answer" }
         wipe()
+        speakEnglish()
         scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    /**
+     * The scenarios read English. An emulator is English already; a person's own
+     * phone speaks its owner's language, and every check of a text failed on a
+     * French Galaxy S25 while the page said the right thing in French. The app's
+     * own screens follow the app's language, the page the one kept in its home.
+     */
+    private fun speakEnglish() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.getSystemService(LocaleManager::class.java).applicationLocales =
+                LocaleList.forLanguageTags("en")
+        }
+        val home = Vault.home(context)
+        home.mkdirs()
+        File(home, "language").writeText("en\n")
+        // A real phone has a fingerprint, so the app offers it once an account
+        // opens; its dialog dims the screen behind, which read as a night mode
+        // that never ended on a Galaxy S25. The emulator has none, so CI never
+        // saw it. The offer is answered here; no scenario is about it.
+        Biometric.answered(context)
     }
 
     fun end() {
@@ -102,6 +127,7 @@ object E2e {
     fun relaunch() {
         scenario?.close()
         wipe()
+        speakEnglish()
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
 

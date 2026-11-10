@@ -176,7 +176,7 @@ impl ReconcileReport {
             if !moved_from_here.contains(path.as_str()) {
                 let path = shown(path);
                 urgent.push(format!(
-                    "  del  {path} (deleted here, will be deleted everywhere)"
+                    "  del  {path} (deleted here, everywhere once it leaves the trash)"
                 ));
             }
         }

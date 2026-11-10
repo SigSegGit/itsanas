@@ -38,7 +38,14 @@ KIT=${ACCEPTANCE_KIT:-scripts/acceptance.sh}
 [ -x "$BIN" ] || [ -x "$BIN.exe" ] || { echo "no itsanas binary at $BIN (cargo build -p itsanas-cli)"; exit 2; }
 [ -x "$COORD" ] || [ -x "$COORD.exe" ] || { echo "no coordinator binary at $COORD (cargo build -p itsanas-coordinator)"; exit 2; }
 
-WORK=$(mktemp -d)
+# ACCEPTANCE_DIR puts the three machines on another disk (a USB key, a FAT32
+# drive): the same tests, on the file system a member will really use.
+if [ -n "${ACCEPTANCE_DIR:-}" ]; then
+    mkdir -p "$ACCEPTANCE_DIR"
+    WORK=$(mktemp -d -p "$ACCEPTANCE_DIR")
+else
+    WORK=$(mktemp -d)
+fi
 export ITSANAS_RECEIPTS="$WORK/receipts"
 export ITSANAS_BIN="$BIN"
 PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -474,8 +481,10 @@ check "the coordinator hands out the announced address, with the announced port"
 # loses its port forward stays unreachable with nothing to say why.
 must node m1 announce --forget
 must node m1 register
+# Its own address: loopback on a bench, or the global IPv6 address a machine
+# with one publishes instead (`prefer_global_ipv6`), as the owner's laptop does.
 check "forgetting it publishes this machine's own address again" \
-    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -q '127.0.0.1:'"
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -Eq '127\.0\.0\.1:|\[[0-9a-f:]+\]:'"
 
 NEW_PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 must env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_NEW_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" passphrase

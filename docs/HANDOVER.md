@@ -77,9 +77,18 @@ phone's ABI, the coordinator goes through `adb reverse`, the phone's settings ar
 `scripts/iphone-watch.sh` reads a real iPhone's log and crash reports during the hand test and gives a
 verdict. A passing run on a real phone posts a receipt for its commit (`scripts/device-receipt.sh`,
 AGENTS.md "A real phone stands in for a phone job"), which `ci_scope.py` takes for the Mac job and for a
-phone job no runner finished. First run on Nicolas's Galaxy S25 (Android 17, USB): every scenario failed in
-Espresso 3.6, which calls `InputManager.getInstance`, gone in Android 17; Espresso 3.7 fixes it (the emulator
-is API 35, which is why CI never saw it). The iPhone script was not run: no iPhone tool on the laptop yet.
+phone job no runner finished. What Nicolas's Galaxy S25 (Android 17, USB, French) showed that the emulator (API 35, English, no fingerprint)
+never could, each fixed in the harness, not the app: Espresso 3.6 cannot inject input on Android 17 (3.7 can);
+the scenarios read English texts while the page said the right thing in French (`E2e.speakEnglish` sets the
+app's locale and the page's `language` file); the fingerprint offer's dialog dims the screen, which read as a
+night mode that never ended (`Biometric.answered` before each scenario); a coordinator literal `127.0.0.1` is
+refused by the config on purpose, so the tunnel is named `localhost`. Then 29 of 29. The iPhone SE (iOS 15.8,
+ITSaNAS 0.1.18) is read with pymobiledevice3 from a venv. `acceptance-local.sh` ran whole on the FAT32 disk E:
+(`ACCEPTANCE_DIR`): every disk phase passed; its two address checks assumed a machine publishes `127.0.0.1`,
+and this laptop publishes its global IPv6 (`prefer_global_ipv6`): the first check now accepts it, the
+second (`doctor` explaining a loopback address) still fails on such a machine, and is left for a session
+that reads `doctor`'s output there. The trash was run by hand on the FAT32 key F:: delete, hidden, restored
+into the folder, emptied, days set.
 **The fleet's F row** (`docs/FLEET-CI.md`) deletes in the folder and expects it gone everywhere a round
 later: the agents (`agent.sh`, `agent.ps1`) now write `0` into the `test` home's `store/trash-days` before
 `F delete`, so F keeps testing propagation; an agent installed before this needs `setup.sh` again, or F goes
