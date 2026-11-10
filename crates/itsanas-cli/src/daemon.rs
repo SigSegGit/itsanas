@@ -1936,6 +1936,7 @@ fn one_round(
         contact.candidates().into_iter().map(|(device, _)| device),
         &accounts,
         node.store.owner(),
+        node.store.members().unwrap_or_default(),
     );
     crate::placing::begin_round(
         node.config.placement,

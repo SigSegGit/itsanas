@@ -174,6 +174,25 @@ fn draining_in(
         .is_some_and(|until| until.value() > now))
 }
 
+/// Whether `device`'s copies may be counted on: neither draining nor paused.
+/// A paused host failed its audits, and the record it refreshes by saying
+/// `Hosted` is a word, not a copy.
+fn counted_in(
+    draining: &impl ReadableTable<&'static [u8], u64>,
+    reliability: &impl ReadableTable<&'static [u8], &'static [u8]>,
+    device: &DeviceId,
+    now: u64,
+) -> Result<bool> {
+    if draining_in(draining, device, now)? {
+        return Ok(false);
+    }
+    Ok(!reliability
+        .get(device.as_bytes().as_slice())?
+        .map(|value| postcard::from_bytes::<Reliability>(value.value()))
+        .transpose()?
+        .is_some_and(|record| record.paused))
+}
+
 /// Add `delta` to `device`'s count, never below zero.
 fn bump(counts: &mut redb::Table<'_, &[u8], u64>, device: &DeviceId, delta: i64) -> Result<()> {
     let key = device.as_bytes().as_slice();
@@ -2150,6 +2169,23 @@ impl Index {
         Ok(!txn.open_table(ROSTER)?.is_empty()?)
     }
 
+    /// The live members of this account's roster.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn members(&self) -> Result<Vec<DeviceId>> {
+        let txn = self.db.begin_read()?;
+        let mut out = Vec::new();
+        for row in txn.open_table(ROSTER)?.iter()? {
+            let (key, value) = row?;
+            if value.value() == 1 {
+                out.push(DeviceId::from_slice(key.value())?);
+            }
+        }
+        Ok(out)
+    }
+
     /// Whether `device` is a live member of this account's roster.
     ///
     /// # Errors
@@ -2303,7 +2339,7 @@ impl Index {
                 .get(device.as_bytes().as_slice())?
                 .map(|value| postcard::from_bytes::<Reliability>(value.value()))
                 .transpose()?
-                .is_some_and(|record| record.passed > 0);
+                .is_some_and(|record| record.vouches());
             // And is still about: an audit passed last month says nothing of a
             // machine wiped last week. Uninstalling a phone tells nobody, and
             // two such holders must not let the owner drop the last real copy.
@@ -2401,6 +2437,7 @@ impl Index {
         let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
         let seen_table = txn.open_table(DEVICE_SEEN)?;
         let draining = txn.open_table(DRAINING)?;
+        let reliability = txn.open_table(RELIABILITY)?;
         let mut alive: BTreeMap<DeviceId, bool> = BTreeMap::new();
 
         let mut live_chunks = 0usize;
@@ -2444,7 +2481,8 @@ impl Index {
                         .map_or(0, |v| v.value());
                     // A draining device is still there but must not be
                     // counted on: it asked for its copies to be replaced.
-                    let live = seen >= fresh_since && !draining_in(&draining, &device, now)?;
+                    let live =
+                        seen >= fresh_since && counted_in(&draining, &reliability, &device, now)?;
                     alive.insert(device, live);
                     live
                 };
@@ -2494,6 +2532,7 @@ impl Index {
         let refs = txn.open_table(CHUNK_REFS)?;
         let holders_table = txn.open_table(HOLDERS)?;
         let draining = txn.open_table(DRAINING)?;
+        let reliability = txn.open_table(RELIABILITY)?;
 
         let mut out = Vec::new();
         for row in refs.iter()? {
@@ -2510,7 +2549,7 @@ impl Index {
                 // A device draining still holds the chunk, and that is the
                 // point: repair runs while its copy is a margin, not a count.
                 if let Some(device) = holders::device_from_key(key.value())
-                    && draining_in(&draining, &device, now)?
+                    && !counted_in(&draining, &reliability, &device, now)?
                 {
                     continue;
                 }

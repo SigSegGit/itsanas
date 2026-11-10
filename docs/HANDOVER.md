@@ -1829,13 +1829,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       another account's host, availability, proof, credit and membership are measured, never
       declared, and intermittence is paid in proportion, never in a grace window; inside the
       account the sanction goes, the proof stays. Step 1 (membership from the roster, proof kept,
-      sanction dropped) is done (§0). In order, each one PR, test first:
-      1b. A copy counts only if its holder's last audit passed (`Reliability::vouches`, read by
+      sanction dropped) is done (§0); 1b, 2 and 3 too (2026-11-10, tests
+      `red_team_a_paused_host_with_an_old_pass_vouches_for_nothing`,
+      `a_member_the_book_forgot_is_still_own`,
+      `red_team_hosted_records_only_this_accounts_chunks_and_nothing_from_a_paused_host`). Next: 4. In order, each one PR, test first:
+      1b. ✅ A copy counts only if its holder's last audit passed (`Reliability::vouches`, read by
           `holder_evidence`, `coverage`, `under_replicated`): today a paused host with an old pass
           still counts towards release and coverage.
-      2. `placing::own_devices` also takes the roster (`Store::members`), so a key the
+      2. ✅ `placing::own_devices` also takes the roster (`Store::members`), so a key the
          coordinator forgot after 7 days is not an `Account::Unknown` host.
-      3. `Request::Hosted` records only chunks this account references (`CHUNK_REFS`) and nothing
+      3. ✅ `Request::Hosted` records only chunks this account references (`CHUNK_REFS`) and nothing
          for a paused host: today any handshaken device writes rows for any ids.
       4. Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
          `status`, the page's device list (sorted most silent first) and the phone; no colour.

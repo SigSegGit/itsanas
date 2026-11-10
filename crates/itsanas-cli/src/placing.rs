@@ -63,6 +63,10 @@ pub struct Census {
 /// The account's own devices as far as this node knows them: the ones the
 /// address book lists and the ones whose claim names this account.
 ///
+/// And the roster's members: the book forgets a key the coordinator has not
+/// seen for a week and a claim ages out in hours, but a key plugged in once a
+/// month is still one of ours, not a host of another household.
+///
 /// Both, because either alone misses machines: a laptop never published has
 /// no book row, and a machine that never dialled here presented no claim. An
 /// own device left out would be ranked as a host of the same account, which
@@ -72,8 +76,10 @@ pub fn own_devices(
     listed: impl IntoIterator<Item = DeviceId>,
     accounts: &BTreeMap<DeviceId, UserId>,
     owner: UserId,
+    members: impl IntoIterator<Item = DeviceId>,
 ) -> BTreeSet<DeviceId> {
     let mut own: BTreeSet<DeviceId> = listed.into_iter().collect();
+    own.extend(members);
     own.extend(
         accounts
             .iter()
@@ -400,9 +406,24 @@ mod tests {
         );
         let accounts = BTreeMap::from([(device(2), me), (device(3), them)]);
 
-        let own = own_devices([device(1)], &accounts, me);
+        let own = own_devices([device(1)], &accounts, me, []);
 
         assert_eq!(own, BTreeSet::from([device(1), device(2)]));
+    }
+
+    /// A key the coordinator forgot and whose claim aged out is still one of
+    /// the account's, not a host of another household. Sabotage: drop the
+    /// roster from `own_devices`.
+    #[test]
+    fn a_member_the_book_forgot_is_still_own() {
+        let me =
+            itsanas_crypto::UserKeys::derive(&itsanas_crypto::MasterSecret::from_bytes([1; 32]))
+                .user_id();
+        let own = own_devices([], &BTreeMap::new(), me, [device(4)]);
+        assert!(
+            own.contains(&device(4)),
+            "a key plugged in once a month is ranked as another household's host"
+        );
     }
 
     fn store() -> (tempfile::TempDir, Store) {

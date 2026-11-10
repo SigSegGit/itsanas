@@ -1263,6 +1263,24 @@ impl Store {
         self.index.note_audit(device, passed, now_unix())
     }
 
+    /// The live members of this account's roster. See [`Index::members`].
+    pub fn members(&self) -> Result<Vec<DeviceId>> {
+        self.index.members()
+    }
+
+    /// The chunks among `chunks` that this account's files use: what a
+    /// holder record may name. A device id is free to mint, and a record
+    /// for a chunk nobody here uses is a row for ever.
+    pub fn referenced_among(&self, chunks: &[ChunkId]) -> Result<Vec<ChunkId>> {
+        let mut out = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            if self.index.reference_count(chunk)? > 0 {
+                out.push(*chunk);
+            }
+        }
+        Ok(out)
+    }
+
     /// Whether `device` is a live member of this account's roster: admitted
     /// on a claim signed with the account's key, and not revoked. The one
     /// answer to "is this one of ours", whatever the placement mode and

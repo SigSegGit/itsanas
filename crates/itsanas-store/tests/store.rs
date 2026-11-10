@@ -2112,3 +2112,52 @@ fn a_loss_sweep_over_a_healthy_disk_writes_nothing() {
         "a sweep that found every blob in place committed to the index"
     );
 }
+
+/// A host paused for lying is no copy: not proved for a release, not counted
+/// in coverage or for repair, however it once passed and however often it
+/// says `Hosted`. Sabotage: count a paused holder; let an old pass vouch.
+#[test]
+fn red_team_a_paused_host_with_an_old_pass_vouches_for_nothing() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+    store
+        .write_file("kept.txt", b"held once, then thrown away")
+        .expect("write");
+    let chunks = store.stat("kept.txt").expect("stat").expect("here").chunks;
+    let host = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &host).expect("record");
+    store.note_audit(&host, true).expect("pass");
+    let now = store.last_seen(&host).expect("seen").expect("seen");
+    assert_eq!(
+        store
+            .holder_evidence(&chunks[0], now)
+            .expect("evidence")
+            .proved,
+        1,
+        "the pass was not recorded, so this test proves nothing"
+    );
+    for _ in 0..itsanas_store::FAILURES_BEFORE_PAUSE {
+        store.note_audit(&host, false).expect("fail");
+    }
+    // It keeps saying it holds them.
+    store.record_holders(&chunks, &host).expect("record");
+    let now = store.last_seen(&host).expect("seen").expect("seen");
+    assert_eq!(
+        store
+            .holder_evidence(&chunks[0], now)
+            .expect("evidence")
+            .proved,
+        0,
+        "a host paused for lying still counts towards dropping the last copy"
+    );
+    assert_eq!(
+        store.coverage(now).expect("coverage").complete_elsewhere,
+        0,
+        "a host paused for lying is shown as a copy, so the person sees green"
+    );
+    assert!(
+        !store.under_replicated(2, now).expect("at risk").is_empty(),
+        "a host paused for lying stops repair from placing a real copy"
+    );
+}

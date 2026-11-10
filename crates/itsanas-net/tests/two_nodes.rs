@@ -2536,6 +2536,58 @@ fn red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar() {
     }
 }
 
+/// `Hosted` is a word: it records only chunks this account uses, and nothing
+/// for a host paused for lying. Sabotage: record every id; drop the pause
+/// check.
+#[test]
+fn red_team_hosted_records_only_this_accounts_chunks_and_nothing_from_a_paused_host() {
+    let owner = node(&alice(), 1);
+    let stranger = node(&MasterSecret::from_bytes([0xB2; 32]), 2);
+    let chunks = owner
+        .store
+        .write_file("mine.txt", b"chunks of this account")
+        .expect("write")
+        .chunks;
+    let minted = ChunkId::from_bytes([0x5A; 32]);
+    let id = stranger.device.device_id();
+    with_server(&owner, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &stranger.device, stranger.store.owner(), None)
+                .expect("dial");
+        client.hosted(vec![minted, chunks[0]]).expect("hosted");
+        assert!(
+            owner
+                .store
+                .remote_holders(&minted)
+                .expect("holders")
+                .is_empty(),
+            "an id this account never had got a holder row: minted ids fill the index for ever"
+        );
+        assert_eq!(
+            owner
+                .store
+                .remote_holders(&chunks[0])
+                .expect("holders")
+                .len(),
+            1,
+            "an honest claim was not recorded, so this test proves nothing"
+        );
+        owner.store.forget_holders(&chunks, &id).expect("forget");
+        for _ in 0..itsanas_store::FAILURES_BEFORE_PAUSE {
+            owner.store.note_audit(&id, false).expect("fail");
+        }
+        client.hosted(chunks.clone()).expect("hosted");
+        assert!(
+            owner
+                .store
+                .remote_holders(&chunks[0])
+                .expect("holders")
+                .is_empty(),
+            "a host paused for lying is recorded as a holder again by saying so"
+        );
+    });
+}
+
 #[test]
 fn red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder() {
     // THE ATTACK, and it costs nothing: accept everything offered, delete it
