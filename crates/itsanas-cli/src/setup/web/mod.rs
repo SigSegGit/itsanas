@@ -902,9 +902,9 @@ fn host_setting(ctx: &Context, request: &Request) -> Response {
         Err(why) => return Response::refuse(400, &why),
     };
     let features = ctx.backends.features;
-    // Not a setting: a phone's shell asks GitHub, a computer has `itsanas update`.
+    // Not a setting: a phone's shell asks GitHub, a computer runs `itsanas update`.
     if field(&form, "name") == Some("update") {
-        if let Some(refusal) = Features::refuse(features.metered, "update check") {
+        if let Some(refusal) = Features::refuse(features.update_check, "update check") {
             return refusal;
         }
         ctx.backends.host.event("update", "check");

@@ -1396,7 +1396,9 @@
       } catch (e) { $('st-pledge-said').textContent = e.message; }
     });
     $('st-check-update').addEventListener('click', function () {
-      api('POST', '/api/host', { name: 'update' }).catch(function (e) { say(e.message); });
+      api('POST', '/api/host', { name: 'update' })
+        .then(function () { say(t('Asked. If a new version is out, it is installed and ITSaNAS restarts by itself.')); })
+        .catch(function (e) { say(e.message); });
     });
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }

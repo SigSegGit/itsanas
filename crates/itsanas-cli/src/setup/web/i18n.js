@@ -440,6 +440,7 @@ window.I18N = {
       'Un fichier supprimé sur cette machine, dans le dossier, le lecteur ou un terminal, attend ici avant d’être supprimé de toutes les machines. D’ici là, il compte encore dans l’espace. Zéro jour supprime tout de suite.',
     'Days before a file is really deleted': 'Jours avant qu’un fichier soit vraiment supprimé',
     'Show the trash': 'Afficher la corbeille',
+    'Asked. If a new version is out, it is installed and ITSaNAS restarts by itself.': 'Demandé. Si une nouvelle version existe, elle est installée et ITSaNAS redémarre tout seul.',
     'The trash is empty.': 'La corbeille est vide.',
     'days before it is really deleted:': 'jours avant la suppression définitive :',
     'Restore': 'Restaurer',

@@ -63,6 +63,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
 | `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | `feature:hosting` | ✅ | ✅ | ✅ | ✅ |
+| `feature:update_check` | ✅ | ✅ | ✅ | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
 
 ## The commands

@@ -61,6 +61,11 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-10 (late): Check for updates on a computer.** The Settings button was a phone's only; it
+is now `features.update_check` (computers and Android, not an iPhone), and on a computer the page
+tells its shell, which runs `itsanas update` apart (`features::start_update`, `<home>/update.log`),
+since an update restarts every node, the page's own included.
+
 **2026-11-10 (evening): one trash on every machine; the e2e on a real phone.** Asked by Nicolas: "the
 vault is ours, a delete can be a move". The record is `itsanas_store::trash` (a file next to the store,
 `<home>/store/trash`, readable while the daemon holds the store; a phone's old `<home>/trash` moves there
@@ -3983,6 +3988,30 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+12. ⬜ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Today the
+    choice is made once, in the setup (`#background`, `features.background_choice`), and nothing
+    turns it off but `install/clean`. Wanted: a switch in Settings, for this account only (an
+    instance has its own task). The pieces exist in `setup/service.rs`: `Names::of(instance)`, the
+    Windows task (`windows_task_script`), the systemd unit (`systemd_unit`, `--user` template per
+    instance), the launchd plist (`launchd_daemon_plist`). The switch enables or disables that
+    one (`Enable-/Disable-ScheduledTask`, `systemctl --user enable|disable`, `launchctl
+    bootstrap|bootout`), through `ServiceControl` so a stand-in tests the page; only Windows can be
+    run here, so Mac and Linux need their CI job or the fleet. Route `/api/autostart`, PARITY row.
+
+11. ⬜ **Files that need not stay here** (asked by Nicolas, 2026-11-10, for any device smaller
+    than the account's largest, on every system: a 1 GB key editing several GB, little by
+    little). What exists: `keep_bytes` and `keep_only` bound what a device holds, the catalogue
+    lists absent files ("not here"), `itsanas get` and the drive fetch on demand. What is missing:
+    a state "released here" per file in the local ledger, and the gesture: bring a file here, edit
+    it, and once its new version is held by the copies wanted elsewhere
+    (`itsanas_store::catalogue` → `Copies`), let its bytes go from this device. The trap, read
+    before anything: in the synced folder a file absent from disk, present in the store and in
+    the ledger is `RemoveFromStore` (`itsanas-folder/src/decision.rs`), now the trash; a released
+    file must read as absent on purpose, so the ledger needs that state and `decide` a row for it,
+    with the red-team test that a released file is never trashed nor deleted. Then the page's
+    Files list (desktop and phone): Keep here / Free up. ProjFS does this natively on NTFS; a FAT32
+    key has only the synced folder.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`

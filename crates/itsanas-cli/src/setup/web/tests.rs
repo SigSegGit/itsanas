@@ -2505,6 +2505,41 @@ impl super::Host for Told {
     }
 }
 
+/// Check for updates on a computer, not only on a phone: the page tells the
+/// computer's shell, which runs `itsanas update` apart. An iPhone has nothing to
+/// check. Sabotage: gate the update on `features.metered` again.
+#[test]
+fn red_team_a_computer_checks_for_updates_and_an_iphone_does_not() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let told = Arc::new(Told::default());
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.host = told.clone();
+        b.features = super::Features::DESKTOP;
+    });
+    let asked = page.api("POST", "/api/host", "name=update");
+    assert_eq!(
+        asked.status, 200,
+        "a computer's Check for updates was refused: {}",
+        asked.body
+    );
+    assert_eq!(
+        *told.0.lock().expect("lock"),
+        [("update".to_owned(), "check".to_owned())],
+        "the computer was never told to check: the button does nothing"
+    );
+    drop(page);
+    let iphone = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = super::Features::IPHONE;
+    });
+    assert_eq!(
+        iphone.api("POST", "/api/host", "name=update").status,
+        403,
+        "an iPhone, installed by whoever signs it, offered an update it cannot install"
+    );
+}
+
 /// The trash in Settings, on a computer: what it lists, restores and deletes is
 /// only what is in it. Sabotage: drop `if trashed(path)` on the delete arm.
 #[test]

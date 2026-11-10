@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::web::tests::red_team_a_computer_checks_for_updates"
+  ],
+  "defences": {
+    "page: only a phone may check for updates": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "Features::refuse(features.update_check, \"update check\")",
+      "dead": "Features::refuse(features.metered, \"update check\")"
+    },
+    "page: the computer is never told to check": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        ctx.backends.host.event(\"update\", \"check\");\n",
+      "dead": ""
+    }
+  }
+}

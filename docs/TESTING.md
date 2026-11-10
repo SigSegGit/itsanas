@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1650 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 605 are red-team tests.**
+**Last updated: 2026-11-10 — 1651 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 606 are red-team tests.**
 
-**1534 of the 1650 tests have an entry of their own on this page** — an *entry*,
+**1535 of the 1651 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 26 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 350 |
+| `itsanas-cli` unit | 351 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 61 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 203 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 204 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1234,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (350)
+# `itsanas-cli` — unit tests (351)
 
 ## `bench` — measuring this machine (4)
 
@@ -1399,7 +1399,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (48)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (49)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1464,6 +1464,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `the_name_check_tells_a_person_joining_what_the_account_s_machines_offer` | `/api/name` answers `taken`, `invalid` with the reason and other_pledge_bytes: the largest pledge of the account's machines only to a person joining, null for a new account, for a name nobody holds and for a name no coordinator would take. |
 | **`red_team_a_new_account_goes_on_only_after_the_network_says_the_name_is_free`** | The page asks again when Next is pressed, blocks a new account on anything but a free name, asks a person joining under a name no account has to tick "Continue with this name", and forgets the tick when the name changes. Sabotaged (each condition changed): red. |
 | `the_space_question_is_answered_by_the_one_rule_every_platform_shares` | `/api/suggest` and the first suggestion in `/api/state` are what `pledges::suggest` says for this disk, for no other machines, for a small pledge and for one too large to fit. |
+| **`red_team_a_computer_checks_for_updates_and_an_iphone_does_not`** | Settings' Check for updates is on a computer too: the page tells the computer's shell, which runs `itsanas update` apart; an iPhone, installed by whoever signs it, is refused. Sabotaged (gate back on `metered`; no event): red. |
 | **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash on a computer lists what is in the trash, refuses to delete from every machine a file nobody trashed, restores, and keeps the days typed. Sabotaged (no `trashed` guard on delete): red. |
 | **`red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page`** | The theme is in `<html data-theme>` from the first byte, kept in the node's home for the next page, told to the shell, and the dark colours follow the system unless light is chosen. Sabotaged (insertion, saving, telling, each CSS rule): red. |
 | **`red_team_the_page_links_only_the_licence_the_source_and_the_security_policy`** | The only links out of the page are the three of the legal block, each to the project, each opened in a tab of its own with `noopener noreferrer`, and no placeholder stands where a text should be. Sabotaged (a `rel` dropped): red. |
