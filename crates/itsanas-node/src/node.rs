@@ -2139,7 +2139,15 @@ mod tests {
 
         let rendered = format!("{phrase:?}");
         assert_eq!(rendered, "Phrase(redacted)");
-        assert!(!rendered.contains(phrase.as_str().split_whitespace().next().unwrap()));
+        // Whole words: a substring check failed on ARM once a phrase began with
+        // "act", which is inside "redacted" and leaks nothing.
+        let words: Vec<&str> = phrase.as_str().split_whitespace().collect();
+        assert!(
+            !rendered
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|token| words.contains(&token)),
+            "a word of the recovery phrase is printed by Debug: {rendered}"
+        );
     }
 
     #[test]
