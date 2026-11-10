@@ -129,6 +129,16 @@ impl Reliability {
         }
     }
 
+    /// Record a failed round of one of this account's own devices: the caller
+    /// withdraws what it let go, and nothing counts against it. It holds the
+    /// account's key already, so sparing it the pause gives it nothing it could
+    /// not sign; paused, its probe would be a chunk of the account it is free
+    /// to let go again, and the pause would never lift.
+    pub const fn forgive(&mut self) {
+        self.consecutive_failures = 0;
+        self.paused = false;
+    }
+
     /// Record one failed round.
     pub const fn failed_one(&mut self, now: u64) {
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);

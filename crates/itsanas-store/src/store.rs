@@ -1263,10 +1263,12 @@ impl Store {
         self.index.note_audit(device, passed, now_unix())
     }
 
-    /// Drop what auditing has recorded against `device`. See
-    /// [`Index::forget_failures`].
-    pub fn forget_failures(&self, device: &DeviceId) -> Result<()> {
-        self.index.forget_failures(device)
+    /// Whether `device` is a live member of this account's roster: admitted
+    /// on a claim signed with the account's key, and not revoked. The one
+    /// answer to "is this one of ours", whatever the placement mode and
+    /// however long the coordinator has not seen it.
+    pub fn is_member(&self, device: &DeviceId) -> Result<bool> {
+        self.index.is_member(device)
     }
 
     /// Whether `device` should still be offered new file content.
@@ -1276,7 +1278,9 @@ impl Store {
     /// throws away. Log segments still go to it, and so does one chunk a round
     /// to answer for; each answered round pays off one failure.
     pub fn worth_sending_to(&self, device: &DeviceId) -> Result<bool> {
-        Ok(self.index.reliability(device)?.worth_sending_to())
+        // One of this account's own is never paused; one paused before it
+        // was known as such is not held to it.
+        Ok(self.index.is_member(device)? || self.index.reliability(device)?.worth_sending_to())
     }
 
     /// Peers with a failure on their record, worst first.
