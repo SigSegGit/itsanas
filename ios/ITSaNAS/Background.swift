@@ -50,6 +50,8 @@ enum Background {
             let metadataOnly = task.identifier == refresh || metered
             DispatchQueue.global(qos: .utility).async {
                 let outcome = Result { try Core.backgroundPass(metadataOnly: metadataOnly) }
+                // What the hand test reads from the PC (docs/IOS.md): no secret, a round's counts.
+                NSLog("ITSaNAS background %@: %@", task.identifier, String(describing: outcome))
                 DispatchQueue.main.async {
                     running = false
                     // Still away: nothing may hold the store when iOS ends the

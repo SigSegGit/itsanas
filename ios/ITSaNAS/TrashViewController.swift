@@ -10,7 +10,34 @@ final class TrashViewController: UITableViewController {
         super.viewDidLoad()
         title = NSLocalizedString("Trash", comment: "")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: nil, style: .plain, target: self, action: #selector(askDays))
+        showDays()
         reload()
+    }
+
+    /// How many days a file deleted from now on waits, as on Android.
+    @objc private func askDays() {
+        let alert = UIAlertController(
+            title: NSLocalizedString("Days in the trash", comment: ""),
+            message: NSLocalizedString("A file deleted from now on waits this many days.", comment: ""),
+            preferredStyle: .alert)
+        alert.addTextField { field in
+            field.keyboardType = .numberPad
+            field.text = String(Core.trashDays)
+        }
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Keep", comment: ""), style: .default) { _ in
+            guard let typed = alert.textFields?.first?.text.flatMap({ UInt64($0) }), typed >= 1 else { return }
+            Core.trashDays = typed
+            self.showDays()
+        })
+        present(alert, animated: true)
+    }
+
+    private func showDays() {
+        navigationItem.rightBarButtonItem?.title =
+            String(format: NSLocalizedString("%d days", comment: ""), Int(Core.trashDays))
     }
 
     private func reload() {

@@ -64,13 +64,18 @@
     },
     "touch id: on with nothing": {
       "file": "crates/itsanas-ios/src/keychain.rs",
-      "live": "        unlock().is_some() && system::set(GUARDED, \"on\").is_ok()\n",
-      "dead": "        system::set(GUARDED, \"on\").is_ok()\n"
+      "live": "        unlock().is_some() && system::set(GUARDED, UNSEEN).is_ok()\n",
+      "dead": "        system::set(GUARDED, UNSEEN).is_ok()\n"
     },
     "touch id: sign out leaves it on": {
       "file": "crates/itsanas-ios/src/keychain.rs",
       "live": "    system::forget(PASSPHRASE);\n    system::forget(GUARDED);\n",
       "dead": "    system::forget(PASSPHRASE);\n"
+    },
+    "touch id: a finger enrolled later opens": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "        Some(kept) => kept == state.as_bytes(),\n",
+      "dead": "        Some(_) => true,\n"
     }
   }
 }

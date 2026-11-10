@@ -234,6 +234,31 @@ fn red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger() {
 }
 
 #[test]
+fn red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    keychain::set("a passphrase").expect("kept");
+    assert!(keychain::set_guarded(true), "Touch ID did not turn on");
+    let first = std::ffi::CString::new("fingers A").expect("state");
+    let later = std::ffi::CString::new("fingers A and B").expect("state");
+    let seen = itsanas_finger_matches(first.as_ptr());
+    let again = itsanas_finger_matches(first.as_ptr());
+    let added = itsanas_finger_matches(later.as_ptr());
+    let none = itsanas_finger_matches(c"".as_ptr());
+    keychain::forget();
+    assert!(
+        seen && again,
+        "the fingers Touch ID was turned on with no longer open the app"
+    );
+    assert!(
+        !added && !none,
+        "a finger enrolled later opens the app: whoever knows the phone's code adds theirs"
+    );
+}
+
+#[test]
 fn a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round() {
     let _turn = host::tests::SERIAL
         .lock()

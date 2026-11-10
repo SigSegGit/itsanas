@@ -42,7 +42,9 @@ pub(crate) fn change_passphrase(
     Identity::secrets(home, &current)?;
     let new = forgot::new_passphrase(prompt, service)?;
     let renew = service.stored_passphrase().is_some();
-    Node::change_passphrase(home, &current, &new)?;
+    super::unlock::changing(home, &new, super::unlock::platform_gate, || {
+        Node::change_passphrase(home, &current, &new)
+    })?;
     if renew {
         // Otherwise the service would start next time with a passphrase that
         // opens nothing.

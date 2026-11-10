@@ -1320,7 +1320,10 @@ fn change_passphrase(home: &Path, recovery: bool) -> Result<()> {
         println!("recovery container re-sealed under the new passphrase.");
     }
 
-    if let Err(error) = Node::change_passphrase(home, &current, &new) {
+    // Sealed, the system asks now, and the seal the daemon reads follows.
+    if let Err(error) = setup::unlock::changing(home, &new, setup::unlock::platform_gate, || {
+        Node::change_passphrase(home, &current, &new)
+    }) {
         if recovery {
             eprintln!(
                 "the recovery container is already under the NEW passphrase, and this \
@@ -1330,6 +1333,9 @@ fn change_passphrase(home: &Path, recovery: bool) -> Result<()> {
         return Err(error);
     }
     println!("passphrase changed for this machine's keystore.");
+    if setup::unlock::is_on(home) {
+        println!("the copy sealed for the daemon is sealed again under it.");
+    }
 
     println!();
     println!("Still under the old passphrase, and not changed by this:");

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1635 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 593 are red-team tests.**
+**Last updated: 2026-11-04 — 1637 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 595 are red-team tests.**
 
-**1519 of the 1635 tests have an entry of their own on this page** — an *entry*,
+**1521 of the 1637 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,9 +179,9 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 347 |
+| `itsanas-cli` unit | 348 |
 | `itsanas-android` unit | 24 |
-| `itsanas-ios` unit | 18 |
+| `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 197 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 199 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1044,6 +1044,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `the_form_reaches_every_setting` | Each field of the form reaches its setting. |
 | **`red_team_a_sealed_passphrase_opens_for_the_person_and_leaves_no_clear_copy`** | Sealed behind the system's unlock: the clear copy is gone, another key opens nothing, and switching off puts the passphrase back. |
 | **`red_team_a_seal_that_cannot_be_opened_never_replaces_the_passphrase`** | A refusal, or a system answering differently twice, leaves the passphrase where it was. |
+| **`red_team_a_passphrase_changed_while_sealed_is_the_one_the_seal_gives`** | A passphrase changed while sealed is sealed again; a refusal or another key changes neither the keystore nor the seal. |
 | `the_legal_texts_are_served_and_linked_from_both_screens` | The three texts are in the program, and on the first screen and in Settings. |
 | **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
 | **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
@@ -1224,7 +1225,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (347)
+# `itsanas-cli` — unit tests (348)
 
 ## `bench` — measuring this machine (4)
 
@@ -2097,7 +2098,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (18)
+# `itsanas-ios` — the C boundary (19)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
@@ -2112,6 +2113,7 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 | `a_remembered_passphrase_comes_back_until_it_is_forgotten` | The Keychain side of the service keeps the passphrase and forgets it at Sign out; refusing to keep it failed a step of setup, and the new account with it. |
 | **`red_team_a_passphrase_that_does_not_open_is_not_remembered`** | A mistyped passphrase is not kept, one that opened is, the kept one opens the account again, and a forgotten one opens nothing. Sabotaged (kept before the check): red. |
 | `a_background_pass_runs_with_touch_id_on` | The finger locks the screen, so a round iOS grants still opens the account. Sabotaged (reads as the engine does): red. |
+| **`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`** | The first finger after Touch ID is turned on records which are enrolled; the same set opens again, another set or none does not. Sabotaged (any set opens): red. |
 | **`red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger`** | With Touch ID on the screen is told to ask for a finger, and with it off it is not; otherwise the app opens for whoever holds the phone. Sabotaged (never asks): red. |
 | `a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round` | Nothing kept: no round. A kept passphrase opens the account, the round is tried, and the node is left to the app to close. |
 | `a_background_pass_deletes_what_the_trash_has_held_long_enough` | A file past its days is deleted in the pass, with the app closed. Sabotaged (no trash): red. |

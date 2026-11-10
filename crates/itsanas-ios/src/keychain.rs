@@ -88,6 +88,25 @@ pub(crate) fn guarded() -> bool {
     system::get(GUARDED).is_some()
 }
 
+/// What the lock holds until a first finger says which ones are enrolled.
+const UNSEEN: &str = "on";
+
+/// Whether the fingers enrolled now, as `state` gives them (iOS's
+/// `evaluatedPolicyDomainState`), are those the lock first saw. The first
+/// finger after the lock is turned on records them; a finger enrolled later
+/// changes `state`, and then only the passphrase opens, until the lock is
+/// turned off and on again. With no lock, any state will do.
+pub(crate) fn same_fingers(state: &str) -> bool {
+    if state.is_empty() {
+        return !guarded();
+    }
+    match system::get(GUARDED) {
+        None => true,
+        Some(kept) if kept == UNSEEN.as_bytes() => system::set(GUARDED, state).is_ok(),
+        Some(kept) => kept == state.as_bytes(),
+    }
+}
+
 /// The passphrase, for opening the account.
 pub(crate) fn unlock() -> Option<Zeroizing<String>> {
     let bytes = Zeroizing::new(system::get(PASSPHRASE)?);
@@ -117,7 +136,7 @@ pub(crate) fn set_guarded(on: bool) -> bool {
     }
     if on {
         // With nothing kept the finger would have nothing to open.
-        unlock().is_some() && system::set(GUARDED, "on").is_ok()
+        unlock().is_some() && system::set(GUARDED, UNSEEN).is_ok()
     } else {
         system::forget(GUARDED);
         true

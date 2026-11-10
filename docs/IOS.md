@@ -40,12 +40,17 @@ item, which a round in the background has to read. The engine is told there is
 no remembered passphrase
 (`red_team_touch_id_keeps_the_passphrase_from_the_engine`), and the lock does not
 turn on with nothing to open
-(`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`).
+(`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`). A finger
+enrolled after the lock was turned on opens nothing: the first finger records
+which ones are enrolled (the system's `evaluatedPolicyDomainState`), and then
+only the passphrase opens, until the lock is turned off and on again
+(`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`).
 
 **A delete waits in a trash**, 30 days on this phone, as on Android: swipe a
 file; the trash button restores it or deletes it from every machine
-(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The days are
-not yet a setting here.
+(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The days
+are set by the button of the trash screen, one at least
+(`testTrashDaysAreKeptAndNeverBelowOne`), and apply to files deleted from then on.
 
 **Settings hides what an iPhone does not do**: lending space, the mobile-data
 choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses
@@ -135,6 +140,60 @@ not the same as the App Store or TestFlight.
 3. The same 7-day limit applies with a free Apple ID; after that, sign again.
 4. The signed app is for your own phone; distribution to other people still
    needs an Apple-supported distribution route.
+
+## The hand test
+
+What no test above can do: a real iPhone, a real finger, iOS deciding when a
+round runs. Each step says what to do and what must be seen; note the step's
+number and OK or KO, with a screenshot for a KO.
+
+0. **Get the build** from the last green run of `main`, then sign and install
+   it with your Apple ID in Sideloadly or AltStore:
+
+   ```sh
+   gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
+   ```
+
+   Keep `idevicesyslog | grep -i itsanas` running on the PC, with the phone
+   on USB, for steps 6 and 7.
+1. **Open the account.** Log in with an existing account (or create one). The
+   file list appears.
+2. **A file from a computer.** Put a small file in the synced folder of a
+   computer of the account, then press Sync on the phone: it is listed, and
+   opens.
+3. **The trash.** In the trash, press the days button, type `1`, Keep: the
+   button shows 1. Swipe a file, Delete: it leaves the list and the trash
+   shows it with its days left. Restore it: it is back in the list. Delete it
+   again, then "Delete now" in the trash: after a round it is gone from the
+   computer too.
+4. **Touch ID.** Settings, Security, turn on the fingerprint. Leave the app
+   for the home screen, come back: a finger is asked. A finger that is not
+   enrolled: the passphrase field stays, and the passphrase opens. The right
+   finger: the file list.
+5. **A finger enrolled later.** In the iPhone's settings, add a fingerprint.
+   Back in ITSaNAS, any finger leaves the passphrase field; the passphrase
+   opens. Turn the fingerprint off and on in Settings: a finger opens again.
+6. **A round in the background.** First check that iOS's Settings, General,
+   Background App Refresh lists ITSaNAS, switched on: if it is missing, the
+   free signing dropped the background modes, and say so. Then put a new file
+   on a computer, leave the app for the home screen, and leave the phone on
+   its charger on Wi-Fi for an hour or more. The PC's log shows a line
+   `ITSaNAS background` when iOS grants a round; open the app without pressing
+   Sync: the new file is listed.
+7. **The same with Touch ID on**, as step 6: the round still runs, and the app
+   still asks for a finger when opened.
+8. **Settings hides what an iPhone does not do**: no Disks, no USB key, no
+   Advanced section, no lending of space.
+9. **Sign out**, from Settings: back on the first screen; opening the app
+   again asks to log in.
+
+And on Windows, for the passphrase sealed behind Windows Hello:
+
+10. In Settings, Security, turn on Windows Hello, then "Change my passphrase".
+    Windows Hello is asked before anything changes; refuse it: the passphrase
+    is unchanged and the old one still opens. Do it again and accept: sign out
+    of Windows and back in, and the service starts, with Windows Hello, on the
+    new passphrase.
 
 ## From the PC, with the iPhone on USB
 
