@@ -11,7 +11,7 @@ options:
     iOS: "14.0"
 settings:
   base:
-    MARKETING_VERSION: "0.1.18"
+    MARKETING_VERSION: "0.1.19"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1"
