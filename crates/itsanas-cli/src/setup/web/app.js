@@ -930,6 +930,52 @@
     line.textContent = said(reply.said);
   }
 
+  // ------------------------------------------------------------------- trash
+  //
+  // The record alone (/api/trash): the daemon holds the store, and its next
+  // round writes a restored file back into the folder, or deletes a file from
+  // every machine.
+  async function trash(action, path) {
+    const line = $('st-trash-said');
+    const list = $('st-trash');
+    line.textContent = '';
+    let reply;
+    try {
+      reply = action
+        ? await api('POST', '/api/trash', { action: action, path: path || '', days: $('st-trash-days').value })
+        : await api('GET', '/api/trash');
+    } catch (e) { line.textContent = e.message; return; }
+    $('st-trash-days').value = reply.days;
+    list.textContent = '';
+    if (!reply.trashed.length) {
+      const empty = document.createElement('li');
+      empty.textContent = t('The trash is empty.');
+      list.appendChild(empty);
+    }
+    reply.trashed.forEach(function (row) {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = row.path + ' \u00b7 ' + t('days before it is really deleted:') + ' ' + row.days;
+      item.appendChild(label);
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.textContent = t('Restore');
+      restore.addEventListener('click', function () { trash('restore', row.path); });
+      item.appendChild(restore);
+      const now = document.createElement('button');
+      now.type = 'button';
+      now.textContent = t('Delete from the network');
+      now.addEventListener('click', function () {
+        if (window.confirm(t('It disappears from every machine of the account. There is no undo.') + '\n' + row.path)) {
+          trash('delete', row.path);
+        }
+      });
+      item.appendChild(now);
+      list.appendChild(item);
+    });
+    line.textContent = said(reply.said);
+  }
+
   // ------------------------------------------ machines to sync with (Advanced)
   async function peers(action, address) {
     const line = $('st-peers-said');
@@ -1265,6 +1311,8 @@
     $('st-delete-go').addEventListener('click', deleteGo);
     $('st-devices-show').addEventListener('click', function () { showDevices($('st-devices'), $('st-devices-said')); });
     $('st-peers-show').addEventListener('click', function () { peers(null, ''); });
+    $('st-trash-show').addEventListener('click', function () { trash(null, ''); });
+    $('st-trash-save').addEventListener('click', function () { trash('days', ''); });
     $('st-peer-add').addEventListener('click', function () {
       const address = $('st-peer-address').value.trim();
       if (address) { peers('add', address); }
@@ -1348,7 +1396,9 @@
       } catch (e) { $('st-pledge-said').textContent = e.message; }
     });
     $('st-check-update').addEventListener('click', function () {
-      api('POST', '/api/host', { name: 'update' }).catch(function (e) { say(e.message); });
+      api('POST', '/api/host', { name: 'update' })
+        .then(function () { say(t('Asked. If a new version is out, it is installed and ITSaNAS restarts by itself.')); })
+        .catch(function (e) { say(e.message); });
     });
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }

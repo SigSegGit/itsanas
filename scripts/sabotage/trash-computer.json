@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "trash"
+  ],
+  "defences": {
+    "trash: a computer's delete is written at once": {
+      "file": "crates/itsanas-store/src/trash.rs",
+      "live": "    let wait = days(store.root());\n    if wait == 0 {",
+      "dead": "    let wait = days(store.root());\n    if wait == 0 || wait > 0 {"
+    },
+    "page: the trash deletes a file nobody trashed": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        (Some(\"delete\"), Some(path)) if trashed(path) => {",
+      "dead": "        (Some(\"delete\"), Some(path)) => {"
+    }
+  }
+}

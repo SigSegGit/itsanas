@@ -1,12 +1,6 @@
-//! A phone's trash: what the person deleted here, and what left the chosen folder.
-//!
-//! # Kept on this phone, on purpose
-//!
-//! A trashed file stays a live file of the account: same path, same content, same
-//! copies, counted in the same space. Only this phone hides it, and only the delay
-//! running out, or the person, sends the real delete. So the log and the other
-//! machines learn nothing new until then, and losing this file, or the phone,
-//! leaves every file in the account: the failure costs room, never a photo.
+//! The trash, seen from a machine's home: the record itself is
+//! `itsanas_store::trash`, shared by every way a file is deleted here, and what
+//! is only a phone's is below: what left the chosen folder.
 //!
 //! # Never from an empty listing
 //!
@@ -16,13 +10,11 @@
 //! the account and gone from the phone on purpose, and is not asked about again.
 
 use crate::phone_folder::{self, FolderFile};
+use itsanas_store::trash as record;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
-
-/// One line per trashed file, `due_unix<TAB>path`, rewritten whole.
-const RECORD: &str = "trash";
 
 /// The paths the chosen folder last listed, one per line.
 const LISTED: &str = "phone-folder-listed";
@@ -31,37 +23,23 @@ const LISTED: &str = "phone-folder-listed";
 /// appended: each line is one answer, and there are as many as answers given.
 const KEPT: &str = "phone-folder-kept";
 
-const DAY: u64 = 24 * 60 * 60;
+/// Where this home's trash is kept: next to its store. Up to 0.1.19 a phone
+/// kept it in its home; it is moved on first use, so a file trashed then is
+/// neither shown again nor forgotten.
+#[must_use]
+pub fn record_dir(home: &Path) -> PathBuf {
+    let dir = itsanas_node::Node::store_path(home);
+    let old = home.join("trash");
+    if old.is_file() && dir.is_dir() && !dir.join("trash").exists() {
+        let _ = std::fs::rename(&old, dir.join("trash"));
+    }
+    dir
+}
 
 /// Trashed paths and when each is really deleted.
 #[must_use]
 pub fn list(home: &Path) -> BTreeMap<String, u64> {
-    let text = std::fs::read(home.join(RECORD)).unwrap_or_default();
-    String::from_utf8_lossy(&text)
-        .lines()
-        .filter_map(|line| {
-            let (due, path) = line.split_once('\t')?;
-            Some((path.to_owned(), due.parse().ok()?))
-        })
-        .collect()
-}
-
-fn write_all(home: &Path, name: &str, text: &str) -> std::io::Result<()> {
-    // Renamed into place: a torn file would hide or show the wrong files.
-    let temporary = home.join(format!("{name}.new"));
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, home.join(name))
-}
-
-fn save(home: &Path, trashed: &BTreeMap<String, u64>) -> std::io::Result<()> {
-    let mut text = String::new();
-    for (path, due) in trashed {
-        text.push_str(&due.to_string());
-        text.push('\t');
-        text.push_str(path);
-        text.push('\n');
-    }
-    write_all(home, RECORD, &text)
+    record::list(&record_dir(home))
 }
 
 /// Put `path` in the trash for `days` days.
@@ -70,12 +48,7 @@ fn save(home: &Path, trashed: &BTreeMap<String, u64>) -> std::io::Result<()> {
 ///
 /// When the record cannot be written; the file then stays where it was.
 pub fn put(home: &Path, path: &str, now: u64, days: u64) -> std::io::Result<()> {
-    let mut trashed = list(home);
-    trashed.insert(
-        path.to_owned(),
-        now.saturating_add(days.saturating_mul(DAY)),
-    );
-    save(home, &trashed)
+    record::put(&record_dir(home), path, now, days)
 }
 
 /// Take `path` out of the trash: it is a file like any other again.
@@ -84,21 +57,20 @@ pub fn put(home: &Path, path: &str, now: u64, days: u64) -> std::io::Result<()> 
 ///
 /// When the record cannot be written; the file then stays in the trash.
 pub fn take_out(home: &Path, path: &str) -> std::io::Result<()> {
-    let mut trashed = list(home);
-    if trashed.remove(path).is_some() {
-        save(home, &trashed)?;
-    }
-    Ok(())
+    record::take_out(&record_dir(home), path)
 }
 
 /// The trashed paths whose delay has run out.
 #[must_use]
 pub fn due(home: &Path, now: u64) -> Vec<String> {
-    list(home)
-        .into_iter()
-        .filter(|(_, due)| *due <= now)
-        .map(|(path, _)| path)
-        .collect()
+    record::due(&record_dir(home), now)
+}
+
+fn write_all(home: &Path, name: &str, text: &str) -> std::io::Result<()> {
+    // Renamed into place: a torn file would hide or show the wrong files.
+    let temporary = home.join(format!("{name}.new"));
+    std::fs::write(&temporary, text)?;
+    std::fs::rename(&temporary, home.join(name))
 }
 
 /// Remember what the chosen folder holds now.
@@ -187,29 +159,40 @@ mod tests {
         }
     }
 
+    /// The trash on a computer: `itsanas rm` and the drive delete through
+    /// `itsanas_store::trash::delete`. Sabotage: make its `wait == 0` always true.
     #[test]
-    fn a_trashed_file_comes_due_after_its_days_and_not_before() {
+    fn red_team_a_delete_on_a_computer_waits_in_the_trash_unless_it_is_off() {
         let dir = tempfile::tempdir().expect("tempdir");
-        put(dir.path(), "a/b.jpg", 1_000, 30).expect("put");
-        assert!(
-            due(dir.path(), 1_000 + 30 * DAY - 1).is_empty(),
-            "deleted before its delay ran out"
-        );
-        assert_eq!(
-            due(dir.path(), 1_000 + 30 * DAY),
-            ["a/b.jpg"],
-            "never deleted: the space stays taken"
-        );
-    }
+        let home = dir.path().join("me");
+        let (node, _) = itsanas_node::Node::create(&home, "a passphrase", "camille").expect("node");
+        for path in ["kept.txt", "gone.txt"] {
+            node.store.write_stream(path, &b"bytes"[..]).expect("write");
+        }
+        node.store.flush_segment().expect("seal");
+        let delete = |path: &str| {
+            itsanas_store::trash::delete(&node.store, &node.vault, path, 1_000).expect("delete")
+        };
 
-    #[test]
-    fn a_restored_file_never_comes_due() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        put(dir.path(), "a.jpg", 0, 1).expect("put");
-        take_out(dir.path(), "a.jpg").expect("take out");
+        assert!(delete("kept.txt"));
         assert!(
-            due(dir.path(), u64::MAX).is_empty(),
-            "a restored file was deleted when the delay ran out"
+            node.store.tombstone("kept.txt").expect("read").is_none(),
+            "a delete on a computer was written at once: every machine drops the file, no undo"
+        );
+        assert!(
+            list(&home).contains_key("kept.txt"),
+            "the deleted file is not in the trash"
+        );
+        assert!(
+            !delete("never.txt"),
+            "a file the account never had was put in the trash"
+        );
+
+        record::set_days(&record_dir(&home), 0).expect("days");
+        assert!(delete("gone.txt"));
+        assert!(
+            node.store.tombstone("gone.txt").expect("read").is_some(),
+            "with the trash off, a delete still waits: the person asked for it at once"
         );
     }
 

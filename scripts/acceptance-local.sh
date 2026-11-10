@@ -38,7 +38,14 @@ KIT=${ACCEPTANCE_KIT:-scripts/acceptance.sh}
 [ -x "$BIN" ] || [ -x "$BIN.exe" ] || { echo "no itsanas binary at $BIN (cargo build -p itsanas-cli)"; exit 2; }
 [ -x "$COORD" ] || [ -x "$COORD.exe" ] || { echo "no coordinator binary at $COORD (cargo build -p itsanas-coordinator)"; exit 2; }
 
-WORK=$(mktemp -d)
+# ACCEPTANCE_DIR puts the three machines on another disk (a USB key, a FAT32
+# drive): the same tests, on the file system a member will really use.
+if [ -n "${ACCEPTANCE_DIR:-}" ]; then
+    mkdir -p "$ACCEPTANCE_DIR"
+    WORK=$(mktemp -d -p "$ACCEPTANCE_DIR")
+else
+    WORK=$(mktemp -d)
+fi
 export ITSANAS_RECEIPTS="$WORK/receipts"
 export ITSANAS_BIN="$BIN"
 PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -147,6 +154,9 @@ check "login --from keeps the coordinator it recovered from" \
 # Test A's procedure pledges on every machine, and a host refuses to store past
 # its pledge -- which is zero until somebody says otherwise.
 for m in m1 m2 m3; do must node "$m" pledge 1G; done
+# F is about a delete reaching every machine, which a delete does once it leaves
+# the trash; the trash's own waiting is tested on its own (`itsanas-folder`).
+for m in m1 m2 m3; do must node "$m" trash days 0; done
 d_file="$WORK/d-source.bin"
 head -c 700000 /dev/urandom >"$d_file"
 must node m1 put d/restored.bin "$d_file"
@@ -471,8 +481,10 @@ check "the coordinator hands out the announced address, with the announced port"
 # loses its port forward stays unreachable with nothing to say why.
 must node m1 announce --forget
 must node m1 register
+# Its own address: loopback on a bench, or the global IPv6 address a machine
+# with one publishes instead (`prefer_global_ipv6`), as the owner's laptop does.
 check "forgetting it publishes this machine's own address again" \
-    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -q '127.0.0.1:'"
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -Eq '127\.0\.0\.1:|\[[0-9a-f:]+\]:'"
 
 NEW_PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 must env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_NEW_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" passphrase

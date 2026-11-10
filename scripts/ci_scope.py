@@ -340,6 +340,7 @@ def plan():
             print(f"git diff failed ({error}); planning a full run")
             event = "pull_request (git diff failed)"
     result = decide(event, labels, files, packages, with_mac_branch(files))
+    result["jobs"] = substitute(result["jobs"], receipts(os.environ.get("HEAD_SHA", "")))
 
     outputs = {key: str(result["jobs"][job]["run"]).lower() for job, key in JOBS.items()}
     outputs.update(
@@ -381,8 +382,55 @@ def plan():
     return 0
 
 
-def check_needs(needs):
-    """Every problem with a finished run's jobs, given `toJSON(needs)`."""
+# A phone job a real device stood in for, and the commit status that says it
+# did: `scripts/device-receipt.sh` posts it after a run on the owner's own
+# phone passed, for that exact commit (Nicolas, 2026-11-10: GitHub has no iPhone
+# to spare most days, and its emulator is not a phone).
+RECEIPTS = {"android-app": "real-device/android", "ios-app": "real-device/iphone"}
+
+
+def receipts(sha):
+    """The real-device receipts on `sha`: context -> description. `DEVICE_RECEIPTS`
+    (a JSON object) stands in for GitHub in the tests; no token, no sha or no
+    answer is no receipt, never a guess."""
+    if os.environ.get("DEVICE_RECEIPTS"):
+        return json.loads(os.environ["DEVICE_RECEIPTS"])
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not (sha and repo and os.environ.get("GH_TOKEN")):
+        return {}
+    try:
+        out = subprocess.run(
+            ["gh", "api", f"repos/{repo}/commits/{sha}/statuses", "--paginate",
+             "-q", '.[] | select(.state == "success") | .context + "\t" + .description'],
+            capture_output=True, text=True, check=True, timeout=60,
+        ).stdout
+    except Exception as error:
+        print(f"the commit's statuses could not be read ({error}); no real-device receipt")
+        return {}
+    found = {}
+    for line in out.splitlines():
+        context, _, description = line.partition("\t")
+        if context in RECEIPTS.values():
+            found.setdefault(context, description)
+    return found
+
+
+def substitute(jobs, found):
+    """The iPhone job, planned, is skipped when a real iPhone already passed on
+    this commit: a Mac runner may not come for hours, and this is not a test
+    less. The Android job still runs, since its runners are always there; the
+    verdict accepts the receipt only if no runner finished it."""
+    jobs = dict(jobs)
+    job = "ios-app"
+    if jobs[job]["run"] and RECEIPTS[job] in found:
+        jobs[job] = {"run": False, "why": f"tested on a real iPhone for this commit: {found[RECEIPTS[job]]}"}
+    return jobs
+
+
+def check_needs(needs, found=None):
+    """Every problem with a finished run's jobs, given `toJSON(needs)` and the
+    real-device receipts on the commit."""
+    found = found or {}
     problems = []
     changes = needs.get("changes")
     if not changes or changes.get("result") != "success":
@@ -402,13 +450,20 @@ def check_needs(needs):
             elif not wrote.get("why"):
                 problems.append(f"{job}: skipped with no reason written down")
         elif result != "success":
+            # A phone job no runner finished, on a commit a real phone passed. A
+            # failure is never covered: a runner that found a bug found it.
+            if result != "failure" and RECEIPTS.get(job) in found:
+                print(f"{job}: {result}, covered by {RECEIPTS[job]}: {found[RECEIPTS[job]]}")
+                continue
             # Not a list of bad words: GitHub also says "abandoned", for a job no runner took.
             problems.append(f"{job}: {result}")
     return problems
 
 
 def verify():
-    problems = check_needs(json.loads(os.environ.get("NEEDS") or "{}"))
+    problems = check_needs(
+        json.loads(os.environ.get("NEEDS") or "{}"), receipts(os.environ.get("HEAD_SHA", ""))
+    )
     if problems:
         print("this run is not green:")
         for problem in problems:

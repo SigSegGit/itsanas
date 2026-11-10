@@ -22,7 +22,7 @@ Fleet → Run workflow). For each machine that answers:
 | **S** | the `test` node's daemon took a round in the last three intervals (its `status.snapshot`) | -- |
 | **L** | what each machine's `test` node counts -- `copies H of W` on its snapshot's first line, which its icon draws (MVP.md L) -- said in the row: safe, NOT safe past the grace (it reads `exposed`, by `Copies::exposed`'s rule to the second), or NOT safe within the two-round grace. It says what the copies rule says, not the icon's colour: a paused node shows paused whatever its copies. A PASS either way: the row tests that the machine tells, not that the fleet is full. FAIL when a daemon that names its build stores files and counts no copies; SKIP for a daemon from 0.1.12 or before, a node storing nothing, or an agent copy older than this row (run `setup.sh` again) | -- |
 | **B** | a file written on the first machine is byte for byte on every other | `B write`, `B check` |
-| **F** | deleted there, it is gone everywhere, and still gone a round later | `F delete`, `F check` |
+| **F** | deleted there, it is gone everywhere, and still gone a round later; the agents turn the `test` home's trash off before `F delete`, since a delete would otherwise wait in the deleting machine's trash | `F delete`, `F check` |
 | **C** | a canary written on the first machine, once it has crossed, is nowhere in what another account's node holds for `test` (its vault's directory for that owner) nor in that node's databases; SKIP, not PASS, when it holds nothing for `test`, with what that account's own daemon says of its pledge and how many peers it hosts (`status.snapshot`), or that it has none | `C plant`, `C scan` |
 
 The **first machine is the runner itself**, a member of the `test` account

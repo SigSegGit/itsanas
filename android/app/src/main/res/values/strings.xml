@@ -97,6 +97,8 @@
     <string name="trash_left_folder">Gone from the folder on this phone, still in the account</string>
     <string name="trash_restore">Restore</string>
     <string name="trash_keep">Keep in the account</string>
+    <string name="trash_put_back">Put back in the folder</string>
+    <string name="trash_folder_not_writable">This phone may only read the folder. Choose it again on the Files screen so the app may write into it.</string>
     <string name="trash_delete">Delete from the network</string>
     <string name="trash_delete_body">It disappears from every machine of the account. There is no undo.</string>
 </resources>

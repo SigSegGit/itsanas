@@ -225,9 +225,9 @@ fn deleting_one_of_two_copies_is_a_deletion_not_a_rename() {
         report.renamed_here
     );
     assert!(
-        report
-            .lines(None)
-            .contains(&"  del  a.txt (deleted here, will be deleted everywhere)".to_owned()),
+        report.lines(None).contains(
+            &"  del  a.txt (deleted here, everywhere once it leaves the trash)".to_owned()
+        ),
         "the deletion of a.txt is not named: {:?}",
         report.lines(None)
     );
@@ -290,7 +290,7 @@ fn a_bounded_log_still_names_every_deletion_and_conflict() {
 fn red_team_a_file_name_cannot_forge_or_disguise_a_line_in_the_log() {
     let node = node(7);
     let root = node.folder.root();
-    let forged = "notes.txt\n  del  thesis.odt (deleted here, will be deleted everywhere)";
+    let forged = "notes.txt\n  del  thesis.odt (deleted here, everywhere once it leaves the trash)";
     write_disk(root, forged, b"an innocent-looking file");
     let disguised = "invoice\u{202E}fdp.exe";
     write_disk(root, disguised, b"a program pretending to be a document");

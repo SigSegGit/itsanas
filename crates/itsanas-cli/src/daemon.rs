@@ -1373,6 +1373,13 @@ fn stop_if_the_vault_came_or_went(node: &Node, shutdown: &AtomicBool) {
 /// Whether the folder changed here: files to send out.
 fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) -> bool {
     let mut changed = false;
+    // What waited its days in the trash is deleted now, from every machine.
+    if let Err(error) = crate::phone::purged_trash(node) {
+        eprintln!(
+            "itsanas: the trash could not be emptied: {}",
+            error.message()
+        );
+    }
     if let Some((folder, _)) = folder {
         changed = reconcile(node, folder, deep);
     } else if let Err(error) = node.bound_writes() {

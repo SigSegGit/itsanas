@@ -47,6 +47,9 @@ pub struct Features {
     pub remove_account: bool,
     /// Lend space to other members. An iPhone ends an app it does not show.
     pub hosting: bool,
+    /// Check for updates now. A computer runs `itsanas update`, an Android
+    /// phone asks for the signed APK; an iPhone is installed by whoever signs it.
+    pub update_check: bool,
 }
 
 impl Features {
@@ -65,6 +68,7 @@ impl Features {
         metered: false,
         remove_account: false,
         hosting: true,
+        update_check: true,
     };
 
     /// A phone: its files are in the app, its loop runs when the policy says, and it has the one
@@ -83,6 +87,7 @@ impl Features {
         metered: true,
         remove_account: true,
         hosting: true,
+        update_check: true,
     };
 
     /// An iPhone: a phone that cannot serve anybody in the background, is
@@ -92,12 +97,13 @@ impl Features {
         hosting: false,
         metered: false,
         biometric: false,
+        update_check: false,
         ..Self::PHONE
     };
 
     /// Every feature, by the name the page uses.
     #[must_use]
-    pub const fn all(self) -> [(&'static str, bool); 13] {
+    pub const fn all(self) -> [(&'static str, bool); 14] {
         [
             ("folder", self.folder),
             ("background_choice", self.background_choice),
@@ -112,6 +118,7 @@ impl Features {
             ("metered", self.metered),
             ("remove_account", self.remove_account),
             ("hosting", self.hosting),
+            ("update_check", self.update_check),
         ]
     }
 
@@ -149,6 +156,26 @@ impl Features {
     };
 }
 
+/// Start `itsanas update` on its own, its words in `<home>/update.log`.
+fn start_update(home: &std::path::Path) -> std::io::Result<()> {
+    use std::process::{Command, Stdio};
+    let log = std::fs::File::create(home.join("update.log"))?;
+    let mut command = Command::new(std::env::current_exe()?);
+    command
+        .arg("update")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    #[cfg(windows)]
+    {
+        // No console window flashing over the page.
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command.spawn().map(drop)
+}
+
 /// The computer's own: its unlock, when the page turns it on or off.
 #[derive(Debug)]
 pub struct ComputerUnlock {
@@ -159,6 +186,16 @@ pub struct ComputerUnlock {
 impl Host for ComputerUnlock {
     fn event(&self, name: &str, value: &str) {
         use crate::setup::unlock;
+        if name == "update" {
+            // `itsanas update`, apart from this page: it checks, installs and
+            // restarts every node, this page's own included, which a call made
+            // inside the page would not live through. What it said is in
+            // `<home>/update.log`.
+            if let Err(why) = start_update(&self.home) {
+                eprintln!("itsanas: the update check did not start: {why}");
+            }
+            return;
+        }
         if name != "biometric" {
             return;
         }
@@ -204,12 +241,13 @@ mod tests {
         let phone = Features::PHONE.all();
         let desktop = Features::DESKTOP.all();
         for ((name, on_phone), (_, on_desktop)) in phone.into_iter().zip(desktop) {
-            // Every Android phone and computer lends space; only an iPhone cannot.
-            if name == "hosting" {
+            // Every Android phone and computer lends space and checks for
+            // updates; only an iPhone cannot.
+            if matches!(name, "hosting" | "update_check") {
                 assert!(on_phone && on_desktop, "{name}");
                 assert!(
-                    Features::IPHONE.all().contains(&("hosting", false)),
-                    "an iPhone offered hosting"
+                    Features::IPHONE.all().contains(&(name, false)),
+                    "an iPhone offered {name}"
                 );
                 continue;
             }

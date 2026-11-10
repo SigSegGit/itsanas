@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -34,25 +35,97 @@ object PhoneFolder {
         runCatching { displayName(context, tree) }.getOrNull() ?: tree.lastPathSegment
     }
 
-    /** Keep the system's permission across restarts, which a picker's answer does not. */
+    /**
+     * Keep the system's permission across restarts, which a picker's answer does not.
+     * Writing too, so the trash can put back a file that left the folder; read alone
+     * when a provider grants no more, and the folder still syncs.
+     */
     fun choose(context: Context, tree: Uri) {
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                tree,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }
+        val both = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching { context.contentResolver.takePersistableUriPermission(tree, both) }
+            .recoverCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    tree,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
         preferences(context).edit().putString(TREE, tree.toString()).apply()
+    }
+
+    /** Whether the chosen folder may be written to: a choice made before 0.1.20 may not. */
+    fun writable(context: Context): Boolean = chosen(context)?.let { tree ->
+        context.contentResolver.persistedUriPermissions.any { it.uri == tree && it.isWritePermission }
+    } ?: false
+
+    /**
+     * Write a file of the account back where it was in the chosen folder: Restore,
+     * for a file that left it. `accountPath` is `Phone/<folder>/...`, the folder's
+     * own name first. Its next listing finds it, and nothing is lost if it is read
+     * in again: the same bytes are already in the account.
+     */
+    suspend fun restore(context: Context, accountPath: String) = withContext(Dispatchers.IO) {
+        val tree = chosen(context) ?: error("no folder is chosen on this phone")
+        if (!writable(context)) throw SecurityException("not writable")
+        val parts = accountPath.removePrefix("Phone/").split('/')
+        require(parts.size >= 2) { "$accountPath is not a file of the chosen folder" }
+        var parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        for (name in parts.subList(1, parts.size - 1)) {
+            parent = child(context, tree, parent, name)
+                ?: DocumentsContract.createDocument(
+                    context.contentResolver,
+                    parent,
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    name,
+                )
+                ?: error("$name could not be made in the folder")
+        }
+        val name = parts.last()
+        val staged = File.createTempFile("restore", null, context.cacheDir)
+        try {
+            Native.get(accountPath, staged.absolutePath)
+            val mime = MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+                ?: "application/octet-stream"
+            val target = DocumentsContract.createDocument(context.contentResolver, parent, mime, name)
+                ?: error("$name could not be made in the folder")
+            context.contentResolver.openOutputStream(target).use { output ->
+                requireNotNull(output) { "$name could not be written" }
+                staged.inputStream().use { it.copyTo(output) }
+            }
+        } finally {
+            staged.delete()
+        }
+    }
+
+    /** The child of `parent` called `name`, if there is one. */
+    private fun child(context: Context, tree: Uri, parent: Uri, name: String): Uri? {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree,
+            DocumentsContract.getDocumentId(parent),
+        )
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        )
+        context.contentResolver.query(children, columns, null, null, null)?.use { rows ->
+            while (rows.moveToNext()) {
+                if (rows.getString(1) == name) {
+                    return DocumentsContract.buildDocumentUriUsingTree(tree, rows.getString(0))
+                }
+            }
+        }
+        return null
     }
 
     /** Files already in the account stay there: stopping is not deleting. */
     fun stop(context: Context) {
         chosen(context)?.let { tree ->
             runCatching {
-                context.contentResolver.releasePersistableUriPermission(
-                    tree,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
+                val granted = context.contentResolver.persistedUriPermissions
+                    .firstOrNull { it.uri == tree }
+                var flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                if (granted?.isWritePermission == true) flags = flags or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.releasePersistableUriPermission(tree, flags)
             }
         }
         preferences(context).edit().remove(TREE).apply()

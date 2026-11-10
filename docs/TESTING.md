@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1644 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 600 are red-team tests.**
+**Last updated: 2026-11-10 — 1651 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 606 are red-team tests.**
 
-**1528 of the 1644 tests have an entry of their own on this page** — an *entry*,
+**1535 of the 1651 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 25 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 227 |
+| `itsanas-store` unit | 230 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
@@ -176,10 +176,10 @@ guarantee and is not one.
 | `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 23 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 26 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 350 |
+| `itsanas-cli` unit | 351 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -221,8 +221,8 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 58 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 201 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 61 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 204 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -468,7 +468,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (186, plus the 41 vault tests below)
+# `itsanas-store` — unit tests (189, plus the 41 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -707,6 +707,14 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
 
 ---
+
+## `trash` — the record every delete on a machine goes through (3)
+
+| Test | What it proves |
+|---|---|
+| `a_trashed_file_comes_due_after_its_days_and_not_before` | A delete waits for its delay, and then happens: earlier loses a file the person could still want, never keeps taking their space. |
+| `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
+| `the_wait_is_thirty_days_until_a_person_sets_it_and_stays_in_bounds` | Thirty days by default; zero is kept as "off", not turned into one; a wait past `MAX_DAYS` is cut to it; a path with a line break is refused rather than trashing another file. |
 
 # `itsanas-store` — a whole store in packs (`tests/packs.rs`) (2)
 
@@ -1226,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (350)
+# `itsanas-cli` — unit tests (351)
 
 ## `bench` — measuring this machine (4)
 
@@ -1391,7 +1399,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (48)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (49)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1456,6 +1464,8 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `the_name_check_tells_a_person_joining_what_the_account_s_machines_offer` | `/api/name` answers `taken`, `invalid` with the reason and other_pledge_bytes: the largest pledge of the account's machines only to a person joining, null for a new account, for a name nobody holds and for a name no coordinator would take. |
 | **`red_team_a_new_account_goes_on_only_after_the_network_says_the_name_is_free`** | The page asks again when Next is pressed, blocks a new account on anything but a free name, asks a person joining under a name no account has to tick "Continue with this name", and forgets the tick when the name changes. Sabotaged (each condition changed): red. |
 | `the_space_question_is_answered_by_the_one_rule_every_platform_shares` | `/api/suggest` and the first suggestion in `/api/state` are what `pledges::suggest` says for this disk, for no other machines, for a small pledge and for one too large to fit. |
+| **`red_team_a_computer_checks_for_updates_and_an_iphone_does_not`** | Settings' Check for updates is on a computer too: the page tells the computer's shell, which runs `itsanas update` apart; an iPhone, installed by whoever signs it, is refused. Sabotaged (gate back on `metered`; no event): red. |
+| **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash on a computer lists what is in the trash, refuses to delete from every machine a file nobody trashed, restores, and keeps the days typed. Sabotaged (no `trashed` guard on delete): red. |
 | **`red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page`** | The theme is in `<html data-theme>` from the first byte, kept in the node's home for the next page, told to the shell, and the dark colours follow the system unless light is chosen. Sabotaged (insertion, saving, telling, each CSS rule): red. |
 | **`red_team_the_page_links_only_the_licence_the_source_and_the_security_policy`** | The only links out of the page are the three of the legal block, each to the project, each opened in a tab of its own with `noopener noreferrer`, and no placeholder stands where a text should be. Sabotaged (a `rel` dropped): red. |
 | `forgetting_on_a_page_with_no_node_changes_nothing_and_says_so` | `POST /api/forgot` on Settings starts a job that fails with a sentence when there is no node, and the setup page has no such route. |
@@ -1611,12 +1621,11 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `trash` — a phone's trash: what waits before a real delete (5)
+## `trash` — the trash from a machine's home: a computer's delete, and what left a phone's folder (4)
 
 | Test | What it proves |
 |---|---|
-| `a_trashed_file_comes_due_after_its_days_and_not_before` | A delete waits for its delay, and then happens: earlier loses a file the person could still want, never keeps taking their space. |
-| `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
+| **`red_team_a_delete_on_a_computer_waits_in_the_trash_unless_it_is_off`** | `itsanas rm` and the drive delete through `itsanas_store::trash::delete`: the file is in the trash with no tombstone; a file the account never had is not trashed; with the trash off (0 days) the tombstone is written at once. Sabotaged (`wait == 0` always true): red. |
 | **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, names no folder, so it never offers every file for deletion. Sabotage: drop the check on `folders` in `left_the_folder`. |
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
@@ -2340,13 +2349,16 @@ destructive if wrong.
 
 ---
 
-# `itsanas-folder` — integration tests (23)
+# `itsanas-folder` — integration tests (26)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_brand_new_device_downloads_everything_and_deletes_nothing`** | The catastrophe. An empty folder on a device that has never synced must produce downloads, not a mass deletion. |
 | **`a_file_over_the_budget_is_refused_left_on_disk_and_blocks_nothing_else`** | A file the account has no room for lands in the report's failures with the numbers, twice in a row, while a small file beside it is imported; the refused file is untouched on disk and no deletion is held. Refused must never read as deleted, or a quota would cost somebody the original. |
-| **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — a genuine delete must propagate, with a tombstone so an offline device does not resurrect it. |
+| **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — with the trash off, a genuine delete propagates at once, with a tombstone so an offline device does not resurrect it. |
+| **`red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back`** | A file deleted from the synced folder goes to the trash with no tombstone, is not written back by the next pass, and is written back once restored. Sabotaged (written at once): red. |
+| **`red_team_a_file_put_back_by_hand_leaves_the_trash`** | A trashed file put back on disk by hand leaves the trash and its new bytes reach the account as an edit, not a conflict. Sabotaged (no `take_out`): red. |
+| **`red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash`** | A rename on disk is reported as one, and its old name is removed from the store at once rather than filling the trash. Sabotaged (no removal loop): red. |
 | **`an_imported_file_is_announced_to_peers_not_just_stored_locally`** | A real bug found by running two daemons: the reconciler wrote to the store but never sealed a log segment, so files looked synced on the machine that had them and existed nowhere else. |
 | **`a_deletion_is_announced_to_peers_too`** | The same, for deletes. |
 | **`a_pass_that_changes_nothing_does_not_produce_an_empty_segment`** | Flushing unconditionally would mint a segment on every idle scan and grow the log without bound. |

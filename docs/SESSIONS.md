@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-10 ~22:10 | ~4 h 30 | hebdo 31 % → 38 % ; contexte ~520 k | hors §8 | au bout | 🟨 | Corbeille sur toutes les machines ; e2e Android 29/29 sur le vrai S25 et premier reçu d'appareil réel accepté par la CI ; banc d'acceptation sur disque FAT32, corbeille à la main sur la clé, flotte verte ; bouton de mise à jour sur ordinateur ; iPhone lu mais app fermée, agents de flotte non lancés | #401 |
 | 2026-11-10 ~21:20 | ~40 min | fenêtre 5 h ~16 % ; hebdo 31 % ; contexte ~165 k | hors §8 | au bout | 🟨 | Restes du téléphone avant release : import du dossier par lots (un segment par lot), fichier remis sorti de la corbeille, réponse Garder ; CI laissée à Nicolas, rien vu sur un vrai téléphone | à venir |
 | 2026-11-10 ~13:10 | ~10 min avant CI | 5 h ~3 % ; contexte ~146 k | hors §8 | au bout | ✅ | Version 0.1.19 (corrections PC de #394 et #395), release et déploiement en tête de la recette du test manuel | à venir |
 | 2026-11-10 ~01:50 | ~50 min avant CI | 5 h 10 % → voir bilan ; contexte ~150 k | hors §8 | au bout | 🟨 | Lot : passphrase rescellée sous Hello/Touch ID, doigt ajouté refusé sur iPhone, jours de corbeille iPhone, recette du test manuel ; rien vu sur un appareil | #395 |

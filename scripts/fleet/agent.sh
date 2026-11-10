@@ -157,6 +157,12 @@ case "$*" in
                 ;;
             "F delete" | "F check")
                 [ $# -eq 3 ] && is_kit_name "$3" || refuse "usage: F $2 <kit file>"
+                # F is about a delete reaching every machine, which the trash (30
+                # days unless set) would hold here: the fleet's `test` home has it
+                # off, set before the file goes so the daemon's next pass sees it.
+                if [ "$2" = delete ] && home=$(account_home test) && [ -d "$home/store" ]; then
+                    printf '0\n' >"$home/store/trash-days"
+                fi
                 kit F "$2" "$FOLDER" "$3"
                 ;;
             "C scan")

@@ -86,8 +86,9 @@ fn a_brand_new_device_downloads_everything_and_deletes_nothing() {
 #[test]
 fn a_file_the_user_deletes_is_deleted_everywhere() {
     // The counterpart. A delete that this device genuinely made must propagate,
-    // or the product does not work.
+    // or the product does not work. With the trash off, it does so at once.
     let node = node(2);
+    itsanas_store::trash::set_days(node.store.root(), 0).unwrap();
 
     write_disk(node.folder.root(), "doomed.txt", b"content");
     node.folder.reconcile(&node.store, false).unwrap();
@@ -107,6 +108,84 @@ fn a_file_the_user_deletes_is_deleted_everywhere() {
 // ---------------------------------------------------------------------------
 // Ordinary flow
 // ---------------------------------------------------------------------------
+
+/// The trash on a computer, the same as on a phone. Sabotage: write the
+/// deletion at once in `trash_or_remove`.
+#[test]
+fn red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back() {
+    let node = node(3);
+    write_disk(node.folder.root(), "photo.jpg", b"the only copy");
+    node.folder.reconcile(&node.store, false).unwrap();
+
+    std::fs::remove_file(node.folder.root().join("photo.jpg")).unwrap();
+    let report = node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(report.removed_from_store, ["photo.jpg"]);
+    assert!(
+        node.store.tombstone("photo.jpg").unwrap().is_none(),
+        "a delete in the folder was written at once: every machine drops the file, no undo"
+    );
+    assert!(itsanas_store::trash::list(node.store.root()).contains_key("photo.jpg"));
+
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        read_disk(node.folder.root(), "photo.jpg"),
+        None,
+        "a file in the trash was written back to the folder the person emptied"
+    );
+
+    itsanas_store::trash::take_out(node.store.root(), "photo.jpg").unwrap();
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        read_disk(node.folder.root(), "photo.jpg").as_deref(),
+        Some(&b"the only copy"[..]),
+        "a restored file did not come back into the folder"
+    );
+}
+
+/// Sabotage: drop the `take_out` of a trashed path that is on disk again.
+#[test]
+fn red_team_a_file_put_back_by_hand_leaves_the_trash() {
+    let node = node(4);
+    write_disk(node.folder.root(), "a.txt", b"one");
+    node.folder.reconcile(&node.store, false).unwrap();
+    std::fs::remove_file(node.folder.root().join("a.txt")).unwrap();
+    node.folder.reconcile(&node.store, false).unwrap();
+
+    write_disk(node.folder.root(), "a.txt", b"two");
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert!(
+        itsanas_store::trash::list(node.store.root()).is_empty(),
+        "a file put back stays in the trash, and is deleted when the old delay runs out"
+    );
+    assert_eq!(
+        node.store.read_file("a.txt").unwrap().as_deref(),
+        Some(&b"two"[..]),
+        "the file put back did not reach the account"
+    );
+}
+
+/// Sabotage: drop the loop that removes a renamed file's old path.
+#[test]
+fn red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash() {
+    let node = node(5);
+    write_disk(node.folder.root(), "old.txt", b"moved bytes");
+    node.folder.reconcile(&node.store, false).unwrap();
+    std::fs::rename(
+        node.folder.root().join("old.txt"),
+        node.folder.root().join("new.txt"),
+    )
+    .unwrap();
+    let report = node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        report.renamed_here,
+        [("old.txt".to_owned(), "new.txt".to_owned())]
+    );
+    assert!(
+        itsanas_store::trash::list(node.store.root()).is_empty(),
+        "every rename fills the trash, and the old name shows on other machines for weeks"
+    );
+    assert_eq!(node.store.read_file("old.txt").unwrap(), None);
+}
 
 #[test]
 fn a_new_file_dropped_in_the_folder_is_imported() {
@@ -227,6 +306,7 @@ fn an_imported_file_is_announced_to_peers_not_just_stored_locally() {
 #[test]
 fn a_deletion_is_announced_to_peers_too() {
     let node = node(22);
+    itsanas_store::trash::set_days(node.store.root(), 0).unwrap();
     write_disk(node.folder.root(), "doomed.txt", b"content");
     node.folder.reconcile(&node.store, false).unwrap();
     let before = node.store.segments().unwrap().len();
