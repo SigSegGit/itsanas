@@ -61,6 +61,14 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-10: an own phone no longer turns the account orange.** The test account's PC was orange for
+two of its own devices (phones, up 4 % and 0 %), only reachable through the Pi's relay: they had let chunks
+go within their budget and failed the audits as liars, and the sanction's probe, a chunk of the account,
+was let go too, so nothing could lift it. The daemon now audits its own devices with `session::audit_as(.., own)`:
+the records go, nothing counts against them, an old sanction is dropped
+(`red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar`). Seen in `status.snapshot`, not on a
+daemon yet: it reaches the PCs with 0.1.19.
+
 **2026-11-10: a consistent batch.** A passphrase changed while sealed behind Windows Hello or
 Touch ID is sealed again, the system asking first (`setup/unlock.rs`, `changing`); on an iPhone
 a finger enrolled after the lock opens nothing (`keychain::same_fingers`), the trash's days are

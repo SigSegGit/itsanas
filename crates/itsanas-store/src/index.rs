@@ -1759,6 +1759,19 @@ impl Index {
         }
     }
 
+    /// Drop what auditing has recorded against `device`, and its probe: for
+    /// one of the account's own devices, whose missing chunks were let go, not
+    /// lied about.
+    pub fn forget_failures(&self, device: &DeviceId) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        txn.open_table(RELIABILITY)?
+            .remove(device.as_bytes().as_slice())?;
+        txn.open_table(PROBES)?
+            .remove(device.as_bytes().as_slice())?;
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Record one audit outcome for `device`.
     ///
     /// A pass clears any outstanding probe in the same transaction: the probe

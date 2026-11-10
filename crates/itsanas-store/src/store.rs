@@ -1263,6 +1263,12 @@ impl Store {
         self.index.note_audit(device, passed, now_unix())
     }
 
+    /// Drop what auditing has recorded against `device`. See
+    /// [`Index::forget_failures`].
+    pub fn forget_failures(&self, device: &DeviceId) -> Result<()> {
+        self.index.forget_failures(device)
+    }
+
     /// Whether `device` should still be offered new file content.
     ///
     /// A peer that keeps failing audits is not blocked and loses nothing of its

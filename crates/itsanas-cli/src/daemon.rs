@@ -2782,7 +2782,9 @@ fn sync_once(
         Err(error) => println!("{peer}: could not repair ({error})"),
     }
 
-    match session::audit(&node.store, &mut client, session::CHALLENGES_PER_ROUND) {
+    // The account's own devices answer too, but for what they chose to keep.
+    let own = crate::placing::current().is_some_and(|placement| placement.is_own(&answered));
+    match session::audit_as(&node.store, &mut client, session::CHALLENGES_PER_ROUND, own) {
         Ok(report) if report.found_a_liar() => {
             println!(
                 "{peer}: FAILED {} of {} storage challenges — it is not holding \
