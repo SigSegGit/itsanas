@@ -19,6 +19,10 @@ object PhoneFolder {
     private const val PREFERENCES = "phone-folder"
     private const val TREE = "tree"
 
+    /** One segment per batch, not per photo (issue 93), and a bounded cache meanwhile. */
+    private const val BATCH_FILES = 64
+    private const val BATCH_BYTES = 256L * 1024 * 1024
+
     private fun preferences(context: Context) =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
@@ -66,21 +70,38 @@ object PhoneFolder {
         val wanted = JSONObject(Native.folderWanted(listing.toString())).getJSONArray("wanted")
 
         val staged = File(context.cacheDir, "staged").also { it.mkdirs() }
+        val copies = ArrayList<File>()
+        val batch = JSONArray()
+        var bytes = 0L
         var count = 0
-        for (index in 0 until wanted.length()) {
-            val path = wanted.getJSONObject(index).getString("path")
-            val file = found[path] ?: continue
-            val copy = File.createTempFile("folder", null, staged)
+        fun send() {
             try {
+                if (batch.length() > 0) Native.folderImport(batch.toString())
+                count += batch.length()
+            } finally {
+                copies.forEach { it.delete() }
+                copies.clear()
+                while (batch.length() > 0) batch.remove(0)
+                bytes = 0
+            }
+        }
+        try {
+            for (index in 0 until wanted.length()) {
+                val path = wanted.getJSONObject(index).getString("path")
+                val file = found[path] ?: continue
+                val copy = File.createTempFile("folder", null, staged)
+                copies.add(copy)
                 context.contentResolver.openInputStream(file.uri).use { input ->
                     requireNotNull(input) { "$path could not be read" }
                     copy.outputStream().use { input.copyTo(it) }
                 }
-                Native.folderImport(file.json(path).toString(), copy.absolutePath)
-                count++
-            } finally {
-                copy.delete()
+                batch.put(JSONObject().put("file", file.json(path)).put("source", copy.absolutePath))
+                bytes += copy.length()
+                if (batch.length() >= BATCH_FILES || bytes >= BATCH_BYTES) send()
             }
+            send()
+        } finally {
+            copies.forEach { it.delete() }
         }
         count
     }

@@ -99,12 +99,17 @@ object Native {
 
     external fun trashRestore(home: String, path: String): String
 
+    external fun trashKeep(home: String, path: String): String
+
     external fun trashDelete(path: String): String
 
     /** Which files of the chosen folder to copy: `{"wanted":[...]}`. */
     external fun folderWanted(listing: String): String
-    /** Put a copied file of the folder into the account, and record it. */
-    external fun folderImport(file: String, source: String): String
+    /**
+     * Put copied files of the folder into the account, in one segment, and record
+     * them: `[{"file":{...},"source":"..."}]`.
+     */
+    external fun folderImport(batch: String): String
 
     external fun sync(metadataOnly: Boolean): String
 

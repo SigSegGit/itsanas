@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
-WRITTEN-AT: 2026-11-04
-BASE: 9ea9982
+WRITTEN-AT: 2026-11-10
+BASE: 1340442
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -61,6 +61,15 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-10: the phone's leftovers before a release.** A phone folder's files go in by batches of 64
+files or 256 MB, one segment each (`folder_import`, `write_file`), not one segment per photo: the folder
+part of issue 93, whose round-per-transaction part stays open. A file written again under a trashed path
+leaves the trash (`write_file` calls `trash::take_out`), and a file gone from the folder has a Keep answer
+(`trash::keep`, `Native.trashKeep`, record `phone-folder-kept`). A batch with a refused file still records
+the others and answers the first refusal. Not looked at on a real phone; the Kotlin is checked only by CI.
+Still left, and why: restoring into the folder (its permission is read-only), a computer's delete is
+immediate (no trash on a desktop), §8 10b (Nicolas's call), the worker untested, an iOS PARITY column.
+
 **2026-11-10: the account's own devices are never called liars (#397, then the roster).** The test
 account's PC was orange for two devices of the same account (87d879, ebf048: kind unknown, most likely
 copies made with `copy-to-key` or `portable` on 2026-10-20/22, up 4 % and 0 %), reached only through the
@@ -94,9 +103,9 @@ Apply stays the way to save, and that restarts the engine. Not looked at on a re
 default, set in the trash), then sends the real delete. It stays a live file of the account, so it counts in
 the space and other machines still show it until then; this phone alone holds the record, so losing it costs
 room, never a file. Files gone from the chosen folder are listed there too, and only a person deletes them.
-Not done: restoring into the chosen folder, whose permission is read-only; a computer's delete stays immediate;
-a file added again under a trashed path stays hidden until restored; no Keep answer, so a file gone from the
-folder stays listed. Not looked at on a real phone.
+Not done: restoring into the chosen folder, whose permission is read-only; a computer's delete stays immediate.
+Done 2026-11-10: a file added again leaves the trash; a file gone from the folder can be kept. Not looked at
+on a real phone.
 
 **2026-11-05: 0.1.17 on the phone: the settings could not be changed.** The page reloaded the hosting
 fields every two seconds, over what was being typed, on every platform: `SettingsTest` went red on it
@@ -3982,8 +3991,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
    a. 🟨 **A phone folder that syncs by itself** (issue 95). Built 2026-11-03: the Files
       screen picks a folder, `PhoneFolder.kt` walks it each round that may move content, and
       `phone_folder.rs` decides what is new and what may enter, under `Phone/`. One way: a
-      deletion on the phone stays there. **Left:** a real phone and its gallery; one segment per
-      file on a first run of thousands (issue 93).
+      deletion on the phone stays there. Imports go by batches, one segment each
+      (`red_team_a_batch_of_photos_is_one_segment_not_one_each`). **Left:** a real phone and its
+      gallery.
    b. 🟨 **Writing into the virtual drive.** Built 2026-11-03: `crates/itsanas-drive/src/writes.rs`
       holds the rules and `projfs.rs` the notification. **Left:** no real Explorer or Office
       session has driven it, only a script against real ProjFS on the laptop; it does not run in

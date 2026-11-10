@@ -12,7 +12,8 @@
 //!
 //! A folder that reads as empty may be a permission lost or a card taken out, and
 //! would make every file look gone. Files that left the folder are only ever
-//! listed, and only a person sends them away.
+//! listed, and only a person sends them away, or keeps them: a file kept is in
+//! the account and gone from the phone on purpose, and is not asked about again.
 
 use crate::phone_folder::{self, FolderFile};
 use std::{
@@ -25,6 +26,10 @@ const RECORD: &str = "trash";
 
 /// The paths the chosen folder last listed, one per line.
 const LISTED: &str = "phone-folder-listed";
+
+/// Account paths a person kept after they left the folder, one per line,
+/// appended: each line is one answer, and there are as many as answers given.
+const KEPT: &str = "phone-folder-kept";
 
 const DAY: u64 = 24 * 60 * 60;
 
@@ -110,8 +115,30 @@ pub fn note_listing(home: &Path, listed: &[FolderFile]) -> std::io::Result<()> {
     write_all(home, LISTED, &text)
 }
 
+/// Keep `path`, an account path that left the folder: it stays in the account
+/// and is no longer listed as gone.
+///
+/// # Errors
+///
+/// When the record cannot be written; the file is then listed again.
+pub fn keep(home: &Path, path: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if path.contains(['\n', '\r']) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a path holds no line break",
+        ));
+    }
+    let mut record = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(home.join(KEPT))?;
+    writeln!(record, "{path}")
+}
+
 /// Files this folder sent to the account that it no longer holds, as account
-/// paths: only those still in `account`, not trashed, under a folder it listed.
+/// paths: only those still in `account`, not trashed, not kept, under a folder
+/// it listed.
 #[must_use]
 pub fn left_the_folder(home: &Path, account: &BTreeSet<String>) -> Vec<String> {
     let text = std::fs::read(home.join(LISTED)).unwrap_or_default();
@@ -122,6 +149,9 @@ pub fn left_the_folder(home: &Path, account: &BTreeSet<String>) -> Vec<String> {
         .filter_map(|path| path.split('/').next())
         .collect();
     let trashed = list(home);
+    let kept = std::fs::read(home.join(KEPT)).unwrap_or_default();
+    let kept = String::from_utf8_lossy(&kept);
+    let kept: BTreeSet<&str> = kept.lines().collect();
     phone_folder::recorded(home)
         .into_keys()
         .filter(|path| {
@@ -139,7 +169,9 @@ pub fn left_the_folder(home: &Path, account: &BTreeSet<String>) -> Vec<String> {
             }
             .in_account()
         })
-        .filter(|path| account.contains(path) && !trashed.contains_key(path))
+        .filter(|path| {
+            account.contains(path) && !trashed.contains_key(path) && !kept.contains(path.as_str())
+        })
         .collect()
 }
 
@@ -193,6 +225,30 @@ mod tests {
         assert!(
             left_the_folder(dir.path(), &account).is_empty(),
             "a lost permission reads as an empty folder, and offered every file for deletion"
+        );
+    }
+
+    #[test]
+    fn a_file_kept_after_it_left_the_folder_is_not_asked_about_again() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for path in ["Shots/kept.jpg", "Shots/asked.jpg", "Shots/here.jpg"] {
+            phone_folder::imported(dir.path(), &file(path)).expect("record");
+        }
+        note_listing(dir.path(), &[file("Shots/here.jpg")]).expect("listing");
+        keep(dir.path(), "Phone/Shots/kept.jpg").expect("keep");
+        let account = BTreeSet::from([
+            "Phone/Shots/kept.jpg".to_owned(),
+            "Phone/Shots/asked.jpg".to_owned(),
+            "Phone/Shots/here.jpg".to_owned(),
+        ]);
+        assert_eq!(
+            left_the_folder(dir.path(), &account),
+            ["Phone/Shots/asked.jpg"],
+            "a file the person kept was offered for deletion again, every time the trash opens"
+        );
+        assert!(
+            keep(dir.path(), "a\nPhone/Shots/asked.jpg").is_err(),
+            "a line break in a path would keep another file than the one answered"
         );
     }
 
