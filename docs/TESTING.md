@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1641 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 598 are red-team tests.**
+**Last updated: 2026-11-10 — 1644 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 600 are red-team tests.**
 
-**1525 of the 1641 tests have an entry of their own on this page** — an *entry*,
+**1528 of the 1644 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,8 +179,8 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 349 |
-| `itsanas-android` unit | 24 |
+| `itsanas-cli` unit | 350 |
+| `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 58 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 199 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 201 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1226,7 +1226,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (349)
+# `itsanas-cli` — unit tests (350)
 
 ## `bench` — measuring this machine (4)
 
@@ -1611,7 +1611,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `trash` — a phone's trash: what waits before a real delete (4)
+## `trash` — a phone's trash: what waits before a real delete (5)
 
 | Test | What it proves |
 |---|---|
@@ -1619,6 +1619,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
 | **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, names no folder, so it never offers every file for deletion. Sabotage: drop the check on `folders` in `left_the_folder`. |
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
+| `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
 
 ## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)
 
@@ -2058,7 +2059,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (24)
+# `itsanas-android` — the JNI boundary (26)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2092,6 +2093,8 @@ from a host over a real socket, and one of them opened.
 | **`red_team_a_phone_says_its_vault_takes_no_write`** | `status_of` says `vaultRefuses` once a pledged vault refuses the write probe. |
 | **`red_team_a_phone_says_it_has_reached_nobody`** | `silentFor` is null on a first look, which starts the wait, so a phone whose sync never runs still ages; a round with no machine starts it too, and two days later `status_of` says so. A round that reached a machine is recorded (asserted in the budget-of-nothing test). |
 | **`red_team_a_folder_file_reaches_the_account_and_only_then_counts_as_seen`** | A copy that failed is asked for again; a copy that worked is read back from the account at its `Phone/` path and not asked for again. |
+| **`red_team_a_batch_of_photos_is_one_segment_not_one_each`** | Five photos imported in one batch add one segment to the chain, not five (issue 93), and the last of them reads back from the account. Sabotaged (`write_file` seals its own segment): red. |
+| **`red_team_a_file_put_back_under_a_trashed_path_leaves_the_trash`** | A file trashed, then written again under the same path, leaves the trash, so the old delay never deletes the new file. Sabotaged (no `take_out` in `write_file`): red. |
 | **`red_team_a_folder_listing_that_makes_no_sense_is_refused`** | Bad JSON, a non-list and a negative size are errors, never a folder with nothing new. |
 | **`red_team_the_phone_refuses_limits_its_disk_cannot_hold`** | `set_limits_on` with what is free given, because a real disk check would fail on a small runner: a pledge past what is free, and a pair past what the disk holds, are refused naming the Settings sections, and leave the file and the node as they were. Sabotaged twice (each check): red. |
 | **`red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator`** | `get` dials who `sync` dials, through one `targets`: a real sibling that announced itself, nothing typed in, a metadata round that lists the file and a fetch that brings it. It said "no machine configured" beside a running machine, as the round had. Sabotaged (`config.peers` alone): red. |

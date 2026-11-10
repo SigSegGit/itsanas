@@ -59,7 +59,7 @@ use std::time::Duration;
 
 use itsanas_cli::phone::{
     get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
-    trash_failed, trash_list, trash_put, trash_restore, unix_now,
+    trash_failed, trash_keep, trash_list, trash_put, trash_restore, unix_now, write_file,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -615,30 +615,59 @@ fn folder_wanted(node: &Node, listing: &str) -> Answer {
     Ok(serde_json::json!({ "wanted": wanted }).to_string())
 }
 
-/// Put a copied file of the folder into the account, then record it.
+/// Put a batch of copied files of the folder into the account, then record them.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_folderImport(
     mut env: JNIEnv,
     _class: JClass,
-    file: JString,
-    source: JString,
+    batch: JString,
 ) -> jstring {
-    let file = text(&mut env, &file, "the file");
-    let source = text(&mut env, &source, "the source file");
+    let batch = text(&mut env, &batch, "the batch");
     answer(&mut env, move || {
-        let (file, source) = (file?, source?);
-        with_node(|node| folder_import(node, &file, &source))
+        let batch = batch?;
+        with_node(|node| folder_import(node, &batch))
     })
 }
 
-/// [`Java_fr_ngas_itsanas_Native_folderImport`] without the JNI. Recorded only
-/// once the store has it: a file refused for room is asked for again next round.
-fn folder_import(node: &Node, file: &str, source: &str) -> Answer {
-    let file = folder_file(&folder_json(file)?)?;
-    let answer = put_file(node, &file.in_account(), source)?;
-    phone_folder::imported(&node.home, &file)
-        .map_err(|error| Failure::Usage(format!("could not record {}: {error}", file.path)))?;
-    Ok(answer)
+/// [`Java_fr_ngas_itsanas_Native_folderImport`] without the JNI: a list of
+/// `{"file": {...}, "source": "..."}`.
+///
+/// One segment for the whole batch, not one per photo (issue 93): a first run
+/// of thousands of files was thousands of signed segments, each one a commit on
+/// the phone and a log entry every machine of the account fetches. A file is
+/// recorded only once the store has it and the segment is sealed: a file
+/// refused for room is asked for again next round. The others of the batch go
+/// in all the same, and the first refusal is the answer, so a person sees it.
+fn folder_import(node: &Node, batch: &str) -> Answer {
+    let rows = folder_json(batch)?;
+    let rows = rows
+        .as_array()
+        .ok_or_else(|| Failure::Usage("a batch is a list".to_owned()))?;
+    let mut taken = Vec::with_capacity(rows.len());
+    let mut refused = Vec::new();
+    for row in rows {
+        let file = folder_file(&row["file"])?;
+        let source = row["source"]
+            .as_str()
+            .ok_or_else(|| Failure::Usage(format!("no source for {}", file.path)))?;
+        match write_file(node, &file.in_account(), source) {
+            Ok(_) => taken.push(file),
+            Err(error) => refused.push(format!("{}: {}", file.path, error.message())),
+        }
+    }
+    node.store.flush_segment()?;
+    for file in &taken {
+        phone_folder::imported(&node.home, file)
+            .map_err(|error| Failure::Usage(format!("could not record {}: {error}", file.path)))?;
+    }
+    match refused.first() {
+        None => Ok(serde_json::json!({ "imported": taken.len() }).to_string()),
+        Some(first) => Err(Failure::Usage(format!(
+            "{} of {} files did not reach the account; the first: {first}",
+            refused.len(),
+            rows.len(),
+        ))),
+    }
 }
 
 /// Delete a file from the account, everywhere.
@@ -724,6 +753,23 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     answer(&mut env, move || {
         let (home, path) = (home?, path?);
         trash_restore(Path::new(&home), &path)
+    })
+}
+
+/// Keep a file that left the folder: it stays in the account, unasked. Its
+/// record alone, like [`Java_fr_ngas_itsanas_Native_trashRestore`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_trashKeep(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    path: JString,
+) -> jstring {
+    let home = text(&mut env, &home, "the home");
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let (home, path) = (home?, path?);
+        trash_keep(Path::new(&home), &path)
     })
 }
 
@@ -1237,14 +1283,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
         let listing = r#"[{"path":"Camera/a.jpg","size":5,"modified":100}]"#;
-        let one = r#"{"path":"Camera/a.jpg","size":5,"modified":100}"#;
+        let one = |source: &std::path::Path| {
+            serde_json::json!([{
+                "file": {"path": "Camera/a.jpg", "size": 5, "modified": 100},
+                "source": source,
+            }])
+            .to_string()
+        };
         let wanted = |node: &Node| -> serde_json::Value {
             serde_json::from_str(&folder_wanted(node, listing).unwrap()).unwrap()
         };
         assert_eq!(wanted(&node)["wanted"].as_array().unwrap().len(), 1);
 
         let missing = dir.path().join("gone.jpg");
-        assert!(folder_import(&node, one, missing.to_str().unwrap()).is_err());
+        assert!(folder_import(&node, &one(&missing)).is_err());
         assert_eq!(
             wanted(&node)["wanted"].as_array().unwrap().len(),
             1,
@@ -1253,7 +1305,7 @@ mod tests {
 
         let source = dir.path().join("a.jpg");
         std::fs::write(&source, b"photo").unwrap();
-        folder_import(&node, one, source.to_str().unwrap()).unwrap();
+        folder_import(&node, &one(&source)).unwrap();
         assert_eq!(
             node.store.read_file("Phone/Camera/a.jpg").unwrap(),
             Some(b"photo".to_vec()),
@@ -1262,6 +1314,55 @@ mod tests {
         assert!(
             wanted(&node)["wanted"].as_array().unwrap().is_empty(),
             "an imported photo was asked for again: every round copies the whole folder"
+        );
+    }
+
+    /// Issue 93: a first run of thousands of photos was one signed segment per
+    /// photo. Sabotage: seal the segment in `write_file`.
+    #[test]
+    fn red_team_a_batch_of_photos_is_one_segment_not_one_each() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let rows: Vec<_> = (0..5)
+            .map(|index| {
+                let source = dir.path().join(format!("{index}.jpg"));
+                std::fs::write(&source, format!("photo {index}")).unwrap();
+                serde_json::json!({
+                    "file": {"path": format!("Camera/{index}.jpg"), "size": 7, "modified": 1},
+                    "source": source,
+                })
+            })
+            .collect();
+        let before = node.store.chain_length().unwrap();
+        folder_import(&node, &serde_json::Value::from(rows).to_string()).unwrap();
+        assert_eq!(
+            node.store.chain_length().unwrap() - before,
+            1,
+            "five photos made several segments: a first run of thousands is thousands of commits and log entries"
+        );
+        assert_eq!(
+            node.store.read_file("Phone/Camera/4.jpg").unwrap(),
+            Some(b"photo 4".to_vec()),
+            "the last photo of the batch is not in the account"
+        );
+    }
+
+    /// A photo deleted, then added again under the same name, stayed hidden by the
+    /// trash and was deleted for good when the delay ran out. Sabotage: drop the
+    /// `take_out` in `write_file`.
+    #[test]
+    fn red_team_a_file_put_back_under_a_trashed_path_leaves_the_trash() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let source = dir.path().join("a.jpg");
+        std::fs::write(&source, b"photo").unwrap();
+        put_file(&node, "a.jpg", source.to_str().unwrap()).unwrap();
+        itsanas_cli::phone::trash_put(&node, "a.jpg", 30).unwrap();
+        std::fs::write(&source, b"the photo again").unwrap();
+        put_file(&node, "a.jpg", source.to_str().unwrap()).unwrap();
+        assert!(
+            trash::list(&node.home).is_empty(),
+            "a file added again stays hidden, and is deleted for good when the old delay runs out"
         );
     }
 

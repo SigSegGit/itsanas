@@ -132,6 +132,30 @@ pub fn refresh_old_pledges(node: &Node, now: std::time::SystemTime) {
 
 /// What a phone's `put` answers, for every phone shell.
 pub fn put_file(node: &Node, path: &str, source: &str) -> Answer {
+    let entry = write_file(node, path, source)?;
+    node.store.flush_segment()?;
+
+    Ok(serde_json::json!({
+        "bytes": entry.size,
+        "chunks": entry.chunks.len(),
+    })
+    .to_string())
+}
+
+/// Write `source` at `path`, without sealing the segment: a caller that writes
+/// many files seals once, so a first run of thousands of photos is not
+/// thousands of segments (issue 93). A file written again under a path in the
+/// trash leaves the trash: the person just put it back.
+///
+/// # Errors
+///
+/// When `source` cannot be read, the account has no room, or the store or the
+/// trash cannot be written.
+pub fn write_file(
+    node: &Node,
+    path: &str,
+    source: &str,
+) -> Result<itsanas_store::FileEntry, Failure> {
     let file = std::fs::File::open(source)
         .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?;
     let incoming = file
@@ -142,13 +166,8 @@ pub fn put_file(node: &Node, path: &str, source: &str) -> Answer {
     node.bound_writes()?;
     node.store.check_room(path, incoming)?;
     let entry = node.store.write_stream(path, file)?;
-    node.store.flush_segment()?;
-
-    Ok(serde_json::json!({
-        "bytes": entry.size,
-        "chunks": entry.chunks.len(),
-    })
-    .to_string())
+    trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))?;
+    Ok(entry)
 }
 
 /// Put a file in this phone's trash for `days`.
@@ -175,6 +194,12 @@ pub fn trash_list(node: &Node) -> Answer {
         "left": trash::left_the_folder(&node.home, &account),
     })
     .to_string())
+}
+
+/// Keep a file that left the chosen folder: its record alone, no node needed.
+pub fn trash_keep(home: &Path, path: &str) -> Answer {
+    trash::keep(home, path).map_err(|error| trash_failed(&error))?;
+    Ok("{}".to_owned())
 }
 
 /// Take a file out of the trash: its record alone, no node needed.

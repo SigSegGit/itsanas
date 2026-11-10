@@ -133,6 +133,17 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
                                 },
                                 Modifier.testTag("trash-restore"),
                             ) { Text(stringResource(R.string.trash_restore)) }
+                        } else {
+                            TextButton(
+                                {
+                                    act {
+                                        withContext(Dispatchers.IO) {
+                                            Native.trashKeep(Vault.home(context).absolutePath, row.path)
+                                        }
+                                    }
+                                },
+                                Modifier.testTag("trash-keep"),
+                            ) { Text(stringResource(R.string.trash_keep)) }
                         }
                         TextButton({ doomed = row }, Modifier.testTag("trash-delete")) {
                             Text(stringResource(R.string.trash_delete))

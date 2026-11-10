@@ -95,6 +95,7 @@
     <string name="trash_left">Supprimé définitivement dans %1$d jours</string>
     <string name="trash_left_folder">Absent du dossier de ce téléphone, encore dans le compte</string>
     <string name="trash_restore">Restaurer</string>
+    <string name="trash_keep">Garder dans le compte</string>
     <string name="trash_delete">Supprimer du réseau</string>
     <string name="trash_delete_body">Il disparaît de toutes les machines du compte. Il n\'y a pas d\'annulation.</string>
 </resources>

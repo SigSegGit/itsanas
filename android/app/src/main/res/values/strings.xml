@@ -96,6 +96,7 @@
     <string name="trash_left">Deleted for good in %1$d days</string>
     <string name="trash_left_folder">Gone from the folder on this phone, still in the account</string>
     <string name="trash_restore">Restore</string>
+    <string name="trash_keep">Keep in the account</string>
     <string name="trash_delete">Delete from the network</string>
     <string name="trash_delete_body">It disappears from every machine of the account. There is no undo.</string>
 </resources>

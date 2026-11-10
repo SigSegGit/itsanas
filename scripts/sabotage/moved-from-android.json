@@ -134,8 +134,18 @@
     },
     "folder: recorded before the store has it": {
       "file": "crates/itsanas-android/src/lib.rs",
-      "live": "    let answer = put_file(node, &file.in_account(), source)?;\n    phone_folder::imported(&node.home, &file)\n        .map_err(|error| Failure::Usage(format!(\"could not record {}: {error}\", file.path)))?;\n    Ok(answer)",
-      "dead": "    phone_folder::imported(&node.home, &file)\n        .map_err(|error| Failure::Usage(format!(\"could not record {}: {error}\", file.path)))?;\n    let answer = put_file(node, &file.in_account(), source)?;\n    Ok(answer)"
+      "live": "            Err(error) => refused.push(format!(\"{}: {}\", file.path, error.message())),",
+      "dead": "            Err(error) => {\n                refused.push(format!(\"{}: {}\", file.path, error.message()));\n                taken.push(file);\n            }"
+    },
+    "folder: one segment per photo": {
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "    let entry = node.store.write_stream(path, file)?;\n    trash::take_out",
+      "dead": "    let entry = node.store.write_stream(path, file)?;\n    node.store.flush_segment()?;\n    trash::take_out"
+    },
+    "trash: a file put back stays hidden": {
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": "    trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))?;\n    Ok(entry)",
+      "dead": "    Ok(entry)"
     },
     "folder: a bad row is skipped": {
       "file": "crates/itsanas-android/src/lib.rs",
