@@ -225,9 +225,9 @@ fn deleting_one_of_two_copies_is_a_deletion_not_a_rename() {
         report.renamed_here
     );
     assert!(
-        report
-            .lines(None)
-            .contains(&"  del  a.txt (deleted here, everywhere once it leaves the trash)".to_owned()),
+        report.lines(None).contains(
+            &"  del  a.txt (deleted here, everywhere once it leaves the trash)".to_owned()
+        ),
         "the deletion of a.txt is not named: {:?}",
         report.lines(None)
     );
