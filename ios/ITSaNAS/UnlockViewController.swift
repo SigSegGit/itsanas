@@ -54,11 +54,16 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
         }
         // A finger refused, or no finger enrolled now, leaves the passphrase
         // field, which still opens the account.
-        LAContext().evaluatePolicy(
+        let context = LAContext()
+        context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
             localizedReason: NSLocalizedString("Unlock your account", comment: "")
         ) { granted, _ in
-            if granted { DispatchQueue.main.async { self.openRemembered() } }
+            // A finger enrolled since the lock was turned on changes this
+            // state: then only the passphrase opens.
+            let state = context.evaluatedPolicyDomainState?.base64EncodedString() ?? ""
+            guard granted, Core.fingerMatches(state) else { return }
+            DispatchQueue.main.async { self.openRemembered() }
         }
     }
 

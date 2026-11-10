@@ -61,6 +61,13 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-10: a consistent batch.** A passphrase changed while sealed behind Windows Hello or
+Touch ID is sealed again, the system asking first (`setup/unlock.rs`, `changing`); on an iPhone
+a finger enrolled after the lock opens nothing (`keychain::same_fingers`), the trash's days are
+a setting, and a background round leaves a log line; `docs/IOS.md` has the hand test's recipe.
+Left on purpose: §8 10b's "stops rather than slows" is a choice of behaviour, not a bug, and
+waits for Nicolas; an iOS column in `docs/PARITY.md` needs every cell checked against the app.
+
 **2026-11-09: an iPhone (#387 and the PR after it).** `crates/itsanas-ios` and `ios/`, on `itsanas_cli::phone`; `docs/IOS.md`.
 Nicolas sideloaded the #387 build with a free Apple ID: it runs. Reading the shell against the engine then showed: `store_passphrase`
 refused, which failed setup's Secret step (now the Keychain, this device only); Settings offered hosting and an update check (`Features::IPHONE`); only `closed`
@@ -183,6 +190,12 @@ image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
 of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
+
+0a. **The iPhone hand test** (§8 0c), on the build of the last green `main`: the recipe is
+   `docs/IOS.md`, "The hand test", steps 0 to 10, and the report is each step's number, OK
+   or KO. First command:
+
+       gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
 
 0. **The one-shot acceptance run of 0.1.17**, in the owner's private notes (`RECETTE-0.1.17.md`): every
    command in order, and the report to send back. It starts with the release, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
@@ -3897,7 +3910,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
     d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
        file replaces the passphrase file; the daemon asks at start. Windows needs no `unsafe`; the
        Mac's `LAContext` call is `itsanas-touchid`. The logic is tested with stand-in gates; neither
-       system's own prompt has run. Left: changing the passphrase while sealed does not reseal.
+       system's own prompt has run. A passphrase changed while sealed is sealed again, the system
+       asking first (`red_team_a_passphrase_changed_while_sealed_is_the_one_the_seal_gives`).
     e. ✅ **Legal texts**: `docs/legal/`, embedded, on the first screen and in Settings.
     f. ✅ **The Android logo**: the launcher's vector drawn and compared with `docs/assets/icon.png`.
     Nicolas's call, 2026-11-04: `Request::Hosts` stays on by default, knowing that many accounts

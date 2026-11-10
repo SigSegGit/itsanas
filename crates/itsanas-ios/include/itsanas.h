@@ -34,6 +34,7 @@ char *itsanas_trash_delete(const char *path);
 char *itsanas_sync(bool metadata_only);
 char *itsanas_status(void);
 bool itsanas_finger_needed(void);
+bool itsanas_finger_matches(const char *state);
 char *itsanas_background_pass(const char *home, bool metadata_only);
 
 char *itsanas_page_start(const char *home, const char *mode, bool biometric);

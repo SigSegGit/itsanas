@@ -169,6 +169,14 @@ pub extern "C" fn itsanas_finger_needed() -> bool {
     keychain::guarded()
 }
 
+/// Whether the fingers enrolled now are those Touch ID was turned on with:
+/// `state` is the system's `evaluatedPolicyDomainState`, in base64. Refused,
+/// the passphrase still opens the account.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_finger_matches(state: *const c_char) -> bool {
+    c::text(state, "the fingers' state").is_ok_and(|state| keychain::same_fingers(&state))
+}
+
 /// Close the node and stop the page, releasing the store.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_close() -> *mut c_char {

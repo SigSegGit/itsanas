@@ -71,6 +71,11 @@
       "file": "crates/itsanas-ios/src/keychain.rs",
       "live": "    system::forget(PASSPHRASE);\n    system::forget(GUARDED);\n",
       "dead": "    system::forget(PASSPHRASE);\n"
+    },
+    "touch id: a finger enrolled later opens": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "        Some(kept) => kept == state.as_bytes(),\n",
+      "dead": "        Some(_) => true,\n"
     }
   }
 }

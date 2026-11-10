@@ -96,6 +96,45 @@ pub(crate) fn opened(home: &Path, gate: Gate) -> Result<Secret, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Run `change`, which puts the keystore under `new`, and keep the seal in step:
+/// the service reads only the seal, and would start next time with a passphrase
+/// that opens nothing. The system asks first, and its key must open the seal in
+/// place, so a refusal or another person changes nothing at all.
+pub(crate) fn changing<T>(
+    home: &Path,
+    new: &str,
+    gate: Gate,
+    change: impl FnOnce() -> crate::error::Result<T>,
+) -> crate::error::Result<T> {
+    if !is_on(home) {
+        return change();
+    }
+    let sealed = sealed_with(home, new, gate).map_err(|why| {
+        crate::error::CliError::Usage(format!(
+            "the passphrase is unchanged, because the seal could not follow it: {why}"
+        ))
+    })?;
+    let done = change()?;
+    let staged = home.join("passphrase.sealed.new");
+    std::fs::write(&staged, sealed)
+        .and_then(|()| std::fs::rename(&staged, sealed_file(home)))
+        .map_err(|e| {
+            crate::error::CliError::Usage(format!(
+                "the passphrase is changed, but the seal still holds the old one: {e}"
+            ))
+        })?;
+    Ok(done)
+}
+
+/// `new` sealed under the key that opens the seal in place, or why not.
+fn sealed_with(home: &Path, new: &str, gate: Gate) -> Result<Vec<u8>, String> {
+    let held = std::fs::read(sealed_file(home)).map_err(|e| e.to_string())?;
+    let key = SymmetricKey::new(gate()?);
+    open_random(&key, &context(), &held)
+        .map_err(|_| "the system did not give the key that sealed it".to_owned())?;
+    seal_random(&key, &context(), new.as_bytes()).map_err(|e| e.to_string())
+}
+
 /// This system's way of asking.
 pub(crate) fn platform_gate() -> Result<[u8; 32], String> {
     #[cfg(windows)]
@@ -258,6 +297,33 @@ mod tests {
             service.stored().expect("still there").as_str(),
             "kept here",
             "the machine's only passphrase was lost to a seal that does not open"
+        );
+    }
+
+    /// A passphrase changed while sealed is the one the seal gives, and a
+    /// refusal or another person changes neither the keystore nor the seal.
+    /// Sabotage: skip writing the new seal; skip the check that the key opens
+    /// the seal in place.
+    #[test]
+    fn red_team_a_passphrase_changed_while_sealed_is_the_one_the_seal_gives() {
+        let dir = tempfile::tempdir().expect("scratch");
+        enable(dir.path(), &stand(), the_person).expect("seals");
+        for gate in [a_refusal as Gate, someone_else] {
+            let mut ran = false;
+            let refused = changing(dir.path(), "the new one", gate, || {
+                ran = true;
+                Ok(())
+            });
+            assert!(
+                refused.is_err() && !ran,
+                "the keystore changed though the seal could not follow it"
+            );
+        }
+        changing(dir.path(), "the new one", the_person, || Ok(())).expect("changes");
+        assert_eq!(
+            opened(dir.path(), the_person).expect("opens").as_str(),
+            "the new one",
+            "the service would start with the old passphrase, which opens nothing now"
         );
     }
 }

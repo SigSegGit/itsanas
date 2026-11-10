@@ -1,5 +1,12 @@
 {
-  "command": ["cargo", "test", "-p", "itsanas-cli", "--lib", "unlock"],
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "unlock"
+  ],
   "defences": {
     "unlock: no clear copy stays": {
       "file": "crates/itsanas-cli/src/setup/unlock.rs",
@@ -10,6 +17,16 @@
       "file": "crates/itsanas-cli/src/setup/unlock.rs",
       "live": "    if !opened(home, gate).is_ok_and(|back| back.as_str() == passphrase.as_str()) {",
       "dead": "    if false {"
+    },
+    "unlock: a changed passphrase is sealed again": {
+      "file": "crates/itsanas-cli/src/setup/unlock.rs",
+      "live": "        .and_then(|()| std::fs::rename(&staged, sealed_file(home)))\n",
+      "dead": ""
+    },
+    "unlock: the key must open the seal in place": {
+      "file": "crates/itsanas-cli/src/setup/unlock.rs",
+      "live": "    open_random(&key, &context(), &held)\n        .map_err(|_| \"the system did not give the key that sealed it\".to_owned())?;\n",
+      "dead": "    let _ = &held;\n"
     }
   }
 }
