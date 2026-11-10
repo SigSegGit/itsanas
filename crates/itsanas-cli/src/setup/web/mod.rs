@@ -836,6 +836,8 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/api/remove") if ctx.mode == Mode::Settings => remove_check(ctx),
         ("POST", "/api/remove") if ctx.mode == Mode::Settings => remove_account(ctx, request),
         ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
+        ("GET", "/api/trash") if ctx.mode == Mode::Settings => ok_json(trash_json(&ctx.home, "")),
+        ("POST", "/api/trash") if ctx.mode == Mode::Settings => trash_change(ctx, request),
         ("GET", "/api/peers") if ctx.mode == Mode::Settings => peers_list(ctx),
         ("POST", "/api/peers") if ctx.mode == Mode::Settings => peers_change(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
@@ -862,6 +864,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/forgot" => (
             features.forgot_in_settings,
             "way to replace the keys while the account is open: lock it, then choose I forgot",
+        ),
+        "/api/trash" => (
+            features.folder,
+            "trash on this page: a phone has its own, on its Files screen",
         ),
         "/api/peers" => (
             features.advanced,
@@ -1621,6 +1627,62 @@ fn delete_account(ctx: &Context, request: &Request) -> Response {
 }
 
 /// The machines typed in by address, which this one also syncs with.
+/// Restore, delete now, or set the days. The trash's record alone, never the
+/// node: the daemon holds the store, and its next round writes a restored file
+/// back into the folder, or deletes a file from every machine.
+fn trash_change(ctx: &Context, request: &Request) -> Response {
+    use itsanas_store::trash;
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let dir = crate::trash::record_dir(&ctx.home);
+    let trashed = |path: &str| trash::list(&dir).contains_key(path);
+    let done = match (field(&form, "action"), field(&form, "path")) {
+        (Some("restore"), Some(path)) if trashed(path) => trash::take_out(&dir, path)
+            .map(|()| "Restored. The folder gets it back on its next pass."),
+        (Some("delete"), Some(path)) if trashed(path) => {
+            trash::put(&dir, path, itsanas_store::now_unix(), 0)
+                .map(|()| "Deleted from every machine on the next round.")
+        }
+        (Some("restore" | "delete"), _) => {
+            return Response::refuse(400, "that file is not in the trash");
+        }
+        (Some("days"), _) => match field(&form, "days").and_then(|days| days.parse().ok()) {
+            Some(days) => trash::set_days(&dir, days).map(|()| "Saved."),
+            None => return Response::refuse(400, "the days are a whole number"),
+        },
+        _ => return Response::refuse(400, "the action is restore, delete or days"),
+    };
+    match done {
+        Ok(said) => ok_json(trash_json(&ctx.home, said)),
+        Err(error) => Response::refuse(500, &format!("the trash could not be written: {error}")),
+    }
+}
+
+fn trash_json(home: &Path, said: &str) -> String {
+    use itsanas_store::trash;
+    let dir = crate::trash::record_dir(home);
+    let now = itsanas_store::now_unix();
+    let rows: Vec<String> = trash::list(&dir)
+        .iter()
+        .map(|(path, due)| {
+            object(&[
+                ("path", quote(path)),
+                (
+                    "days",
+                    due.saturating_sub(now).div_ceil(trash::DAY).to_string(),
+                ),
+            ])
+        })
+        .collect();
+    object(&[
+        ("trashed", format!("[{}]", rows.join(","))),
+        ("days", trash::days(&dir).to_string()),
+        ("said", quote(said)),
+    ])
+}
+
 fn peers_list(ctx: &Context) -> Response {
     node_call(ctx, |node| Ok(peers_json(node, "")))
 }

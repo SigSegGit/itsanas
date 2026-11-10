@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-10 ~22:10 | ~1 h 30 | fenêtre 5 h n/d ; hebdo n/d ; contexte ~330 k | hors §8 | au bout | 🟨 | Une corbeille sur toutes les machines (dossier, lecteur, `rm`, page, téléphone, remise dans le dossier Android) ; e2e Android sur vrai téléphone et lecture d'un vrai iPhone écrits, pas lancés (aucun appareil branché) ; ligne F de la flotte adaptée, pas lancée | à venir |
 | 2026-11-10 ~21:20 | ~40 min | fenêtre 5 h ~16 % ; hebdo 31 % ; contexte ~165 k | hors §8 | au bout | 🟨 | Restes du téléphone avant release : import du dossier par lots (un segment par lot), fichier remis sorti de la corbeille, réponse Garder ; CI laissée à Nicolas, rien vu sur un vrai téléphone | à venir |
 | 2026-11-10 ~13:10 | ~10 min avant CI | 5 h ~3 % ; contexte ~146 k | hors §8 | au bout | ✅ | Version 0.1.19 (corrections PC de #394 et #395), release et déploiement en tête de la recette du test manuel | à venir |
 | 2026-11-10 ~01:50 | ~50 min avant CI | 5 h 10 % → voir bilan ; contexte ~150 k | hors §8 | au bout | 🟨 | Lot : passphrase rescellée sous Hello/Touch ID, doigt ajouté refusé sur iPhone, jours de corbeille iPhone, recette du test manuel ; rien vu sur un appareil | #395 |

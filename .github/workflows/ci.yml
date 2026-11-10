@@ -41,6 +41,11 @@ jobs:
   changes:
     name: What this run tests
     runs-on: ubuntu-24.04
+    # Statuses: a real-device receipt on the commit (scripts/device-receipt.sh)
+    # lets the plan skip the Mac runner.
+    permissions:
+      contents: read
+      statuses: read
     outputs:
       full: ${{ steps.plan.outputs.full }}
       reason: ${{ steps.plan.outputs.reason }}
@@ -73,6 +78,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_scope.py plan
 
   lint:
@@ -679,6 +686,7 @@ jobs:
       actions: read
       checks: read
       contents: read
+      statuses: read
     steps:
       - uses: actions/checkout@v7
       # The merge rule (docs/HANDOVER.md §5): skipped is green only when the
@@ -688,6 +696,8 @@ jobs:
       - name: Every skipped job was skipped by the plan, for a written reason
         env:
           NEEDS: ${{ toJSON(needs) }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_scope.py verify
       - name: Every annotation in this run is a notice at most
         env:

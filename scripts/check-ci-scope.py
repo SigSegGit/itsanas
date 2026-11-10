@@ -228,6 +228,24 @@ needs = {"changes": {"result": "success", "outputs": {"plan": __import__("json")
          "coverage": {"result": "skipped"}}
 check("verdict_refuses_a_skip_with_no_reason", scope.check_needs(needs) != [])
 
+# A real phone stands in for a phone job no runner finished, never for a failure.
+iphone = {"real-device/iphone": "iPhone SE, iOS 18, hand test 0-10"}
+needs = {"changes": ok_changes, "ios-app": {"result": "cancelled"}}
+check("verdict_takes_a_real_iphone_for_a_mac_that_never_came", scope.check_needs(needs, iphone) == [],
+      scope.check_needs(needs, iphone))
+check("verdict_refuses_a_mac_that_never_came_without_a_real_iphone", scope.check_needs(needs, {}) != [])
+needs = {"changes": ok_changes, "ios-app": {"result": "failure"}}
+check("verdict_refuses_a_phone_job_failure_even_after_a_real_phone", scope.check_needs(needs, iphone) != [])
+needs = {"changes": ok_changes, "test": {"result": "cancelled"}}
+check("verdict_takes_no_phone_for_a_job_that_is_not_a_phone_s", scope.check_needs(needs, iphone) != [])
+planned = {job: {"run": True, "why": "affected"} for job in scope.JOBS}
+after = scope.substitute(planned, iphone)
+check("plan_skips_the_mac_after_a_real_iphone_and_says_so",
+      not after["ios-app"]["run"] and "real iPhone" in after["ios-app"]["why"], after["ios-app"])
+check("plan_still_runs_the_emulator_after_a_real_android_phone",
+      scope.substitute(planned, {"real-device/android": "S25"})["android-app"]["run"])
+check("plan_without_a_receipt_changes_nothing", scope.substitute(planned, {}) == planned)
+
 # ------------------------------------------------------------- ci.yml obeys
 
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

@@ -2505,6 +2505,49 @@ impl super::Host for Told {
     }
 }
 
+/// The trash in Settings, on a computer: what it lists, restores and deletes is
+/// only what is in it. Sabotage: drop `if trashed(path)` on the delete arm.
+#[test]
+fn red_team_the_page_trash_acts_only_on_what_is_in_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let record = crate::trash::record_dir(&home);
+    itsanas_store::trash::put(&record, "a.txt", itsanas_store::now_unix(), 30).expect("put");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+
+    let listed = page.api("GET", "/api/trash", "");
+    assert_eq!(listed.status, 200, "{}", listed.body);
+    assert!(
+        listed.body.contains("\"a.txt\""),
+        "the trash shows nothing: {}",
+        listed.body
+    );
+
+    let refused = page.api("POST", "/api/trash", "action=delete&path=b.txt");
+    assert_eq!(
+        refused.status, 400,
+        "the page deleted from every machine a file nobody put in the trash: {}",
+        refused.body
+    );
+    assert!(!itsanas_store::trash::list(&record).contains_key("b.txt"));
+
+    let restored = page.api("POST", "/api/trash", "action=restore&path=a.txt");
+    assert_eq!(restored.status, 200, "{}", restored.body);
+    assert!(
+        itsanas_store::trash::list(&record).is_empty(),
+        "Restore left the file in the trash: it is deleted when the delay runs out"
+    );
+
+    let days = page.api("POST", "/api/trash", "action=days&days=7");
+    assert_eq!(days.status, 200, "{}", days.body);
+    assert_eq!(
+        itsanas_store::trash::days(&record),
+        7,
+        "the days typed were not kept"
+    );
+}
+
 /// The theme is in the first byte of the page, kept in the node's home for the
 /// next page and the phone's own screens, and told to the shell: a theme set
 /// only by a script would flash the other one first, and be lost at the next page.

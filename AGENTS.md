@@ -63,6 +63,16 @@ anywhere in this run" is a success. Any other skip, a pending check or a
 red one is not green. (Nicolas, 2026-10-07; a docs-only PR skips six jobs
 by design and was otherwise never mergeable by a session.)
 
+**A real phone stands in for a phone job.** `scripts/android-e2e.sh` run on a
+real Android phone (every scenario), or `scripts/iphone-watch.sh` with
+`IPHONE_RECEIPT` after the iPhone hand test, posts a `real-device/android` or
+`real-device/iphone` commit status on the commit it ran
+(`scripts/device-receipt.sh`; never for uncommitted changes). The plan then
+skips the Mac job when the iPhone receipt is there before it runs, and the
+verdict takes a receipt for a phone job that was cancelled or that no runner
+took, never for one that failed: a runner that found a bug found it. An
+emulator that is there still runs. (Nicolas, 2026-11-10.)
+
 **Merge without asking: GitHub does it.** `main` requires the single check
 *No warnings anywhere in this run* (which passes only on the rule above, and
 covers the phone app's emulator job, called from `ci.yml`), and

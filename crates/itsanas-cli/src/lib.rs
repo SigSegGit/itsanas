@@ -212,6 +212,18 @@ enum BackupAction {
 }
 
 #[derive(Subcommand)]
+enum TrashAction {
+    /// List what is in the trash and when each file is really deleted.
+    List,
+    /// Take a file out of the trash; a synced folder gets it back on its next pass.
+    Restore { path: String },
+    /// Delete a file of the trash from every machine on the next round.
+    Delete { path: String },
+    /// Set how many days a deleted file waits; 0 turns the trash off.
+    Days { days: u64 },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Create a new account on this machine and print its recovery phrase.
     Init {
@@ -354,8 +366,20 @@ enum Command {
         /// Where to write it. Omit to write to standard output.
         destination: Option<PathBuf>,
     },
-    /// Delete a file, leaving a tombstone so it does not come back.
-    Rm { path: String },
+    /// Delete a file: into this machine's trash, deleted everywhere when its
+    /// days run out (30 unless `itsanas trash days` says otherwise).
+    Rm {
+        path: String,
+        /// Delete it from every machine now, leaving a tombstone so it does not
+        /// come back.
+        #[arg(long)]
+        now: bool,
+    },
+    /// What waits in this machine's trash, and what to do with it.
+    Trash {
+        #[command(subcommand)]
+        action: Option<TrashAction>,
+    },
     /// Set, or show, where this node keeps what it holds for others.
     ///
     /// The default is `<home>/vault`. Another disk or a NAS works if it locks
@@ -958,7 +982,8 @@ fn dispatch() -> Result<()> {
         Command::Ls => list(&home),
         Command::Put { path, source } => put(&home, &path, &source),
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
-        Command::Rm { path } => remove(&home, &path),
+        Command::Rm { path, now } => remove(&home, &path, now),
+        Command::Trash { action } => trash_command(&home, action.unwrap_or(TrashAction::List)),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
         command
@@ -2798,8 +2823,13 @@ fn list(home: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let trashed = trash::list(home);
     let mut absent = 0usize;
     for entry in &known.files {
+        if trashed.contains_key(&entry.path) {
+            println!("{:>12}  in trash  {}", format_size(entry.size), entry.path);
+            continue;
+        }
         match entry.presence {
             itsanas_store::Presence::Local => {
                 println!("{:>12}            {}", format_size(entry.size), entry.path);
@@ -2999,16 +3029,87 @@ fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result
     Ok(())
 }
 
-fn remove(home: &Path, path: &str) -> Result<()> {
+fn remove(home: &Path, path: &str, now: bool) -> Result<()> {
     let node = open(home)?;
 
-    if itsanas_store::remove_known(&node.store, &node.vault, path)? {
-        node.store.flush_segment()?;
-        println!("deleted {path}");
+    if now {
+        if itsanas_store::remove_known(&node.store, &node.vault, path)? {
+            node.store.flush_segment()?;
+            trash::take_out(home, path).map_err(|source| itsanas_node::NodeError::Io {
+                path: trash::record_dir(home),
+                source,
+            })?;
+            println!("deleted {path}");
+        } else {
+            println!("no such file: {path}");
+        }
+    } else if itsanas_store::trash::delete(
+        &node.store,
+        &node.vault,
+        path,
+        itsanas_store::now_unix(),
+    )? {
+        match itsanas_store::trash::days(node.store.root()) {
+            0 => println!("deleted {path}"),
+            days => println!(
+                "{path} is in the trash for {days} days; `itsanas trash restore {path}` brings it back"
+            ),
+        }
     } else {
         println!("no such file: {path}");
     }
 
+    Ok(())
+}
+
+/// The trash from a terminal. Its record alone, never the node: a running
+/// daemon holds the store, and the next round does what is asked here.
+fn trash_command(home: &Path, action: TrashAction) -> Result<()> {
+    let dir = trash::record_dir(home);
+    let now = itsanas_store::now_unix();
+    let written = |source| itsanas_node::NodeError::Io {
+        path: dir.clone(),
+        source,
+    };
+    match action {
+        TrashAction::List => {
+            let trashed = itsanas_store::trash::list(&dir);
+            if trashed.is_empty() {
+                println!("the trash is empty");
+            }
+            for (path, due) in trashed {
+                let days = due.saturating_sub(now).div_ceil(itsanas_store::trash::DAY);
+                println!("{days:>4} days  {path}");
+            }
+            match itsanas_store::trash::days(&dir) {
+                0 => println!("the trash is off: a delete is written at once"),
+                days => println!("a deleted file waits {days} days"),
+            }
+        }
+        TrashAction::Restore { path } => {
+            if itsanas_store::trash::list(&dir).contains_key(&path) {
+                itsanas_store::trash::take_out(&dir, &path).map_err(written)?;
+                println!("{path} is back");
+            } else {
+                println!("{path} is not in the trash");
+            }
+        }
+        TrashAction::Delete { path } => {
+            if itsanas_store::trash::list(&dir).contains_key(&path) {
+                itsanas_store::trash::put(&dir, &path, now, 0).map_err(written)?;
+                println!("{path} is deleted from every machine on the next round");
+            } else {
+                println!("{path} is not in the trash");
+            }
+        }
+        TrashAction::Days { days } => {
+            itsanas_store::trash::set_days(&dir, days).map_err(written)?;
+            match itsanas_store::trash::days(&dir) {
+                0 => println!("the trash is off: a delete is written at once"),
+                days => println!("a deleted file now waits {days} days"),
+            }
+        }
+    }
     Ok(())
 }
 

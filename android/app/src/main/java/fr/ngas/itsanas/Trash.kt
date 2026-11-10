@@ -137,6 +137,23 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
                             TextButton(
                                 {
                                     act {
+                                        try {
+                                            PhoneFolder.restore(context, row.path)
+                                        } catch (refused: SecurityException) {
+                                            complain(context.getString(R.string.trash_folder_not_writable))
+                                            return@act
+                                        }
+                                        // Back in the folder: not gone from it any more.
+                                        withContext(Dispatchers.IO) {
+                                            Native.trashKeep(Vault.home(context).absolutePath, row.path)
+                                        }
+                                    }
+                                },
+                                Modifier.testTag("trash-put-back"),
+                            ) { Text(stringResource(R.string.trash_put_back)) }
+                            TextButton(
+                                {
+                                    act {
                                         withContext(Dispatchers.IO) {
                                             Native.trashKeep(Vault.home(context).absolutePath, row.path)
                                         }

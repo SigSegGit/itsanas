@@ -38,6 +38,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Appearance · `/api/theme` | ✅ | ✅ | ✅ | ✅ |
 | Security · `/api/host` · `/api/forgot` · `/api/words` · `/api/passphrase` | ✅ | ✅ | ✅ | ✅ |
 | Devices of this account · `/api/devices` · `/api/withdraw` | ✅ | ✅ | ✅ | ✅ |
+| Trash · `/api/trash` | ✅ | ✅ | ✅ | ⬜ a phone has its trash on its Files screen, drawn by the app |
 | Machines to sync with (Advanced) · `/api/peers` | ✅ | ✅ | ✅ | ⬜ a phone offers no Advanced section: it syncs with the machines the coordinator lists |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |
@@ -92,6 +93,7 @@ app, or it is not done there.
 | `itsanas put` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas get` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas rm` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas trash` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas vault` | ✅ | ✅ | ✅ | ⬜ a phone has one app-private store |
 | `itsanas backup` | ✅ | ✅ | ✅ | ⬜ a phone has no drive to back up to |
 | `itsanas portable` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a drive |

@@ -110,6 +110,17 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
     }
     { $_ -in 'F delete', 'F check' } {
         if ($n -ne 3 -or -not (Is-KitName $w[2])) { Refuse "usage: F $($w[1]) <kit file>" }
+        # As agent.sh: F is about a delete reaching every machine, which the
+        # trash would hold here, so the fleet's `test` home has it off.
+        if ($w[1] -eq 'delete') {
+            $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+            if ($test) {
+                $store = Join-Path ([string] $test.Value) 'store'
+                if (Test-Path -LiteralPath $store -PathType Container) {
+                    Set-Content -LiteralPath (Join-Path $store 'trash-days') -Value '0' -Encoding ascii
+                }
+            }
+        }
         Kit F $w[1] $folder $w[2]
     }
     'C scan' { Refuse 'C scan is not offered on Windows: the vault is not read from here' }

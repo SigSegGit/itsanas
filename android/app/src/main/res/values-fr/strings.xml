@@ -96,6 +96,8 @@
     <string name="trash_left_folder">Absent du dossier de ce téléphone, encore dans le compte</string>
     <string name="trash_restore">Restaurer</string>
     <string name="trash_keep">Garder dans le compte</string>
+    <string name="trash_put_back">Remettre dans le dossier</string>
+    <string name="trash_folder_not_writable">Ce téléphone ne peut que lire le dossier. Choisissez-le à nouveau dans l\'écran Fichiers pour que l\'application puisse y écrire.</string>
     <string name="trash_delete">Supprimer du réseau</string>
     <string name="trash_delete_body">Il disparaît de toutes les machines du compte. Il n\'y a pas d\'annulation.</string>
 </resources>

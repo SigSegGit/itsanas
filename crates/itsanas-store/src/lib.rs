@@ -61,6 +61,7 @@ pub mod path;
 pub mod reliability;
 pub mod store;
 pub mod summary;
+pub mod trash;
 pub mod vault;
 pub mod version;
 

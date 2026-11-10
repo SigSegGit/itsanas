@@ -2,7 +2,9 @@
 //!
 //! This is the layer that turns ITSaNAS from something you drive with commands
 //! into a folder that syncs. Files put in it are imported; files deleted from
-//! it are deleted everywhere; changes arriving from a peer are written out.
+//! it go to this machine's trash (`itsanas_store::trash`), and are deleted
+//! everywhere when its delay runs out; changes arriving from a peer are
+//! written out. A file restored from the trash is written back here.
 //!
 //! # The dangerous case, and what stops it
 //!
@@ -38,7 +40,7 @@ use std::{
 };
 
 use itsanas_crypto::DeviceId;
-use itsanas_store::{LocalState, Store};
+use itsanas_store::{LocalState, Store, trash};
 
 pub use decision::{Decision, decide};
 pub use error::{FolderError, Result};
@@ -52,7 +54,8 @@ pub struct ReconcileReport {
     pub imported: Vec<String>,
     /// Files written out of the store onto disk.
     pub exported: Vec<String>,
-    /// Files the user deleted, now deleted in the store.
+    /// Files the user deleted: in this machine's trash, or deleted in the store
+    /// at once when the trash is off or the file was moved.
     pub removed_from_store: Vec<String>,
     /// Files a peer deleted, now removed from disk.
     pub deleted_from_disk: Vec<String>,
@@ -389,8 +392,22 @@ impl Folder {
             report.held_deletions = count;
         }
 
+        let trashed = trash::list(store.root());
         let mut contents = Contents::default();
         for path in paths {
+            // In this machine's trash: still the account's, hidden here, left
+            // alone until its delay runs out or a person restores it, which
+            // takes it out and lets the next pass write it back. Put back on
+            // disk by hand, it leaves the trash and syncs like any file.
+            if trashed.contains_key(&path) {
+                if !on_disk.contains_key(&path) {
+                    continue;
+                }
+                if let Err(error) = Self::put_back(store, &path) {
+                    report.failed.push((path, error.to_string()));
+                    continue;
+                }
+            }
             if let Err(error) = self.reconcile_one(
                 store,
                 &path,
@@ -407,13 +424,25 @@ impl Folder {
             // How many live paths carry each content after the pass. Read
             // only when there is a pair to judge, so an ordinary pass pays
             // nothing for it.
+            // A trashed path is not a live copy: counting it would make every
+            // move look like a copy, and leave the old name in the trash.
+            let trashed = trash::list(store.root());
             let mut live: BTreeMap<[u8; 32], usize> = BTreeMap::new();
-            for (_, entry) in store.entries()? {
-                *live.entry(entry.content_hash).or_default() += 1;
+            for (path, entry) in store.entries()? {
+                if !trashed.contains_key(&path) {
+                    *live.entry(entry.content_hash).or_default() += 1;
+                }
             }
             report.renamed_here = pair_renames(&contents.gone_here, &contents.came_here, &live);
             report.renamed_elsewhere =
                 pair_renames(&contents.gone_elsewhere, &contents.came_elsewhere, &live);
+            // A move is no delete to wait on: the bytes are still here under the
+            // new name, and the old one would fill the trash with every rename.
+            for (from, _) in &report.renamed_here {
+                store.remove_file(from)?;
+                trash::take_out(store.root(), from)
+                    .map_err(|error| FolderError::io(self.root.clone(), error))?;
+            }
         }
 
         // One segment per pass, rather than one per file: a folder of ten
@@ -556,7 +585,7 @@ impl Folder {
                 if hold_deletions {
                     return Ok(());
                 }
-                store.remove_file(path)?;
+                Self::trash_or_remove(store, path, &real)?;
                 store.clear_local_state(path)?;
                 report.removed_from_store.push(path.to_owned());
                 if let Some(hash) = ledger_hash {
@@ -588,6 +617,37 @@ impl Folder {
         }
 
         Ok(())
+    }
+
+    /// A trashed path found on disk again: out of the trash, and the ledger set to
+    /// the version that was deleted, so what is on disk now reads as an edit of
+    /// it rather than a conflict with it. The time is left at zero so the file
+    /// is hashed, never trusted on its size.
+    fn put_back(store: &Store, path: &str) -> Result<()> {
+        trash::take_out(store.root(), path).map_err(|error| FolderError::io(path, error))?;
+        if let Some(entry) = store.stat(path)? {
+            store.set_local_state(
+                path,
+                &LocalState {
+                    size: entry.size,
+                    modified_unix: 0,
+                    content_hash: entry.content_hash,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A file the person deleted from disk: into this machine's trash, or out of
+    /// the store at once when the trash is off.
+    fn trash_or_remove(store: &Store, path: &str, real: &Path) -> Result<()> {
+        let days = trash::days(store.root());
+        if days == 0 {
+            store.remove_file(path)?;
+            return Ok(());
+        }
+        trash::put(store.root(), path, itsanas_store::now_unix(), days)
+            .map_err(|error| FolderError::io(real.to_owned(), error))
     }
 
     /// The content hash of a file on disk, or `None` if it is not there.

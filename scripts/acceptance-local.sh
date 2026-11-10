@@ -147,6 +147,9 @@ check "login --from keeps the coordinator it recovered from" \
 # Test A's procedure pledges on every machine, and a host refuses to store past
 # its pledge -- which is zero until somebody says otherwise.
 for m in m1 m2 m3; do must node "$m" pledge 1G; done
+# F is about a delete reaching every machine, which a delete does once it leaves
+# the trash; the trash's own waiting is tested on its own (`itsanas-folder`).
+for m in m1 m2 m3; do must node "$m" trash days 0; done
 d_file="$WORK/d-source.bin"
 head -c 700000 /dev/urandom >"$d_file"
 must node m1 put d/restored.bin "$d_file"

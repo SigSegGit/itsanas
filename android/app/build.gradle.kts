@@ -74,6 +74,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Installed beside the real app, never over it: the end-to-end
+            // protocol also runs on a person's own phone (scripts/android-e2e.sh),
+            // and Gradle uninstalls what it tested, with its data.
+            applicationIdSuffix = ".e2e"
+        }
         release {
             // Not shrunk. The Kotlin here is a few hundred lines and the weight
             // is the native library, which R8 does not touch — so minification
@@ -142,14 +148,16 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // The end-to-end protocol: a user's taps on the page (espresso-web) and on
-    // the native screens (compose ui-test). All Apache-2.0.
+    // the native screens (compose ui-test). All Apache-2.0. Espresso 3.7 at
+    // least: 3.6 reached Android 17's input through a hidden call it removed
+    // (InputManager.getInstance), and every test failed on a real Galaxy S25.
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation("androidx.test.espresso:espresso-intents:3.6.1")
-    androidTestImplementation("androidx.test.espresso:espresso-web:3.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-intents:3.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-web:3.7.0")
     // Declares the empty activity ui-test needs in the debug manifest.
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

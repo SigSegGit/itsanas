@@ -406,6 +406,19 @@
         <p id="st-devices-said" class="said" role="status" aria-live="polite"></p>
       </section>
 
+      <section class="card" data-feature="folder" aria-labelledby="st-h-trash">
+        <h2 id="st-h-trash">Trash</h2>
+        <p class="help">A file deleted on this machine, from the folder, the drive or a terminal, waits here before it is deleted from every machine. Until then it still counts in the space. Zero days deletes at once.</p>
+        <div class="controls">
+          <label for="st-trash-days">Days before a file is really deleted</label>
+          <input id="st-trash-days" type="number" min="0" max="9999" inputmode="numeric">
+          <button type="button" id="st-trash-save">Save</button>
+          <button type="button" id="st-trash-show">Show the trash</button>
+        </div>
+        <ul id="st-trash" class="devices"></ul>
+        <p id="st-trash-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
       <section class="card" data-feature="remove_account" aria-labelledby="st-h-account">
         <h2 id="st-h-account">Account</h2>
         <div class="field">

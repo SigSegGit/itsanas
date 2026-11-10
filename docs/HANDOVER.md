@@ -61,14 +61,39 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-10 (evening): one trash on every machine; the e2e on a real phone.** Asked by Nicolas: "the
+vault is ours, a delete can be a move". The record is `itsanas_store::trash` (a file next to the store,
+`<home>/store/trash`, readable while the daemon holds the store; a phone's old `<home>/trash` moves there
+on first use). Every delete made on a machine goes through it: the phone, the synced folder (`Folder`
+trashes instead of `remove_file`, skips trashed paths, writes a restored one back, takes back one put on
+disk by hand as an edit, and removes a renamed file's old name at once), the drive (`trash::delete`, the
+listing hides trashed files), `itsanas rm` (`--now` writes at once), and Settings' Trash on a computer
+(`/api/trash`). The daemon empties what is due each round (`take_in` → `phone::purged_trash`). Days:
+`itsanas trash days N`, 30 by default, 0 = off (as before the trash). On Android, Restore for a file gone
+from the folder writes it back (the folder is now taken with write permission; a choice made before needs
+choosing again, and the app says so). `scripts/android-e2e.sh` runs on a real phone by USB or Wi-Fi
+(`ANDROID_SERIAL`): the debug build is `fr.ngas.itsanas.e2e`, beside the real app, the core is built for the
+phone's ABI, the coordinator goes through `adb reverse`, the phone's settings are put back.
+`scripts/iphone-watch.sh` reads a real iPhone's log and crash reports during the hand test and gives a
+verdict. A passing run on a real phone posts a receipt for its commit (`scripts/device-receipt.sh`,
+AGENTS.md "A real phone stands in for a phone job"), which `ci_scope.py` takes for the Mac job and for a
+phone job no runner finished. First run on Nicolas's Galaxy S25 (Android 17, USB): every scenario failed in
+Espresso 3.6, which calls `InputManager.getInstance`, gone in Android 17; Espresso 3.7 fixes it (the emulator
+is API 35, which is why CI never saw it). The iPhone script was not run: no iPhone tool on the laptop yet.
+**The fleet's F row** (`docs/FLEET-CI.md`) deletes in the folder and expects it gone everywhere a round
+later: the agents (`agent.sh`, `agent.ps1`) now write `0` into the `test` home's `store/trash-days` before
+`F delete`, so F keeps testing propagation; an agent installed before this needs `setup.sh` again, or F goes
+red. Not run on the fleet. The local bench turns the trash off too (`acceptance-local.sh`). Left: an edit made elsewhere to a file trashed here is deleted when the
+delay runs out (the record keeps no version), and a phone's days are its app's setting, not `trash-days`.
+
 **2026-11-10: the phone's leftovers before a release.** A phone folder's files go in by batches of 64
 files or 256 MB, one segment each (`folder_import`, `write_file`), not one segment per photo: the folder
 part of issue 93, whose round-per-transaction part stays open. A file written again under a trashed path
 leaves the trash (`write_file` calls `trash::take_out`), and a file gone from the folder has a Keep answer
 (`trash::keep`, `Native.trashKeep`, record `phone-folder-kept`). A batch with a refused file still records
 the others and answers the first refusal. Not looked at on a real phone; the Kotlin is checked only by CI.
-Still left, and why: restoring into the folder (its permission is read-only), a computer's delete is
-immediate (no trash on a desktop), §8 10b (Nicolas's call), the worker untested, an iOS PARITY column.
+Still left, and why: §8 10b (Nicolas's call), the worker untested, an iOS PARITY column. Restoring into
+the folder and a computer's trash: done the same evening, above.
 
 **2026-11-10: the account's own devices are never called liars (#397, then the roster).** The test
 account's PC was orange for two devices of the same account (87d879, ebf048: kind unknown, most likely
@@ -103,9 +128,8 @@ Apply stays the way to save, and that restarts the engine. Not looked at on a re
 default, set in the trash), then sends the real delete. It stays a live file of the account, so it counts in
 the space and other machines still show it until then; this phone alone holds the record, so losing it costs
 room, never a file. Files gone from the chosen folder are listed there too, and only a person deletes them.
-Not done: restoring into the chosen folder, whose permission is read-only; a computer's delete stays immediate.
-Done 2026-11-10: a file added again leaves the trash; a file gone from the folder can be kept. Not looked at
-on a real phone.
+Done 2026-11-10: a file added again leaves the trash; a file gone from the folder can be kept or put back;
+every machine has the same trash (above). Not looked at on a real phone.
 
 **2026-11-05: 0.1.17 on the phone: the settings could not be changed.** The page reloaded the hosting
 fields every two seconds, over what was being typed, on every platform: `SettingsTest` went red on it
@@ -3982,6 +4006,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     Nicolas's call, 2026-11-04: `Request::Hosts` stays on by default, knowing that many accounts
     can list the machines that contribute.
 
+    h. 🟨 **The fleet's F row with the trash.** Built 2026-11-10: before `F delete`, `agent.sh` and
+       `agent.ps1` write `0` into the `test` home's `store/trash-days`, so the delete is not held in
+       the writer's trash. **Left:** not run on the fleet; `check-fleet.sh`'s bench does not assert the
+       file is written; the trash's purge across real machines is untested (a run with the trash on
+       and `itsanas trash delete NAME` after the daemon trashed the file would test it).
+
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
        Wi-Fi, and on battery on Wi-Fi answering only.
 
@@ -4003,7 +4033,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Done 2026-11-03: a file not on this machine deletes too. `itsanas_store::remove_known`
       writes a tombstone advancing the version the log shows, with no index entry (§6), so an edit
       it did not see still wins (`red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`).
-      `itsanas rm`, the phone and this folder all use it.
+      `itsanas rm --now`, the trash's purge and this folder use it; a delete in the folder goes to
+      the trash first (`itsanas_store::trash::delete`), like every delete made on a machine.
    c. 🟨 **Small residues.** Done 2026-11-03: a device list cut at `MAX_PEERS_RETURNED` is not
       called complete, and the phone says when its vault takes no write. **Left, on purpose:**
       the desktop `show_words` debt needs a native window per platform, which nothing here can

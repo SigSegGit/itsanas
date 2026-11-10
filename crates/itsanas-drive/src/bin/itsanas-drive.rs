@@ -139,20 +139,23 @@ mod windows {
 
         fn remove(&self, path: &str) -> io::Result<()> {
             let node = self.locked()?;
-            // Whether its content is here or not: the folder shows both. Nothing
-            // deleted is not "kept", and asking again will not change it.
-            if !itsanas_store::remove_known(&node.store, &node.vault, path)
-                .map_err(io::Error::other)?
+            // Whether its content is here or not: the folder shows both. Into
+            // the trash, as everywhere else; nothing deleted is not "kept", and
+            // asking again will not change it.
+            if !itsanas_store::trash::delete(
+                &node.store,
+                &node.vault,
+                path,
+                itsanas_store::now_unix(),
+            )
+            .map_err(io::Error::other)?
             {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
                     format!("{path} is no longer in your account"),
                 ));
             }
-            node.store
-                .flush_segment()
-                .map_err(io::Error::other)
-                .map(|_| ())
+            Ok(())
         }
 
         fn copy(&self, from: &str, to: &str) -> io::Result<()> {
@@ -224,9 +227,12 @@ mod windows {
             let Ok(catalogue) = itsanas_store::catalogue(&node.store, &node.vault) else {
                 return Vec::new();
             };
+            // What a person deleted here waits in the trash, out of sight.
+            let trashed = itsanas_store::trash::list(node.store.root());
             catalogue
                 .files
                 .into_iter()
+                .filter(|file| !trashed.contains_key(&file.path))
                 .map(|file| {
                     (
                         file.path,

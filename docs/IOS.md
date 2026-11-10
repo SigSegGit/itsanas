@@ -154,8 +154,9 @@ number and OK or KO, with a screenshot for a KO.
    gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
    ```
 
-   Keep `idevicesyslog | grep -i itsanas` running on the PC, with the phone
-   on USB, for steps 6 and 7.
+   Keep `bash scripts/iphone-watch.sh` running on the PC, with the phone on
+   USB, from the start: it keeps the app's log lines, collects its crash reports
+   and ends with a verdict (background rounds seen, no crash, no panic).
 1. **Open the account.** Log in with an existing account (or create one). The
    file list appears.
 2. **A file from a computer.** Put a small file in the synced folder of a

@@ -435,6 +435,18 @@ window.I18N = {
     'Delete this account for good? This cannot be undone.': 'Supprimer ce compte pour toujours ? Cela ne peut pas être annulé.',
     'This account is deleted.': 'Ce compte est supprimé.',
     'Devices of this account': 'Appareils de ce compte',
+    'Trash': 'Corbeille',
+    'A file deleted on this machine, from the folder, the drive or a terminal, waits here before it is deleted from every machine. Until then it still counts in the space. Zero days deletes at once.':
+      'Un fichier supprimé sur cette machine, dans le dossier, le lecteur ou un terminal, attend ici avant d’être supprimé de toutes les machines. D’ici là, il compte encore dans l’espace. Zéro jour supprime tout de suite.',
+    'Days before a file is really deleted': 'Jours avant qu’un fichier soit vraiment supprimé',
+    'Show the trash': 'Afficher la corbeille',
+    'The trash is empty.': 'La corbeille est vide.',
+    'days before it is really deleted:': 'jours avant la suppression définitive :',
+    'Restore': 'Restaurer',
+    'Delete from the network': 'Supprimer du réseau',
+    'It disappears from every machine of the account. There is no undo.': 'Il disparaît de toutes les machines du compte. Rien ne permet de revenir en arrière.',
+    'Restored. The folder gets it back on its next pass.': 'Restauré. Le dossier le retrouve à son prochain passage.',
+    'Deleted from every machine on the next round.': 'Supprimé de toutes les machines au prochain tour.',
     'Devices of this account:': 'Appareils de ce compte :',
     'withdraw one you no longer use, then try again.': 'retirez-en un que vous n’utilisez plus, puis réessayez.',
     'The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.':
