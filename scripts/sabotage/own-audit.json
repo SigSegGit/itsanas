@@ -10,10 +10,20 @@
     "own_device_that_let_chunks_go"
   ],
   "defences": {
-    "audit: an own device's failures do not count": {
+    "audit: a member's failure is forgiven": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "        } else if self.is_member(device)? {\n            record.forgive();",
+      "dead": "        } else if false {\n            record.forgive();"
+    },
+    "audit: a member's old sanction is not shown": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "            if record.failed > 0 && !self.is_member(&device)? {",
+      "dead": "            if record.failed > 0 {"
+    },
+    "audit: membership is the roster's": {
       "file": "crates/itsanas-net/src/session.rs",
-      "live": "    if own {\n        store.forget_failures(&peer)?;",
-      "dead": "    if false {\n        store.forget_failures(&peer)?;"
+      "live": "        own: store.is_member(&peer)?,",
+      "dead": "        own: false,"
     }
   }
 }

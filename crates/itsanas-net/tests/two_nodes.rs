@@ -2465,9 +2465,13 @@ fn an_audit_confirms_a_host_that_is_still_holding_the_data() {
     });
 }
 
-/// One of the account's own devices that let chunks go (a phone over its
-/// budget) loses those records and nothing else: no failure, no sanction, and
-/// an old sanction lifted. Sabotage: count the failures of an own device.
+/// One of the account's own devices that let chunks go (a phone or a key over
+/// its budget) loses those records and nothing else: no failure, no sanction,
+/// and a sanction recorded before it was known as one of ours is lifted. "Ours"
+/// is the roster, whatever the placement mode. The same scenario without the
+/// roster is `red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`.
+/// Sabotage: count a member's failure; show a member's old sanction; read
+/// membership as false.
 #[test]
 fn red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar() {
     let master = alice();
@@ -2490,20 +2494,26 @@ fn red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar() {
             .remove_chunk(owner.store.owner(), chunk)
             .expect("let go");
     }
-    // A sanction from before, as the version without this left on every PC.
+    // A sanction from before, as 0.1.18 left on every PC, then the phone's
+    // claim admits it to the roster.
+    let id = phone.device.device_id();
     for _ in 0..itsanas_store::FAILURES_BEFORE_PAUSE {
-        owner
-            .store
-            .note_audit(&phone.device.device_id(), false)
-            .expect("old");
+        owner.store.note_audit(&id, false).expect("old");
     }
+    owner.store.admit_member(&id, false).expect("admit");
     with_server(&phone, Pledge { bytes: 1 << 30 }, |address| {
         let mut client =
             PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
-        let report = session::audit_as(&owner.store, &mut client, 16, true).expect("audit");
+        let report = session::audit(&owner.store, &mut client, 16).expect("audit");
         assert!(
             !report.found_a_liar() && report.own,
             "the account's own phone was called a liar for its budget: {report:?}"
+        );
+        assert!(
+            report
+                .record
+                .is_some_and(|record| !record.paused && record.consecutive_failures == 0),
+            "the account's own phone is paused for what it let go: {report:?}"
         );
     });
     assert!(

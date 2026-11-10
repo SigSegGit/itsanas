@@ -61,13 +61,17 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
-**2026-11-10: an own phone no longer turns the account orange.** The test account's PC was orange for
-two of its own devices (phones, up 4 % and 0 %), only reachable through the Pi's relay: they had let chunks
-go within their budget and failed the audits as liars, and the sanction's probe, a chunk of the account,
-was let go too, so nothing could lift it. The daemon now audits its own devices with `session::audit_as(.., own)`:
-the records go, nothing counts against them, an old sanction is dropped
-(`red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar`). Seen in `status.snapshot`, not on a
-daemon yet: it reaches the PCs with 0.1.19.
+**2026-11-10: the account's own devices are never called liars (#397, then the roster).** The test
+account's PC was orange for two devices of the same account (87d879, ebf048: kind unknown, most likely
+copies made with `copy-to-key` or `portable` on 2026-10-20/22, up 4 % and 0 %), reached only through the
+Pi's relay. They had let chunks go, failed audits as liars, and the pause's probe, a chunk of the account,
+was let go too, so nothing lifted it. #397 decided "own" from the measured placement, which the default
+`everyone` mode leaves empty, and `keeping.rs`'s own audit still treated the device as a stranger (Rodin).
+Now "own" is the roster (`Store::is_member`, admitted on a claim signed with the account key, final on
+revocation), read by `session::audit` for every caller: a member's pass counts as proof, its failure
+withdraws the records and is forgiven (`Reliability::forgive` in `Index::note_audit`), an old sanction is
+not shown and does not pause it (`red_team_an_own_device_that_let_chunks_go_is_not_called_a_liar`, three
+sabotages). The rest of the design is §8 0e.
 
 **2026-11-10: a consistent batch.** A passphrase changed while sealed behind Windows Hello or
 Touch ID is sealed again, the system asking first (`setup/unlock.rs`, `changing`); on an iPhone
@@ -1817,6 +1821,34 @@ Detail and measurements are in ROADMAP.md; this is the map.
       2026-09-16. The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
    d. **Whatever fails becomes the next item**, ahead of everything below.
+   e. **Small, intermittent and portable devices, never a self-inflicted block, never an abusable
+      tolerance.** Asked for by Nicolas on 2026-11-10 (a teacher who plugs an active copy in once a
+      term; a key in a drawer; the wrong tool picked). Designed with Rodin the same day; the full
+      design, with names checked at fb40eb0, tests and sabotages, is in the owner's private notes
+      (`DESIGN-INTERMITTENT-DEVICES.md`, critique in `RODIN-INTERMITTENT-DEVICES.md`). Rule: for
+      another account's host, availability, proof, credit and membership are measured, never
+      declared, and intermittence is paid in proportion, never in a grace window; inside the
+      account the sanction goes, the proof stays. Step 1 (membership from the roster, proof kept,
+      sanction dropped) is done (§0). In order, each one PR, test first:
+      1b. A copy counts only if its holder's last audit passed (`Reliability::vouches`, read by
+          `holder_evidence`, `coverage`, `under_replicated`): today a paused host with an old pass
+          still counts towards release and coverage.
+      2. `placing::own_devices` also takes the roster (`Store::members`), so a key the
+         coordinator forgot after 7 days is not an `Account::Unknown` host.
+      3. `Request::Hosted` records only chunks this account references (`CHUNK_REFS`) and nothing
+         for a paused host: today any handshaken device writes rows for any ids.
+      4. Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
+         `status`, the page's device list (sorted most silent first) and the phone; no colour.
+      5. Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
+         instead of `isolated`, and the key says when its changes reached another machine, so it
+         can be unplugged.
+      6. A cloned key image (one identity on two disks) is detected from a signed foreign segment
+         and stops writing, nothing deleted; today `offer_segments` swallows `SegmentChainBroken`.
+      7. `copy-to-key` checks the 10 places before writing and says it takes one; the page's
+         Disks section asks "in a drawer / my computers now and then / a computer not mine" and
+         leads to backup, USB key or portable.
+      8. `backup export` refreshes an earlier copy in place (never deletes without `--prune`),
+         dates it and says what it left out.
    x. 🟨 **The fleet tested by CI, so the hand test shrinks to what needs
       hands.** Asked for by Nicolas on 2026-10-23 after the hand test of the
       day before (an ordeal for Mandarine; too complex to add testers).

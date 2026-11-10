@@ -1759,19 +1759,6 @@ impl Index {
         }
     }
 
-    /// Drop what auditing has recorded against `device`, and its probe: for
-    /// one of the account's own devices, whose missing chunks were let go, not
-    /// lied about.
-    pub fn forget_failures(&self, device: &DeviceId) -> Result<()> {
-        let txn = self.db.begin_write()?;
-        txn.open_table(RELIABILITY)?
-            .remove(device.as_bytes().as_slice())?;
-        txn.open_table(PROBES)?
-            .remove(device.as_bytes().as_slice())?;
-        txn.commit()?;
-        Ok(())
-    }
-
     /// Record one audit outcome for `device`.
     ///
     /// A pass clears any outstanding probe in the same transaction: the probe
@@ -1818,7 +1805,11 @@ impl Index {
         let mut record = self.reliability(device)?;
         let was_paused = record.paused;
         if passed {
+            // Proof counts for every device, the account's own included:
+            // a phone's release needs its siblings' passes.
             record.passed_one();
+        } else if self.is_member(device)? {
+            record.forgive();
         } else {
             record.failed_one(now);
         }
@@ -1885,7 +1876,9 @@ impl Index {
             let (key, value) = row?;
             let device = DeviceId::from_slice(key.value())?;
             let record: Reliability = postcard::from_bytes(value.value())?;
-            if record.failed > 0 {
+            // A sanction written before the device was known as one of this
+            // account's would otherwise stay on every screen for ever.
+            if record.failed > 0 && !self.is_member(&device)? {
                 out.push((device, record));
             }
         }
