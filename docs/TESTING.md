@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1638 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 596 are red-team tests.**
+**Last updated: 2026-11-04 — 1641 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 598 are red-team tests.**
 
-**1522 of the 1638 tests have an entry of their own on this page** — an *entry*,
+**1525 of the 1641 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -160,12 +160,12 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 227 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 50 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 69 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 68 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 348 |
+| `itsanas-cli` unit | 349 |
 | `itsanas-android` unit | 24 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -220,8 +220,8 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 33 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 34 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 58 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 199 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -732,7 +732,7 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (50)
+# `itsanas-store` — integration tests (51)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -1005,7 +1005,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (68)
+# `itsanas-net` — two-node tests (69)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1226,7 +1226,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (348)
+# `itsanas-cli` — unit tests (349)
 
 ## `bench` — measuring this machine (4)
 
@@ -1266,6 +1266,8 @@ refused, `1m` taken.
 
 | Test | What it proves |
 |---|---|
+| **`red_team_hosted_records_only_this_accounts_chunks_and_nothing_from_a_paused_host`** | `Request::Hosted` records only chunks this account uses (`Store::referenced_among`), and nothing for a host paused for lying. Before, any handshaken device wrote rows for any ids, free to mint, for ever. Sabotaged (every id recorded; the pause check dropped): red each. |
+| **`red_team_a_paused_host_with_an_old_pass_vouches_for_nothing`** | A host paused for lying is no copy however it once passed and however often it says `Hosted`: `holder_evidence.proved`, `coverage` and `under_replicated` all leave it out (`Reliability::vouches`, `counted_in`). Before, a paused host with an old pass counted towards releasing the last copy and showed as green. Sabotaged (a paused holder counted; an old pass vouching): red each. |
 | `the_file_round_trips_and_ignores_keys_it_does_not_know` | What is written reads back; a key from a newer tray does not stop an older daemon reading the rest; `paused yes` is refused rather than read as "not paused". |
 | `writing_replaces_the_file_whole_and_a_missing_file_asks_nothing` | No file is "nothing asked"; a write replaces the whole file through a temporary name, and leaves no temporary behind. |
 | **`red_team_a_control_file_cannot_make_the_daemon_dial_in_a_tight_loop`** | `interval 0`, `1` or `29` -- typed, or a tray's bug -- is held at the 30-second floor, so two seconds after a round nothing is due; a huge one is held at a day. Without the floor, a daemon dials every machine of the account every two seconds. Sabotaged (no clamp): red. |
@@ -1732,7 +1734,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it`** | A move is refused before copying when the target's free space is under the vault's size plus 10%; a drive with room for the bare size but not the margin is refused, one with the margin goes through. Sabotaged (checking against the bare size): red. |
 | **`red_team_a_backup_is_not_written_into_the_home_vault_or_synced_folder`** | `backup export` refuses a destination inside the home, the vault or the synced folder. Sabotaged. |
 
-## `placing` — the measurement shown, and the daemon's share of placement (9)
+## `placing` — the measurement shown, and the daemon's share of placement (10)
 
 | Test | What it proves |
 | --- | --- |
@@ -2522,6 +2524,7 @@ pass on the diff: both were ways for the report to hide a deletion.
 
 | Test | Why it exists |
 |---|---|
+| `a_member_the_book_forgot_is_still_own` | A key the coordinator forgot after a week and whose claim aged out is still one of the account's (`own_devices` takes the roster), not a host of another household counted for durability. Sabotaged (roster dropped): red. |
 | `a_file_renamed_in_the_folder_is_reported_as_one_rename` | A file moved into a subdirectory comes out as one `mv` line and "1 renamed" in the summary, not "1 in, 1 deleted locally"; the store still deleted the old path and holds the new one, byte for byte. Sabotage: no pairing, or the summary counting the pair twice. |
 | `a_rename_made_on_another_device_is_reported_as_one_rename` | The same for a move another device made: the old file leaves this disk, the new one arrives, the report says it was renamed elsewhere. Sabotage: no pairing. |
 | `only_an_unambiguous_move_of_the_same_bytes_is_called_a_rename` | Two identical copies deleted and one created, a file renamed *and* edited, and an empty file swapped for another empty one: none is called a rename, because the bytes do not say which file became which. Sabotage: pair the first candidate, or pair empty files. |

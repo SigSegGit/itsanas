@@ -106,6 +106,14 @@ impl Reliability {
         !self.paused
     }
 
+    /// Whether this peer's word that it holds a chunk is worth anything: it
+    /// has answered a challenge, is not paused, and its latest round passed.
+    /// A pass years ago says nothing of a host caught lying since.
+    #[must_use]
+    pub const fn vouches(&self) -> bool {
+        self.passed > 0 && !self.paused && self.consecutive_failures == 0
+    }
+
     /// How many more passing rounds this peer owes before the pause lifts.
     #[must_use]
     pub const fn rounds_to_reinstatement(&self) -> u32 {

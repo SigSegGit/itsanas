@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "--",
+    "member_the_book_forgot"
+  ],
+  "defences": {
+    "placement: the roster's members are own": {
+      "file": "crates/itsanas-cli/src/placing.rs",
+      "live": "    own.extend(members);",
+      "dead": "    let _ = members;"
+    }
+  }
+}

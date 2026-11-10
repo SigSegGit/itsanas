@@ -668,17 +668,28 @@ impl<'a> PeerService<'a> {
             Request::MayEvict { owner, chunks } => self.may_evict(caller, *owner, chunks),
             Request::Claims { owner } => self.claims(caller, *owner),
 
-            Request::Hosted { chunks } => {
-                // A claim, recorded and then checked. The storage challenges
-                // this node already runs are what turn it into evidence: a peer
-                // that says it stored something and did not fails the next one
-                // and the chunk is sent somewhere else. Believing it for now
-                // costs one audit round and is what makes the offer worth
-                // making at all.
-                self.store.record_holders(chunks, &caller)?;
-                Ok(Response::Stored { accepted: true })
-            }
+            Request::Hosted { chunks } => self.hosted(caller, chunks),
         }
+    }
+
+    /// A host says it holds `chunks` of this account.
+    fn hosted(&self, caller: DeviceId, chunks: &[ChunkId]) -> Result<Response> {
+        // A claim, recorded and then checked. The storage challenges
+        // this node already runs are what turn it into evidence: a peer
+        // that says it stored something and did not fails the next one
+        // and the chunk is sent somewhere else. Believing it for now
+        // costs one audit round and is what makes the offer worth
+        // making at all. Not from a host paused for lying, whose word
+        // is what it was paused for, and only for chunks this account
+        // uses.
+        if !self.store.worth_sending_to(&caller)? {
+            return Ok(Response::Stored { accepted: false });
+        }
+        let ours = self.store.referenced_among(chunks)?;
+        if !ours.is_empty() {
+            self.store.record_holders(&ours, &caller)?;
+        }
+        Ok(Response::Stored { accepted: true })
     }
 
     /// Stop counting `caller` for `seconds`, and say how much rests on it alone.

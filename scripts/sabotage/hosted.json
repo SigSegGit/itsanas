@@ -1,0 +1,24 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "two_nodes",
+    "--",
+    "hosted_records_only"
+  ],
+  "defences": {
+    "hosted: only this account's chunks": {
+      "file": "crates/itsanas-net/src/service.rs",
+      "live": "        let ours = self.store.referenced_among(chunks)?;",
+      "dead": "        let ours = chunks.to_vec();"
+    },
+    "hosted: nothing from a paused host": {
+      "file": "crates/itsanas-net/src/service.rs",
+      "live": "        if !self.store.worth_sending_to(&caller)? {",
+      "dead": "        if false {"
+    }
+  }
+}

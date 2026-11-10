@@ -1,0 +1,24 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-store",
+    "--test",
+    "store",
+    "--",
+    "vouches_for_nothing"
+  ],
+  "defences": {
+    "copies: a paused holder is not counted": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "        .is_some_and(|record| record.paused))",
+      "dead": "        .is_some_and(|_| false))"
+    },
+    "copies: an old pass does not vouch for a paused host": {
+      "file": "crates/itsanas-store/src/reliability.rs",
+      "live": "        self.passed > 0 && !self.paused && self.consecutive_failures == 0",
+      "dead": "        self.passed > 0"
+    }
+  }
+}
