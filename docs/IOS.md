@@ -147,7 +147,7 @@ What no test above can do: a real iPhone, a real finger, iOS deciding when a
 round runs. Each step says what to do and what must be seen; note the step's
 number and OK or KO, with a screenshot for a KO.
 
-0. **Get the build** from the last green run of `main`, then sign and install
+0. **Get the build** from the last green run of `main` (or of the release's tag), then sign and install
    it with your Apple ID in Sideloadly or AltStore:
 
    ```sh
@@ -189,7 +189,9 @@ number and OK or KO, with a screenshot for a KO.
 
 And on Windows, for the passphrase sealed behind Windows Hello:
 
-10. In Settings, Security, turn on Windows Hello, then "Change my passphrase".
+10. On a PC brought to the release that carries it (`itsanas update`), in
+    Settings, Security, turn on Windows Hello, then
+    "Change my passphrase".
     Windows Hello is asked before anything changes; refuse it: the passphrase
     is unchanged and the old one still opens. Do it again and accept: sign out
     of Windows and back in, and the service starts, with Windows Hello, on the

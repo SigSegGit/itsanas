@@ -191,9 +191,22 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-0a. **The iPhone hand test** (§8 0c), on the build of the last green `main`: the recipe is
-   `docs/IOS.md`, "The hand test", steps 0 to 10, and the report is each step's number, OK
-   or KO. First command:
+0a. **Release 0.1.19, everywhere, then the iPhone hand test** (§8 0c). 0.1.19 carries what
+   0.1.18 lacks on a PC: a passphrase changed while sealed is sealed again (#395), and an
+   open waiting out a lock probe no longer falls in step with it (#394); step 10 of the hand
+   test needs the first. Release `main` (after the version PR has merged), then the laptop,
+   then the Pi and the VM (the fleet run's row U rebuilds their containers on the latest
+   release, and row V fails if one is not on it), then the Android phone (Settings, Check
+   for updates):
+
+       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
+
+       itsanas update
+
+       gh workflow run fleet.yml --repo SigSegGit/itsanas; gh run watch --repo SigSegGit/itsanas $(gh run list --repo SigSegGit/itsanas --workflow fleet.yml --limit 1 --json databaseId -q '.[0].databaseId')
+
+   Then the recipe: `docs/IOS.md`, "The hand test", steps 0 to 10, and the report is each
+   step's number, OK or KO. The iPhone's build:
 
        gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
 
