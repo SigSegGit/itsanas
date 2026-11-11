@@ -512,9 +512,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         }
         try {
             val plan = Vault.plan(context, foreground = true)
-            Account.syncNow(metadataOnly = !plan.movesContent)
+            val answer = org.json.JSONObject(Account.syncNow(metadataOnly = !plan.movesContent))
             refresh()
-            tell(plan.because)
+            tell(changesLine(context, answer) ?: plan.because)
         } catch (left: CancellationException) {
             // The person left this screen mid-round. That is no failure, and the
             // callers catching everything would put it in a dialog over the next one.
@@ -899,6 +899,23 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit, onFre
             IconButton(onDelete, Modifier.testTag("file-delete")) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
         }
     }
+}
+
+/** What a round brought, named: "2 new: a, b · 1 changed: c", or null when nothing. */
+private fun changesLine(context: android.content.Context, answer: org.json.JSONObject): String? {
+    val parts = listOf(
+        "new" to R.string.round_new,
+        "changed" to R.string.round_changed,
+        "gone" to R.string.round_gone,
+    ).mapNotNull { (key, label) ->
+        val part = answer.optJSONObject(key) ?: return@mapNotNull null
+        val count = part.optInt("count")
+        if (count == 0) return@mapNotNull null
+        val names = part.optJSONArray("names") ?: org.json.JSONArray()
+        val listed = List(names.length()) { names.getString(it).substringAfterLast('/') }.joinToString(", ")
+        context.getString(label, count) + ": " + listed + if (count > names.length()) ", …" else ""
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 /** The name a picked document has, or something usable if it will not say. */

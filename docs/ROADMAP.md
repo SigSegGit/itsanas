@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1656 test functions, 20 of them `#[ignore]`d into the slow job, and 611 of
+**1657 test functions, 20 of them `#[ignore]`d into the slow job, and 612 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1118,7 +1118,8 @@ deletion removed it from both. Both folders ended byte-identical.
   -> to` -- here or on another device -- and counted once as "renamed". Recognised only: the log still carries a delete and
   a create, and a file renamed *and* edited in one pass, or one of two identical
   copies, still reads as a deletion and an addition, because the bytes do not
-  say which became which. ⬜ Not on Android: the app shows no per-file report.
+  say which became which. On a phone, a round's message names up to five files
+  that arrived, changed or left, and counts the rest (`phone::changes`).
   A file name cannot forge or disguise a line (2026-10-13,
   `red_team_a_file_name_cannot_forge_or_disguise_a_line_in_the_log`): the
   store refuses a name with a control character, and the report escapes
