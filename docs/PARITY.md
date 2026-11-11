@@ -38,13 +38,13 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Appearance · `/api/theme` | ✅ | ✅ | ✅ | ✅ |
 | Security · `/api/host` · `/api/forgot` · `/api/words` · `/api/passphrase` | ✅ | ✅ | ✅ | ✅ |
 | Devices of this account · `/api/devices` · `/api/withdraw` | ✅ | ✅ | ✅ | ✅ |
-| Files on this machine · `/api/files` | ✅ | ✅ | ✅ | ⬜ a phone keeps what its limit allows; it has no synced folder of plain copies |
+| Files on this machine · `/api/files` | ✅ | ✅ | ✅ | ⬜ a phone frees a file from its Files screen, drawn by the app |
 | Start at login · `/api/autostart` | ✅ | ✅ | ✅ | ⬜ a phone's system starts the app; it has no service to switch |
 | Trash · `/api/trash` | ✅ | ✅ | ✅ | ⬜ a phone has its trash on its Files screen, drawn by the app |
 | Machines to sync with (Advanced) · `/api/peers` | ✅ | ✅ | ✅ | ⬜ a phone offers no Advanced section: it syncs with the machines the coordinator lists |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |
-| Account (remove this account from this machine, delete it) · `/api/remove` · `/api/delete` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
+| Account (remove this account from this machine, delete it) · `/api/remove` · `/api/delete` | ✅ | ✅ | ✅ | ✅ |
 | Language · `/api/language` | ✅ | ✅ | ✅ | ✅ |
 | Open and pin the folder · `/api/open` · `/api/pin` · `/api/pick` | ✅ | ✅ | ✅ | ⬜ a phone has no folder path to open or add to a file manager |
 | Another account beside this one · `/api/another` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account; a second is a second install |
@@ -63,7 +63,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:keep_question` | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ✅ |
 | `feature:biometric` | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Windows Hello, optional | ⬜ no reader this program can ask | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Touch ID, optional | ✅ |
 | `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
-| `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
+| `feature:remove_account` | ✅ | ✅ | ✅ | ✅ |
 | `feature:hosting` | ✅ | ✅ | ✅ | ✅ |
 | `feature:update_check` | ✅ | ✅ | ✅ | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |

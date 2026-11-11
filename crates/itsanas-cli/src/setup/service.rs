@@ -88,6 +88,12 @@ pub trait ServiceControl {
     fn autostart(&self) -> Option<bool> {
         None
     }
+    /// Take the service's definition away, and the tray's start at logon: an
+    /// account removed from this machine leaves nothing that would start for it.
+    /// An app that is its own service has nothing to take away.
+    fn uninstall(&self) -> Result<()> {
+        Ok(())
+    }
     /// Where to look when it does not run.
     fn log_hint(&self) -> String;
     /// Whether the program asking is the one that holds the store, as an app that
@@ -1121,6 +1127,50 @@ impl ServiceControl for Platform {
         .map_err(failed(
             "could not change whether the service starts at logon",
         ))
+    }
+
+    fn uninstall(&self) -> Result<()> {
+        let gone = |path: PathBuf| match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(CliError::Io {
+                path,
+                source: error,
+            }),
+            _ => Ok(()),
+        };
+        match self.os {
+            "windows" => {
+                tool("schtasks", &["/Delete", "/TN", &self.names.task, "/F"])
+                    .map_err(failed("the background service was not removed"))?;
+                run_powershell(&format!(
+                    "Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) {}) -ErrorAction SilentlyContinue",
+                    ps_quote(&self.names.tray_shortcut)
+                ))
+                .map(|_| ())
+                .map_err(failed("the tray's start at logon was not removed"))
+            }
+            "macos" => {
+                if let Ok(domain) = Self::gui_domain() {
+                    for label in [&self.names.launchd_label, &self.names.menubar_label] {
+                        let _ = tool("launchctl", &["bootout", &format!("{domain}/{label}")]);
+                    }
+                }
+                gone(self.plist_path(&self.names.launchd_label))?;
+                gone(self.plist_path(&self.names.menubar_label))
+            }
+            _ => {
+                let _ = Self::systemctl(&["disable", "--now", &self.names.systemd_service]);
+                // An instance runs from the template every other instance shares.
+                if self.names.instance.is_none() {
+                    gone(self.unit_path())?;
+                }
+                gone(
+                    self.paths
+                        .user_home
+                        .join(".config/autostart")
+                        .join(&self.names.autostart_file),
+                )
+            }
+        }
     }
 
     fn autostart(&self) -> Option<bool> {

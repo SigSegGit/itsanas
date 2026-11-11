@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OpenInNew
@@ -767,6 +768,17 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                             }
                         },
                         onDelete = { confirmDelete = file },
+                        onFree = {
+                            scope.launch {
+                                try {
+                                    val answer = withContext(Dispatchers.IO) { org.json.JSONObject(Native.release(file.path)) }
+                                    refresh()
+                                    snackbar.showSnackbar(answer.getString("said"))
+                                } catch (error: Throwable) {
+                                    complain(error.message ?: "could not free it")
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -847,7 +859,7 @@ private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit, onFree: () -> Unit) {
     Card(
         Modifier
             .fillMaxWidth()
@@ -878,6 +890,11 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                     if (file.here) Icons.Default.OpenInNew else Icons.Default.CloudDownload,
                     stringResource(if (file.here) R.string.file_open else R.string.file_fetch),
                 )
+            }
+            if (file.here) {
+                IconButton(onFree, Modifier.testTag("file-free")) {
+                    Icon(Icons.Default.CloudUpload, stringResource(R.string.file_free))
+                }
             }
             IconButton(onDelete, Modifier.testTag("file-delete")) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
         }

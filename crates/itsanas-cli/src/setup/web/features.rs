@@ -66,7 +66,7 @@ impl Features {
         forgot_in_settings: true,
         biometric: false,
         metered: false,
-        remove_account: false,
+        remove_account: true,
         hosting: true,
         update_check: true,
     };
@@ -251,10 +251,11 @@ mod tests {
                 );
                 continue;
             }
-            let phone_only = matches!(
-                name,
-                "keep_question" | "biometric" | "metered" | "remove_account"
-            );
+            if name == "remove_account" {
+                assert!(on_phone && on_desktop, "{name}");
+                continue;
+            }
+            let phone_only = matches!(name, "keep_question" | "biometric" | "metered");
             assert_eq!(on_phone, phone_only, "{name} on a phone");
             assert_eq!(on_desktop, !phone_only, "{name} on a desktop");
         }
