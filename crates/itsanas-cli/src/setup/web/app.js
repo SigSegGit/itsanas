@@ -988,6 +988,7 @@
     list.textContent = '';
     reply.files.forEach(function (row) {
       const item = document.createElement('li');
+      item.dataset.path = row.path.toLowerCase();
       const label = document.createElement('span');
       label.textContent = row.path + ' \u00b7 ' + row.size + ' \u00b7 ' + (row.freed ? t('freed here') : row.here ? t('here') : t('not here'));
       item.appendChild(label);
@@ -1358,6 +1359,14 @@
     $('st-trash-show').addEventListener('click', function () { trash(null, ''); });
     $('st-trash-save').addEventListener('click', function () { trash('days', ''); });
     $('st-files-show').addEventListener('click', function () { files(null, ''); });
+    // In the page only: the list is already here, so a long one is narrowed
+    // without pausing the machine again.
+    $('st-files-filter').addEventListener('input', function () {
+      const wanted = $('st-files-filter').value.trim().toLowerCase();
+      $('st-files').querySelectorAll('li').forEach(function (item) {
+        item.hidden = wanted !== '' && (item.dataset.path || '').indexOf(wanted) < 0;
+      });
+    });
     $('st-autostart').addEventListener('change', function () { autostart($('st-autostart').checked); });
     if (state.features.background_choice) { autostart(null); }
     $('st-peer-add').addEventListener('click', function () {

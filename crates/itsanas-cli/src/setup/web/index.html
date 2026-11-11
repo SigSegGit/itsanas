@@ -418,7 +418,11 @@
       <section class="card" data-feature="folder" aria-labelledby="st-h-files">
         <h2 id="st-h-files">Files on this machine</h2>
         <p class="help">A file freed here leaves this machine's folder and stays in the account, on its other machines. Keep it here to bring it back. Only a file already synced can be freed. Opening this list pauses ITSaNAS on this machine for a moment.</p>
-        <div class="controls"><button type="button" id="st-files-show">Show the files</button></div>
+        <div class="controls">
+          <button type="button" id="st-files-show">Show the files</button>
+          <label for="st-files-filter">Only the files whose name holds</label>
+          <input id="st-files-filter" type="search" autocomplete="off">
+        </div>
         <ul id="st-files" class="devices"></ul>
         <p id="st-files-said" class="said" role="status" aria-live="polite"></p>
       </section>

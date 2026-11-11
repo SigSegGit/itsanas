@@ -2838,10 +2838,16 @@ fn list(home: &Path) -> Result<()> {
     }
 
     let trashed = trash::list(home);
+    // Freed by the person, not missing: `itsanas free --keep` brings it back.
+    let freed = itsanas_store::freed::list(&trash::record_dir(home));
     let mut absent = 0usize;
     for entry in &known.files {
         if trashed.contains_key(&entry.path) {
             println!("{:>12}  in trash  {}", format_size(entry.size), entry.path);
+            continue;
+        }
+        if freed.contains(&entry.path) {
+            println!("{:>12}  freed     {}", format_size(entry.size), entry.path);
             continue;
         }
         match entry.presence {

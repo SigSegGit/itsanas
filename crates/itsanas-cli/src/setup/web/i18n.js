@@ -443,6 +443,7 @@ window.I18N = {
     'Files on this machine': 'Fichiers sur cette machine',
     'A file freed here leaves this machine\'s folder and stays in the account, on its other machines. Keep it here to bring it back. Only a file already synced can be freed. Opening this list pauses ITSaNAS on this machine for a moment.': 'Un fichier libéré quitte le dossier de cette machine et reste dans le compte, sur ses autres machines. « Garder ici » le ramène. Seul un fichier déjà synchronisé peut être libéré. Ouvrir cette liste met ITSaNAS en pause un instant sur cette machine.',
     'Show the files': 'Afficher les fichiers',
+    'Only the files whose name holds': 'Seulement les fichiers dont le nom contient',
     'freed here': 'libéré ici',
     'here': 'ici',
     'not here': 'pas ici',
