@@ -530,8 +530,10 @@ check "doctor reports the network and reaches the coordinator" \
 # loopback, which is exactly the address a coordinator must refuse to probe --
 # so what this checks is that the refusal is *explained* rather than reported as
 # the member being broken, which would send somebody to rewire a working router.
+# A machine that publishes its global IPv6 address instead (`prefer_global_ipv6`)
+# has no loopback to explain: there doctor must still give its inbound verdict.
 check "and explains a loopback address rather than calling the member broken" \
-    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' doctor </dev/null | grep -q private"
+    sh -c "out=\$(ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' doctor </dev/null); printf '%s\n' \"\$out\" | grep -q private || { ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' device list </dev/null | grep -Eq '\[[0-9a-f:]+\]:' && printf '%s\n' \"\$out\" | grep -q '^  in '; }"
 
 # With the coordinator down, the same command must name what is unreachable
 # instead of going quiet. This is the last check in the file: it stops the
