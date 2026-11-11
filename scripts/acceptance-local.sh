@@ -217,6 +217,20 @@ expect_pass F check "$WORK/folder-m3" "$e_name"
 expect_fail F check "$WORK/folder-m3" "$b_name"
 [ -f "$WORK/folder-m3/$b_name" ] || { echo "  WRONG the delete took $b_name with it"; failures=$((failures + 1)); }
 
+say "H: a file freed on machine 3 leaves its folder, not the account, and comes back"
+must node m3 free "$b_name"
+[ ! -f "$WORK/folder-m3/$b_name" ] || { echo "  WRONG freeing left $b_name in machine 3's folder"; failures=$((failures + 1)); }
+must node m3 scan
+round m3 m2 "$PORT2"
+must node m2 scan
+must node m3 scan
+[ -f "$WORK/folder-m2/$b_name" ] || { echo "  WRONG freeing $b_name on machine 3 deleted it on machine 2"; failures=$((failures + 1)); }
+[ ! -f "$WORK/folder-m3/$b_name" ] || { echo "  WRONG a pass wrote the freed $b_name back unasked"; failures=$((failures + 1)); }
+must node m3 free --keep "$b_name"
+must node m3 scan
+check "a freed file kept here again is back, byte for byte" \
+    sh -c "[ \"\$(sha256sum '$WORK/folder-m3/$b_name' | cut -d' ' -f1)\" = '$b_sha' ]"
+
 say "G: machines 1 and 3 edit the same file apart, then meet through machine 2"
 g_name="notes-g.txt"
 printf 'the original\n' >"$WORK/folder-m1/$g_name"

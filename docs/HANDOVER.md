@@ -4002,9 +4002,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     `<store>/freed` (`itsanas_store::freed`) with its ledger entry cleared, so a pass skips it while
     it is absent and never reads a delete; `itsanas free --keep PATH` lets the next pass write it
     back. Proved by `red_team_a_freed_file_is_never_trashed_nor_deleted_and_comes_back` and
-    `red_team_an_edit_not_yet_synced_is_not_freed`. Not done: the page's Keep here / Free up
-    buttons, and dropping this device's own chunks of a freed file (today `keep_bytes` and
-    `keep_only` decide that). The virtual drive already fetches on demand.
+    `red_team_an_edit_not_yet_synced_is_not_freed`. Then (`crate::freeing`, one module for the
+    command, Settings' *Files on this machine* card `/api/files` and the daemon): the sealed copy
+    leaves too through `Store::release`, at once or on a later round once other machines have
+    proved they hold it, and Keep here fetches it back (`fetch_absent`) when it left. The bench's
+    phase H frees and keeps a file across three machines. **Left:** a phone has no such list; the
+    release with real proved holders has run on no fleet.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`
