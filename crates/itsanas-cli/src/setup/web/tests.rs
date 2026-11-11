@@ -2505,6 +2505,104 @@ impl super::Host for Told {
     }
 }
 
+/// An installed service that remembers whether it starts at logon.
+struct Switched(Arc<Mutex<bool>>);
+
+impl ServiceControl for Switched {
+    fn passphrase_file(&self) -> PathBuf {
+        PathBuf::new()
+    }
+    fn installed(&self) -> bool {
+        true
+    }
+    fn install(&self, _: bool) -> Result<String> {
+        Ok(String::new())
+    }
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn set_autostart(&self, on: bool) -> Result<()> {
+        *self.0.lock().expect("lock") = on;
+        Ok(())
+    }
+    fn autostart(&self) -> Option<bool> {
+        Some(*self.0.lock().expect("lock"))
+    }
+    fn log_hint(&self) -> String {
+        "the test".to_owned()
+    }
+}
+
+/// Start at login, per account, from Settings: the switch changes this
+/// instance's service and says what the system now says. Without a service there
+/// is nothing to switch, and a phone has no such switch. Sabotage: the switch
+/// always turns it on.
+#[test]
+fn red_team_settings_turn_this_accounts_start_at_login_on_and_off() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let on = Arc::new(Mutex::new(true));
+    let state = on.clone();
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = super::Features::DESKTOP;
+        b.service = Box::new(move || {
+            let service: Box<dyn ServiceControl> = Box::new(Switched(state.clone()));
+            service
+        });
+    });
+    assert!(
+        page.api("GET", "/api/autostart", "")
+            .body
+            .contains("\"on\":true"),
+        "the page did not read the service's state"
+    );
+    let off = page.api("POST", "/api/autostart", "on=false");
+    assert_eq!(
+        off.status, 200,
+        "turning start at login off was refused: {}",
+        off.body
+    );
+    assert!(
+        !*on.lock().expect("lock"),
+        "the account still starts at login after it was turned off"
+    );
+    assert!(
+        off.body.contains("\"on\":false"),
+        "the page says on after turning it off: {}",
+        off.body
+    );
+    assert_eq!(
+        page.api("POST", "/api/autostart", "on=maybe").status,
+        400,
+        "a switch neither on nor off was taken"
+    );
+    assert!(
+        !*on.lock().expect("lock"),
+        "a malformed answer turned start at login back on"
+    );
+    drop(page);
+
+    let none = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    assert_eq!(
+        none.api("POST", "/api/autostart", "on=true").status,
+        409,
+        "a switch was taken with no service to switch"
+    );
+    drop(none);
+    let phone = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = super::Features::PHONE;
+    });
+    assert_eq!(
+        phone.api("GET", "/api/autostart", "").status,
+        403,
+        "a phone offered a switch its system holds"
+    );
+}
+
 /// Check for updates on a computer, not only on a phone: the page tells the
 /// computer's shell, which runs `itsanas update` apart. An iPhone has nothing to
 /// check. Sabotage: gate the update on `features.metered` again.

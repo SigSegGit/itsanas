@@ -3989,15 +3989,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
-12. ⬜ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Today the
-    choice is made once, in the setup (`#background`, `features.background_choice`), and nothing
-    turns it off but `install/clean`. Wanted: a switch in Settings, for this account only (an
-    instance has its own task). The pieces exist in `setup/service.rs`: `Names::of(instance)`, the
-    Windows task (`windows_task_script`), the systemd unit (`systemd_unit`, `--user` template per
-    instance), the launchd plist (`launchd_daemon_plist`). The switch enables or disables that
-    one (`Enable-/Disable-ScheduledTask`, `systemctl --user enable|disable`, `launchctl
-    bootstrap|bootout`), through `ServiceControl` so a stand-in tests the page; only Windows can be
-    run here, so Mac and Linux need their CI job or the fleet. Route `/api/autostart`, PARITY row.
+12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'
+    *Start at login* card (`/api/autostart`, `features.background_choice`) calls this instance's
+    `ServiceControl::set_autostart` and shows `ServiceControl::autostart`, read from the system
+    (`Get-ScheduledTask` state, `systemctl --user is-enabled`, `launchctl print-disabled`).
+    Proved by `red_team_settings_turn_this_accounts_start_at_login_on_and_off` on a stand-in; the
+    system readings themselves are not run by a test.
 
 11. ⬜ **Files that need not stay here** (asked by Nicolas, 2026-11-10, for any device smaller
     than the account's largest, on every system: a 1 GB key editing several GB, little by

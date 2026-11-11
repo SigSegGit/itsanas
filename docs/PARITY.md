@@ -38,6 +38,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Appearance · `/api/theme` | ✅ | ✅ | ✅ | ✅ |
 | Security · `/api/host` · `/api/forgot` · `/api/words` · `/api/passphrase` | ✅ | ✅ | ✅ | ✅ |
 | Devices of this account · `/api/devices` · `/api/withdraw` | ✅ | ✅ | ✅ | ✅ |
+| Start at login · `/api/autostart` | ✅ | ✅ | ✅ | ⬜ a phone's system starts the app; it has no service to switch |
 | Trash · `/api/trash` | ✅ | ✅ | ✅ | ⬜ a phone has its trash on its Files screen, drawn by the app |
 | Machines to sync with (Advanced) · `/api/peers` | ✅ | ✅ | ✅ | ⬜ a phone offers no Advanced section: it syncs with the machines the coordinator lists |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
