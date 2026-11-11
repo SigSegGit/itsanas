@@ -1382,6 +1382,7 @@ fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) 
     }
     if let Some((folder, _)) = folder {
         changed = reconcile(node, folder, deep);
+        crate::freeing::release_all(node);
     } else if let Err(error) = node.bound_writes() {
         // `reconcile_once` refreshes the bound; with no folder nothing
         // did, and the pulls below would meet the ceiling `Node::open`

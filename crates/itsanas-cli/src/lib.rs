@@ -30,6 +30,7 @@ mod discovery;
 mod drives;
 pub mod failure;
 pub mod file_tree;
+pub mod freeing;
 mod host_run;
 mod jobs;
 mod lifecycle;
@@ -2837,10 +2838,16 @@ fn list(home: &Path) -> Result<()> {
     }
 
     let trashed = trash::list(home);
+    // Freed by the person, not missing: `itsanas free --keep` brings it back.
+    let freed = itsanas_store::freed::list(&trash::record_dir(home));
     let mut absent = 0usize;
     for entry in &known.files {
         if trashed.contains_key(&entry.path) {
             println!("{:>12}  in trash  {}", format_size(entry.size), entry.path);
+            continue;
+        }
+        if freed.contains(&entry.path) {
+            println!("{:>12}  freed     {}", format_size(entry.size), entry.path);
             continue;
         }
         match entry.presence {
@@ -3050,23 +3057,14 @@ fn free(home: &Path, path: Option<&str>, keep: bool) -> Result<()> {
         }
         return Ok(());
     };
-    if keep {
-        if itsanas_folder::Folder::keep_here(&node.store, path)? {
-            println!("{path} comes back into the folder on the next pass");
-        } else {
-            println!("{path} was not freed here");
-        }
-        return Ok(());
+    let said = if keep {
+        freeing::keep(&node, path)
+    } else {
+        freeing::free(&node, path)
+            .map(|said| format!("{said} `itsanas free --keep {path}` brings it back."))
     }
-    let Some(root) = node.config.folder.clone() else {
-        return Err(CliError::Usage(
-            "no synced folder here: `itsanas folder <path>` sets one".to_owned(),
-        ));
-    };
-    itsanas_folder::Folder::open(&root)?.free(&node.store, path)?;
-    println!(
-        "{path} is freed here and stays in the account; `itsanas free --keep {path}` brings it back"
-    );
+    .map_err(|failure| CliError::Usage(failure.message()))?;
+    println!("{said}");
     Ok(())
 }
 

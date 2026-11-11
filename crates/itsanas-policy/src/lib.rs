@@ -434,13 +434,15 @@ pub fn plan(conditions: Conditions, settings: Settings) -> Plan {
     // battery indicator themselves. Refusing to work while somebody watches is
     // how a tool gets a reputation for being broken.
     //
-    // A service is not exempt: a laptop running the daemon on three per cent
-    // ought to stop, and the machines this is aimed at are plugged in anyway.
+    // Below the floor, unwatched, it checks for changes only, and slowly: the
+    // list costs kilobytes, and a phone that stops outright says nothing of an
+    // edit made elsewhere until it is charged (Nicolas, 2026-11-11). A service
+    // is not exempt; hosting stops either way (`hosting`).
     if !watching && conditions.power == Power::Low {
         return Plan {
-            scope: Scope::Nothing,
-            every: None,
-            because: "battery is low",
+            scope: Scope::Metadata,
+            every: Some(BACKGROUND_FREE),
+            because: "battery is low — checking for changes only",
         };
     }
 
@@ -745,15 +747,22 @@ mod tests {
     }
 
     #[test]
-    fn a_low_battery_stops_background_work_but_never_stops_a_person() {
+    fn red_team_a_low_battery_slows_background_work_to_changes_and_never_stops_a_person() {
         // Somebody who opened the application is waiting and can see their own
         // battery indicator. Refusing to work while they watch is how a tool
-        // gets a reputation for being broken.
+        // gets a reputation for being broken. Unwatched, below the floor, it
+        // lists changes now and then and moves no content.
+        // Sabotage: the low row back to `Scope::Nothing`, or to `Everything`.
         let background = plan(
             at(Network::Unmetered, Power::Low, Attention::Background),
             Settings::default(),
         );
-        assert_eq!(background.scope, Scope::Nothing);
+        assert_eq!(
+            background.scope,
+            Scope::Metadata,
+            "below its floor a phone stopped instead of checking for changes"
+        );
+        assert_eq!(background.every, Some(BACKGROUND_FREE));
 
         let foreground = plan(
             at(Network::Unmetered, Power::Low, Attention::Foreground),
@@ -797,15 +806,15 @@ mod tests {
     }
 
     #[test]
-    fn a_service_still_stops_when_the_battery_is_nearly_gone() {
-        // A laptop running the daemon on three per cent should stop, exactly as
-        // a backgrounded app would. Nothing about being a service makes the
-        // battery bigger.
+    fn a_service_moves_no_content_when_the_battery_is_nearly_gone() {
+        // A laptop running the daemon on three per cent lists changes only,
+        // exactly as a backgrounded app would. Nothing about being a service
+        // makes the battery bigger.
         let dying = plan(
             at(Network::Unmetered, Power::Low, Attention::Unattended),
             Settings::default(),
         );
-        assert_eq!(dying.scope, Scope::Nothing);
+        assert_eq!(dying.scope, Scope::Metadata);
     }
 
     #[test]

@@ -838,6 +838,10 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
         ("GET", "/api/trash") if ctx.mode == Mode::Settings => ok_json(trash_json(&ctx.home, "")),
         ("POST", "/api/trash") if ctx.mode == Mode::Settings => trash_change(ctx, request),
+        ("GET", "/api/files") if ctx.mode == Mode::Settings => {
+            node_call(ctx, |node| crate::freeing::files(node))
+        }
+        ("POST", "/api/files") if ctx.mode == Mode::Settings => files_change(ctx, request),
         ("GET", "/api/autostart") if ctx.mode == Mode::Settings => {
             ok_json(autostart_json(&*(ctx.backends.service)(), ""))
         }
@@ -872,6 +876,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/trash" => (
             features.folder,
             "trash on this page: a phone has its own, on its Files screen",
+        ),
+        "/api/files" => (
+            features.folder,
+            "list of files to free or keep: a phone keeps by its limit",
         ),
         "/api/autostart" => (
             features.background_choice,
@@ -1666,6 +1674,31 @@ fn trash_change(ctx: &Context, request: &Request) -> Response {
         Ok(said) => ok_json(trash_json(&ctx.home, said)),
         Err(error) => Response::refuse(500, &format!("the trash could not be written: {error}")),
     }
+}
+
+/// Free a file of the synced folder here, or keep it here again
+/// ([`crate::freeing`]); answers the list as it now stands.
+fn files_change(ctx: &Context, request: &Request) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let (Some(action), Some(path)) = (field(&form, "action"), field(&form, "path")) else {
+        return Response::refuse(400, "the action is free or keep, with a path");
+    };
+    let keep = match action {
+        "free" => false,
+        "keep" => true,
+        _ => return Response::refuse(400, "the action is free or keep"),
+    };
+    node_call(ctx, |node| {
+        let said = if keep {
+            crate::freeing::keep(node, path)?
+        } else {
+            crate::freeing::free(node, path)?
+        };
+        let mut listed: serde_json::Value = serde_json::from_str(&crate::freeing::files(node)?)
+            .map_err(|error| Failure::Usage(error.to_string()))?;
+        listed["said"] = serde_json::Value::String(said);
+        Ok(listed.to_string())
+    })
 }
 
 /// Whether this account's background service starts at login, and the switch.

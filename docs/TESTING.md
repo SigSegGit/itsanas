@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1655 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 609 are red-team tests.**
+**Last updated: 2026-11-10 — 1656 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 610 are red-team tests.**
 
-**1539 of the 1655 tests have an entry of their own on this page** — an *entry*,
+**1540 of the 1656 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 353 |
+| `itsanas-cli` unit | 354 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
-| `placement-audit` | where copies go, audits, reliability, release | 46 |
+| `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
@@ -1234,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (353)
+# `itsanas-cli` — unit tests (354)
 
 ## `bench` — measuring this machine (4)
 
@@ -1623,6 +1623,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
+## `freeing` — files that need not stay on this machine (1)
+
+| Test | What it proves |
+|---|---|
+| `a_file_freed_with_no_proved_copy_elsewhere_keeps_its_sealed_copy` | `itsanas free` and Settings' Free up take the file off the folder, and its sealed copy stays on this machine while no other machine has proved it holds one; the page lists it freed, and Keep here brings it back into the folder. |
+
 ## `trash` — the trash from a machine's home: a computer's delete, and what left a phone's folder (4)
 
 | Test | What it proves |
@@ -1797,12 +1803,12 @@ uses it today: `itsanas daemon` prints the interval, the scope and the reason.
 | **`every_combination_produces_a_plan_with_a_reason`** | Totality. A sync tool that silently does nothing in some unconsidered corner is the failure this crate exists to prevent, and "silently" is the operative word: every state has to be explainable to the person looking at it. It walks `Network::ALL`, `Power::ALL` and `Attention::ALL` rather than lists written out here, because the list written out here is the one somebody forgets — it went on checking two `Attention` variants after a third was added, and passed. |
 | **`a_service_on_ethernet_does_not_inherit_a_phone_s_interval`** | The Pi in the cupboard is not a backgrounded app. Two hours is not a considered choice about ethernet; it is the smallest number that survives Android Doze, and applying it to a permanently-powered machine would make an edit take up to two hours to cross a household through a node that was awake the whole time. |
 | **`a_service_on_a_metered_link_is_no_less_careful_than_a_phone`** | Being a service buys freedom from the *platform*, not from the data plan. A laptop tethered to a phone must not start uploading forty gigabytes because it is technically a daemon. |
-| **`a_service_still_stops_when_the_battery_is_nearly_gone`** | Nothing about being a service makes the battery bigger. |
+| **`a_service_moves_no_content_when_the_battery_is_nearly_gone`** | Below the floor a service lists changes only, as a backgrounded app does: nothing about being a service makes the battery bigger. |
 | **`switching_background_syncing_off_does_not_stop_a_daemon_somebody_started`** | That switch means "do not work unless I am looking at the app". Starting a daemon *is* the deliberate act it exists to require. A daemon silently doing nothing because of a phone setting is a support case nobody could diagnose. |
 | **`nothing_is_moved_over_a_metered_connection_unless_it_was_asked_for`** | The row that decides whether somebody trusts this on their phone. A tool that silently spent a data allowance would be uninstalled once and remembered for years. |
 | **`the_file_list_still_arrives_on_a_metered_connection`** | The other half: knowing *what* changed is kilobytes and always happens. Metadata and content are separate purchases. |
 | `allowing_metered_downloads_actually_allows_them` | Somebody with an unlimited plan who says so is believed. |
-| **`a_low_battery_stops_background_work_but_never_stops_a_person`** | Refusing to work while somebody is watching is how a tool gets a reputation for being broken. They can see the battery indicator themselves. |
+| **`red_team_a_low_battery_slows_background_work_to_changes_and_never_stops_a_person`** | Below its floor, unwatched, a phone checks for changes every two hours and moves no content, rather than stopping (Nicolas, 2026-11-11); somebody watching is never refused. Sabotaged (the row back to nothing, or to everything): red. |
 | **`the_button_works_even_when_the_schedule_would_not`** | A button that does nothing teaches people the application is broken. Neither a low battery nor a metered connection overrides a deliberate act; only having no network does. |
 | `an_open_application_on_free_wifi_syncs_almost_live` | The case everybody judges the product on. |
 | `no_network_means_no_plan_and_no_button` | The one state where there is nothing to honour. |
