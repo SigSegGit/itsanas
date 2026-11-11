@@ -53,6 +53,14 @@ object Trash {
         parse(Native.trashRecord(Vault.home(context).absolutePath))
     }
 
+    /**
+     * The same, on the calling thread: a small file, no node. The dialog's first
+     * rows come from here: on an emulator, a coroutine started as the dialog opened
+     * did not return for 30 s while a round ran, and the trash looked empty.
+     */
+    fun recordedNow(context: Context): List<Row>? =
+        runCatching { parse(Native.trashRecord(Vault.home(context).absolutePath)) }.getOrNull()
+
     /** With what left the folder too, once the node is free: a round may hold it for a while. */
     suspend fun rows(): List<Row> = withContext(Dispatchers.IO) { parse(Native.trashList()) }
 
@@ -73,7 +81,7 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Null until read: "empty" said too soon reads as files lost.
-    var rows by remember { mutableStateOf<List<Trash.Row>?>(null) }
+    var rows by remember { mutableStateOf(Trash.recordedNow(context)) }
     var days by remember { mutableStateOf(Trash.days(context).toString()) }
     var doomed by remember { mutableStateOf<Trash.Row?>(null) }
 
