@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
-WRITTEN-AT: 2026-11-10
-BASE: 1340442
+WRITTEN-AT: 2026-11-11
+BASE: f92a81d
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,17 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-11 (night): the deferred items, and real devices.** #402: the Android trash dialog reads
+its record as it opens (an emulator left it blank for 30 s). #404: Start at login per account
+(§8 12) and `itsanas free` (§8 11). #405: a freed file's sealed copy leaves too once proved
+elsewhere (`crate::freeing`), Settings' *Files on this machine*, bench phase H, the bench's
+doctor check on a machine publishing its IPv6 address (#403), and below its battery floor a
+phone checks for changes instead of stopping (Nicolas's call). The S25 passed 29/29 on each
+head (receipts posted); phase H passed on the FAT32 key. Traps: a translated page refuses
+`textContent = reply.said` (`no_text_set_by_the_script_skips_the_translation`); a cargo test
+binary that listens on every interface raises a firewall prompt whose approval needs an
+administrator; Copilot's coding agent is not enabled on the repository.
 
 **2026-11-10 (late): Check for updates on a computer.** The Settings button was a phone's only; it
 is now `features.update_check` (computers and Android, not an iPhone), and on a computer the page
@@ -258,8 +269,12 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
    open waiting out a lock probe no longer falls in step with it (#394); step 10 of the hand
    test needs the first. Release `main` (after the version PR has merged), then the laptop,
    then the Pi and the VM (the fleet run's row U rebuilds their containers on the latest
-   release, and row V fails if one is not on it), then the Android phone (Settings, Check
-   for updates):
+   release, and row V fails if one is not on it; run `scripts/fleet/setup.sh` on each first,
+   since the agent changed for the trash), then the Android phone (Settings, Check
+   for updates). By hand on the laptop, per account: Start at login off on one account
+   only and a Windows sign-out shows it alone stays down; Files on this machine, Free up
+   then Keep here; the trash from the folder; on the phone, below 15 % and closed, a file
+   added on the PC is listed within two hours:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 

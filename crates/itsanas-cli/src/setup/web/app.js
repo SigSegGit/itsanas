@@ -1000,7 +1000,11 @@
       }
       list.appendChild(item);
     });
-    line.textContent = reply.said ? said(reply.said) : (reply.complete ? '' : t('Not every file is listed: `itsanas ls` shows them all.'));
+    if (reply.said) {
+      line.textContent = said(reply.said);
+    } else if (!reply.complete) {
+      line.textContent = t('Not every file is listed: `itsanas ls` shows them all.');
+    }
   }
 
   // ------------------------------------------------------- start at login
