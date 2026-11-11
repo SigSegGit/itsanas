@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-policy",
+    "--lib",
+    "red_team_a_low_battery"
+  ],
+  "defences": {
+    "policy: below the floor a phone checks for changes": {
+      "file": "crates/itsanas-policy/src/lib.rs",
+      "live": "            scope: Scope::Metadata,\n            every: Some(BACKGROUND_FREE),\n            because: \"battery is low",
+      "dead": "            scope: Scope::Nothing,\n            every: None,\n            because: \"battery is low"
+    }
+  }
+}

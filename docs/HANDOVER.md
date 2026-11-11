@@ -4028,7 +4028,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
     b. ✅ **One switch, "Contribute to the network", on by default**, the same page everywhere: off
        declares nothing (`Config::offered_bytes`), greys the section and keeps the values. The
        settings are in `Config`, read through `hosting_settings`; battery and data draw on a phone.
-       Not done: below its floor a phone stops rather than slows (`plan`'s low row).
+       Below its floor, unwatched, a phone (or a service) checks for changes only, every two hours,
+       and hosts nothing (Nicolas, 2026-11-11; `plan`'s low row).
     c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
        on every 15 minutes, 9 of them hosting, and reopens only what the person left open.
        `ServiceLimitTest` runs the limit and a refused restart; nothing tests the worker: no
