@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1651 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 606 are red-team tests.**
+**Last updated: 2026-11-10 — 1655 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 609 are red-team tests.**
 
-**1535 of the 1651 tests have an entry of their own on this page** — an *entry*,
+**1539 of the 1655 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,10 +176,10 @@ guarantee and is not one.
 | `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 26 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 351 |
+| `itsanas-cli` unit | 353 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -221,8 +221,8 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 61 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 204 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 205 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1234,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (351)
+# `itsanas-cli` — unit tests (353)
 
 ## `bench` — measuring this machine (4)
 
@@ -1376,12 +1376,13 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (9)
+## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (10)
 
 | Test | What it proves |
 | --- | --- |
 | `an_update_brings_an_old_wrapper_up_to_date_and_creates_none` | `update` rewrites each node's `run-daemon*.ps1` that differs from this version's (`refresh_windows_wrapper`, called from `restart_every_node`): the laptop's log after 0.1.12 still showed `NativeCommandError` blocks, because only `setup` wrote the wrapper. An up-to-date wrapper is left alone, a missing one is not created. Takes effect at the next logon: the running loop keeps the text it started with. Sabotaged (never rewritten): red. |
 | `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
+| `a_disabled_launchd_agent_is_read_as_disabled_and_no_other` | Settings' Start at login on a Mac reads `launchctl print-disabled`: `=> disabled` (and the older `=> true`) is off, an enabled or unlisted agent is on, and a label sharing a prefix is another account's. |
 | `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
 | `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
 | **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
@@ -1399,7 +1400,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (49)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (50)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1465,6 +1466,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_a_new_account_goes_on_only_after_the_network_says_the_name_is_free`** | The page asks again when Next is pressed, blocks a new account on anything but a free name, asks a person joining under a name no account has to tick "Continue with this name", and forgets the tick when the name changes. Sabotaged (each condition changed): red. |
 | `the_space_question_is_answered_by_the_one_rule_every_platform_shares` | `/api/suggest` and the first suggestion in `/api/state` are what `pledges::suggest` says for this disk, for no other machines, for a small pledge and for one too large to fit. |
 | **`red_team_a_computer_checks_for_updates_and_an_iphone_does_not`** | Settings' Check for updates is on a computer too: the page tells the computer's shell, which runs `itsanas update` apart; an iPhone, installed by whoever signs it, is refused. Sabotaged (gate back on `metered`; no event): red. |
+| **`red_team_settings_turn_this_accounts_start_at_login_on_and_off`** | Settings' Start at login switches this account's own service (its task, unit or agent) and shows what the system then says; a malformed answer changes nothing, no service means nothing to switch (409), and a phone has no switch (403). Sabotaged (the switch always turns it on): red. |
 | **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash on a computer lists what is in the trash, refuses to delete from every machine a file nobody trashed, restores, and keeps the days typed. Sabotaged (no `trashed` guard on delete): red. |
 | **`red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page`** | The theme is in `<html data-theme>` from the first byte, kept in the node's home for the next page, told to the shell, and the dark colours follow the system unless light is chosen. Sabotaged (insertion, saving, telling, each CSS rule): red. |
 | **`red_team_the_page_links_only_the_licence_the_source_and_the_security_policy`** | The only links out of the page are the three of the legal block, each to the project, each opened in a tab of its own with `noopener noreferrer`, and no placeholder stands where a text should be. Sabotaged (a `rel` dropped): red. |
@@ -2349,7 +2351,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-folder` — integration tests (26)
+# `itsanas-folder` — integration tests (28)
 
 | Test | What it proves |
 | --- | --- |
@@ -2358,6 +2360,8 @@ destructive if wrong.
 | **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — with the trash off, a genuine delete propagates at once, with a tombstone so an offline device does not resurrect it. |
 | **`red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back`** | A file deleted from the synced folder goes to the trash with no tombstone, is not written back by the next pass, and is written back once restored. Sabotaged (written at once): red. |
 | **`red_team_a_file_put_back_by_hand_leaves_the_trash`** | A trashed file put back on disk by hand leaves the trash and its new bytes reach the account as an edit, not a conflict. Sabotaged (no `take_out`): red. |
+| **`red_team_a_freed_file_is_never_trashed_nor_deleted_and_comes_back`** | `itsanas free` takes a file's copy off this folder and nothing else: later passes neither trash nor delete it, an edit made elsewhere leaves it freed, and `--keep` brings back the account's latest version. Sabotaged (the ledger entry kept, so the next pass reads a delete): red. |
+| **`red_team_an_edit_not_yet_synced_is_not_freed`** | A file whose copy here differs from the account's is not freed, and stays on disk as edited. Sabotaged (no comparison): red. |
 | **`red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash`** | A rename on disk is reported as one, and its old name is removed from the store at once rather than filling the trash. Sabotaged (no removal loop): red. |
 | **`an_imported_file_is_announced_to_peers_not_just_stored_locally`** | A real bug found by running two daemons: the reconciler wrote to the store but never sealed a log segment, so files looked synced on the machine that had them and existed nowhere else. |
 | **`a_deletion_is_announced_to_peers_too`** | The same, for deletes. |

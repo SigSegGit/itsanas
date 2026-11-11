@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::web::tests::red_team_settings_turn_this_accounts_start_at_login"
+  ],
+  "defences": {
+    "page: the switch sets what was asked": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "match service.set_autostart(on) {",
+      "dead": "match service.set_autostart(true) {"
+    }
+  }
+}

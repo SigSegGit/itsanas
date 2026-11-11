@@ -976,6 +976,19 @@
     line.textContent = said(reply.said);
   }
 
+  // ------------------------------------------------------- start at login
+  async function autostart(on) {
+    const box = $('st-autostart');
+    const line = $('st-autostart-said');
+    let reply;
+    try {
+      reply = on === null ? await api('GET', '/api/autostart') : await api('POST', '/api/autostart', { on: String(on) });
+    } catch (e) { line.textContent = e.message; return; }
+    box.disabled = !reply.installed || reply.on === null;
+    box.checked = reply.on === true;
+    line.textContent = reply.installed ? said(reply.said) : t('No background service runs this account here: the setup offers one.');
+  }
+
   // ------------------------------------------ machines to sync with (Advanced)
   async function peers(action, address) {
     const line = $('st-peers-said');
@@ -1313,6 +1326,8 @@
     $('st-peers-show').addEventListener('click', function () { peers(null, ''); });
     $('st-trash-show').addEventListener('click', function () { trash(null, ''); });
     $('st-trash-save').addEventListener('click', function () { trash('days', ''); });
+    $('st-autostart').addEventListener('change', function () { autostart($('st-autostart').checked); });
+    if (state.features.background_choice) { autostart(null); }
     $('st-peer-add').addEventListener('click', function () {
       const address = $('st-peer-address').value.trim();
       if (address) { peers('add', address); }

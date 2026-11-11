@@ -164,6 +164,81 @@ fn red_team_a_file_put_back_by_hand_leaves_the_trash() {
     );
 }
 
+/// A file freed here leaves the disk and nothing else: no trash, no delete,
+/// edits elsewhere wait, and keeping it brings the account's version back.
+/// Sabotage: keep the ledger entry when freeing (the next pass reads a delete).
+#[test]
+fn red_team_a_freed_file_is_never_trashed_nor_deleted_and_comes_back() {
+    let node = node(6);
+    let root = node.folder.root().to_owned();
+    write_disk(&root, "big.mov", b"version one");
+    node.folder.reconcile(&node.store, false).unwrap();
+
+    node.folder.free(&node.store, "big.mov").unwrap();
+    assert_eq!(
+        read_disk(&root, "big.mov"),
+        None,
+        "freeing left the copy on this disk"
+    );
+    node.folder.reconcile(&node.store, false).unwrap();
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert!(
+        itsanas_store::trash::list(node.store.root()).is_empty(),
+        "a freed file went to the trash: it leaves every machine when the delay runs out"
+    );
+    assert_eq!(
+        read_disk(&root, "big.mov"),
+        None,
+        "a freed file was downloaded again unasked"
+    );
+
+    assert!(Folder::keep_here(&node.store, "big.mov").unwrap());
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        read_disk(&root, "big.mov").as_deref(),
+        Some(&b"version one"[..]),
+        "a file kept here again did not come back"
+    );
+
+    node.folder.free(&node.store, "big.mov").unwrap();
+    node.store.write_file("big.mov", b"version two").unwrap();
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        read_disk(&root, "big.mov"),
+        None,
+        "an edit elsewhere undid the freeing"
+    );
+    assert!(Folder::keep_here(&node.store, "big.mov").unwrap());
+    node.folder.reconcile(&node.store, false).unwrap();
+    assert_eq!(
+        read_disk(&root, "big.mov").as_deref(),
+        Some(&b"version two"[..]),
+        "a freed file came back older than the account's version"
+    );
+    assert!(node.store.tombstone("big.mov").unwrap().is_none());
+}
+
+/// Sabotage: free without comparing the disk with the account's version.
+#[test]
+fn red_team_an_edit_not_yet_synced_is_not_freed() {
+    let node = node(7);
+    let root = node.folder.root().to_owned();
+    write_disk(&root, "notes.txt", b"synced");
+    node.folder.reconcile(&node.store, false).unwrap();
+    write_disk(&root, "notes.txt", b"edited, not yet synced");
+
+    assert!(
+        node.folder.free(&node.store, "notes.txt").is_err(),
+        "an edit the account does not have was freed: it is lost"
+    );
+    assert_eq!(
+        read_disk(&root, "notes.txt").as_deref(),
+        Some(&b"edited, not yet synced"[..]),
+        "refusing to free still removed the edit"
+    );
+    assert!(itsanas_store::freed::list(node.store.root()).is_empty());
+}
+
 /// Sabotage: drop the loop that removes a renamed file's old path.
 #[test]
 fn red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash() {

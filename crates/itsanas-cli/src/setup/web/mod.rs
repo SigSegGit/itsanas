@@ -838,6 +838,10 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
         ("GET", "/api/trash") if ctx.mode == Mode::Settings => ok_json(trash_json(&ctx.home, "")),
         ("POST", "/api/trash") if ctx.mode == Mode::Settings => trash_change(ctx, request),
+        ("GET", "/api/autostart") if ctx.mode == Mode::Settings => {
+            ok_json(autostart_json(&*(ctx.backends.service)(), ""))
+        }
+        ("POST", "/api/autostart") if ctx.mode == Mode::Settings => autostart_change(ctx, request),
         ("GET", "/api/peers") if ctx.mode == Mode::Settings => peers_list(ctx),
         ("POST", "/api/peers") if ctx.mode == Mode::Settings => peers_change(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
@@ -868,6 +872,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/trash" => (
             features.folder,
             "trash on this page: a phone has its own, on its Files screen",
+        ),
+        "/api/autostart" => (
+            features.background_choice,
+            "switch for starting at login: the system starts this app",
         ),
         "/api/peers" => (
             features.advanced,
@@ -1658,6 +1666,48 @@ fn trash_change(ctx: &Context, request: &Request) -> Response {
         Ok(said) => ok_json(trash_json(&ctx.home, said)),
         Err(error) => Response::refuse(500, &format!("the trash could not be written: {error}")),
     }
+}
+
+/// Whether this account's background service starts at login, and the switch.
+/// The service is this instance's own, so one account's choice leaves the others'.
+fn autostart_change(ctx: &Context, request: &Request) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let on = match field(&form, "on") {
+        Some("true") => true,
+        Some("false") => false,
+        _ => return Response::refuse(400, "on is true or false"),
+    };
+    let service = (ctx.backends.service)();
+    if !service.installed() {
+        return Response::refuse(
+            409,
+            "no background service runs this account here: the setup offers one",
+        );
+    }
+    match service.set_autostart(on) {
+        Ok(()) => ok_json(autostart_json(
+            service.as_ref(),
+            if on {
+                "It starts when you log in."
+            } else {
+                "It no longer starts when you log in. It runs until it is stopped."
+            },
+        )),
+        Err(error) => Response::refuse(500, &error.to_string()),
+    }
+}
+
+fn autostart_json(service: &dyn ServiceControl, said: &str) -> String {
+    let installed = service.installed();
+    let on = if installed { service.autostart() } else { None };
+    object(&[
+        ("installed", installed.to_string()),
+        (
+            "on",
+            on.map_or_else(|| "null".to_owned(), |on| on.to_string()),
+        ),
+        ("said", quote(said)),
+    ])
 }
 
 fn trash_json(home: &Path, said: &str) -> String {

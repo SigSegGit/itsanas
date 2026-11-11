@@ -83,6 +83,11 @@ pub trait ServiceControl {
     fn stop(&self) -> Result<()>;
     /// Whether it starts by itself at logon.
     fn set_autostart(&self, on: bool) -> Result<()>;
+    /// Whether it starts by itself at logon, as the system says; `None` when
+    /// that cannot be read.
+    fn autostart(&self) -> Option<bool> {
+        None
+    }
     /// Where to look when it does not run.
     fn log_hint(&self) -> String;
     /// Whether the program asking is the one that holds the store, as an app that
@@ -557,6 +562,15 @@ const ENV_PREFIX: &str = "ITSANAS_PASSPHRASE=";
 /// the value raw and so has the same limit without saying so -- here it is
 /// said before anything is written, rather than found as a daemon that will
 /// not unlock.
+/// Whether `launchctl print-disabled` lists `label` as disabled: `"label" =>
+/// disabled`, or `=> true` before macOS 13. A label it does not list is enabled.
+pub(crate) fn launchd_disabled(listing: &str, label: &str) -> bool {
+    let key = format!("\"{label}\"");
+    listing.lines().map(str::trim).any(|line| {
+        line.starts_with(&key) && (line.ends_with("disabled") || line.ends_with("true"))
+    })
+}
+
 pub(crate) fn fits_service_file(os: &str, passphrase: &str) -> Result<()> {
     if passphrase.contains(['\n', '\r']) {
         return Err(CliError::Usage(
@@ -1109,6 +1123,24 @@ impl ServiceControl for Platform {
         ))
     }
 
+    fn autostart(&self) -> Option<bool> {
+        match self.os {
+            // The state's name, not `schtasks`' words, which follow the language.
+            "windows" => run_powershell(&format!(
+                "(Get-ScheduledTask -TaskName {}).State",
+                ps_quote(&self.names.task)
+            ))
+            .ok()
+            .map(|state| state.trim() != "Disabled"),
+            "macos" => {
+                let domain = Self::gui_domain().ok()?;
+                let listing = tool("launchctl", &["print-disabled", &domain]).ok()?;
+                Some(!launchd_disabled(&listing, &self.names.launchd_label))
+            }
+            _ => Some(Self::systemctl(&["is-enabled", &self.names.systemd_service]).is_ok()),
+        }
+    }
+
     fn log_hint(&self) -> String {
         match self.os {
             "windows" => self
@@ -1337,6 +1369,29 @@ mod tests {
         assert!(
             !refresh_file(&wrapper, &now).expect("refresh"),
             "an up-to-date wrapper was rewritten at every update"
+        );
+    }
+
+    /// `launchctl print-disabled` as macOS 13 and later print it, and the older
+    /// `=> true`; a label only sharing a prefix is another agent.
+    #[test]
+    fn a_disabled_launchd_agent_is_read_as_disabled_and_no_other() {
+        let listing = "disabled services = {\n\t\"fr.ngas.itsanas\" => disabled\n\t\"fr.ngas.itsanas-work\" => enabled\n}\n";
+        assert!(
+            launchd_disabled(listing, "fr.ngas.itsanas"),
+            "a disabled agent read as starting at login"
+        );
+        assert!(
+            !launchd_disabled(listing, "fr.ngas.itsanas-work"),
+            "an enabled agent read as disabled"
+        );
+        assert!(
+            !launchd_disabled(listing, "fr.ngas.itsanas-home"),
+            "an agent nobody disabled read as disabled"
+        );
+        assert!(
+            launchd_disabled("\t\"x\" => true\n", "x"),
+            "the pre-13 wording was missed"
         );
     }
 

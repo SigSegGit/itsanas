@@ -3989,29 +3989,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
-12. ⬜ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Today the
-    choice is made once, in the setup (`#background`, `features.background_choice`), and nothing
-    turns it off but `install/clean`. Wanted: a switch in Settings, for this account only (an
-    instance has its own task). The pieces exist in `setup/service.rs`: `Names::of(instance)`, the
-    Windows task (`windows_task_script`), the systemd unit (`systemd_unit`, `--user` template per
-    instance), the launchd plist (`launchd_daemon_plist`). The switch enables or disables that
-    one (`Enable-/Disable-ScheduledTask`, `systemctl --user enable|disable`, `launchctl
-    bootstrap|bootout`), through `ServiceControl` so a stand-in tests the page; only Windows can be
-    run here, so Mac and Linux need their CI job or the fleet. Route `/api/autostart`, PARITY row.
+12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'
+    *Start at login* card (`/api/autostart`, `features.background_choice`) calls this instance's
+    `ServiceControl::set_autostart` and shows `ServiceControl::autostart`, read from the system
+    (`Get-ScheduledTask` state, `systemctl --user is-enabled`, `launchctl print-disabled`).
+    Proved by `red_team_settings_turn_this_accounts_start_at_login_on_and_off` on a stand-in; the
+    system readings themselves are not run by a test.
 
-11. ⬜ **Files that need not stay here** (asked by Nicolas, 2026-11-10, for any device smaller
-    than the account's largest, on every system: a 1 GB key editing several GB, little by
-    little). What exists: `keep_bytes` and `keep_only` bound what a device holds, the catalogue
-    lists absent files ("not here"), `itsanas get` and the drive fetch on demand. What is missing:
-    a state "released here" per file in the local ledger, and the gesture: bring a file here, edit
-    it, and once its new version is held by the copies wanted elsewhere
-    (`itsanas_store::catalogue` → `Copies`), let its bytes go from this device. The trap, read
-    before anything: in the synced folder a file absent from disk, present in the store and in
-    the ledger is `RemoveFromStore` (`itsanas-folder/src/decision.rs`), now the trash; a released
-    file must read as absent on purpose, so the ledger needs that state and `decide` a row for it,
-    with the red-team test that a released file is never trashed nor deleted. Then the page's
-    Files list (desktop and phone): Keep here / Free up. ProjFS does this natively on NTFS; a FAT32
-    key has only the synced folder.
+11. 🟨 **Files that need not stay here** (asked by Nicolas, 2026-11-10, for any device smaller
+    than the account's largest). Done for the synced folder: `itsanas free PATH` takes the plain
+    copy off this folder once it matches the account's version (`Folder::free`), recorded in
+    `<store>/freed` (`itsanas_store::freed`) with its ledger entry cleared, so a pass skips it while
+    it is absent and never reads a delete; `itsanas free --keep PATH` lets the next pass write it
+    back. Proved by `red_team_a_freed_file_is_never_trashed_nor_deleted_and_comes_back` and
+    `red_team_an_edit_not_yet_synced_is_not_freed`. Not done: the page's Keep here / Free up
+    buttons, and dropping this device's own chunks of a freed file (today `keep_bytes` and
+    `keep_only` decide that). The virtual drive already fetches on demand.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`
