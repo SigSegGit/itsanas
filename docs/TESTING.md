@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1654 test functions across 43 binaries, 20 of them
+**Last updated: 2026-11-10 — 1655 test functions across 43 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 609 are red-team tests.**
 
-**1538 of the 1654 tests have an entry of their own on this page** — an *entry*,
+**1539 of the 1655 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 352 |
+| `itsanas-cli` unit | 353 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -1234,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (352)
+# `itsanas-cli` — unit tests (353)
 
 ## `bench` — measuring this machine (4)
 
@@ -1376,12 +1376,13 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (9)
+## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (10)
 
 | Test | What it proves |
 | --- | --- |
 | `an_update_brings_an_old_wrapper_up_to_date_and_creates_none` | `update` rewrites each node's `run-daemon*.ps1` that differs from this version's (`refresh_windows_wrapper`, called from `restart_every_node`): the laptop's log after 0.1.12 still showed `NativeCommandError` blocks, because only `setup` wrote the wrapper. An up-to-date wrapper is left alone, a missing one is not created. Takes effect at the next logon: the running loop keeps the text it started with. Sabotaged (never rewritten): red. |
 | `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
+| `a_disabled_launchd_agent_is_read_as_disabled_and_no_other` | Settings' Start at login on a Mac reads `launchctl print-disabled`: `=> disabled` (and the older `=> true`) is off, an enabled or unlisted agent is on, and a label sharing a prefix is another account's. |
 | `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
 | `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
 | **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |

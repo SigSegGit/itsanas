@@ -1372,6 +1372,29 @@ mod tests {
         );
     }
 
+    /// `launchctl print-disabled` as macOS 13 and later print it, and the older
+    /// `=> true`; a label only sharing a prefix is another agent.
+    #[test]
+    fn a_disabled_launchd_agent_is_read_as_disabled_and_no_other() {
+        let listing = "disabled services = {\n\t\"fr.ngas.itsanas\" => disabled\n\t\"fr.ngas.itsanas-work\" => enabled\n}\n";
+        assert!(
+            launchd_disabled(listing, "fr.ngas.itsanas"),
+            "a disabled agent read as starting at login"
+        );
+        assert!(
+            !launchd_disabled(listing, "fr.ngas.itsanas-work"),
+            "an enabled agent read as disabled"
+        );
+        assert!(
+            !launchd_disabled(listing, "fr.ngas.itsanas-home"),
+            "an agent nobody disabled read as disabled"
+        );
+        assert!(
+            launchd_disabled("\t\"x\" => true\n", "x"),
+            "the pre-13 wording was missed"
+        );
+    }
+
     #[test]
     fn names_and_paths_are_quoted_where_they_land() {
         let names = Names::of(Some("o-brien"));
