@@ -31,13 +31,19 @@ what="${1:-}"
 
 if [ "$what" = test ] || [ "$what" = ci ]; then
     # An iPhone SE first: Touch ID, as the hand test's phone, and iOS's floor.
+    # Chosen by its id, on the runtime of this Xcode's SDK: a name such as
+    # "iPhone SE (3rd generation)" is on several runtimes, and cut at its
+    # parenthesis it named no device at all (run 42961293278).
+    sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
     phones=$(xcrun simctl list devices available |
-        sed -n 's/^ *\(iPhone [^(]*[^ (]\) *(.*/\1/p')
-    simulator=$(printf '%s\n' "$phones" | grep '^iPhone SE' | head -n 1 || true)
-    [ -n "$simulator" ] || simulator=$(printf '%s\n' "$phones" | head -n 1)
-    [ -n "$simulator" ] || { echo "no iPhone simulator is installed" >&2; exit 1; }
+        awk -v runtime="-- iOS $sdk --" '/^-- /{ on = ($0 == runtime) } on && /^ +iPhone /')
+    phone=$(printf '%s\n' "$phones" | grep 'iPhone SE' | head -n 1 || true)
+    [ -n "$phone" ] || phone=$(printf '%s\n' "$phones" | head -n 1)
+    simulator=$(printf '%s\n' "$phone" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -n 1)
+    [ -n "$simulator" ] || { echo "no iPhone simulator is installed for iOS $sdk" >&2; exit 1; }
+    echo "simulator: $phone"
     xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
-        -destination "platform=iOS Simulator,name=$simulator" \
+        -destination "platform=iOS Simulator,id=$simulator" \
         -derivedDataPath target/ios-test -only-testing:ITSaNASTests test
     bash scripts/iphone-e2e.sh "$simulator"
 fi

@@ -14,8 +14,8 @@
 # (itsanas_use_coordinator_for_tests), and a run without one fails saying so,
 # before any name reaches the official coordinator.
 #
-#   bash scripts/iphone-e2e.sh "<simulator name>"                 # every step
-#   bash scripts/iphone-e2e.sh "<simulator name>" HandTest/test9_signingOutLocksTheAppUntilThePassphrase
+#   bash scripts/iphone-e2e.sh <simulator id>                 # every step
+#   bash scripts/iphone-e2e.sh <simulator id> HandTest/test9_signingOutLocksTheAppUntilThePassphrase
 #
 # Called by `scripts/build-ios.sh test` (and `ci`), after the core and the
 # project are built. Output, in $E2E_OUT (default target/ios-e2e): the test
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-simulator="${1:?the simulator to run on, by name}"
+simulator="${1:?the simulator to run on, by its id (xcrun simctl list devices)}"
 only="${2:-}"
 port="${E2E_PORT:-9898}"
 desk_port=$((port + 1))
@@ -98,7 +98,7 @@ tests="ITSaNASUITests"
 [ -z "$only" ] || tests="ITSaNASUITests/$only"
 status=0
 xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
-    -destination "platform=iOS Simulator,name=$simulator" \
+    -destination "platform=iOS Simulator,id=$simulator" \
     -derivedDataPath target/ios-test -resultBundlePath "$out/result.xcresult" \
     -only-testing:"$tests" test || status=$?
 

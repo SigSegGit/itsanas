@@ -65,7 +65,13 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
             // A finger enrolled since the lock was turned on changes this
             // state: then only the passphrase opens.
             let state = context.evaluatedPolicyDomainState?.base64EncodedString() ?? ""
-            guard granted, Core.fingerMatches(state) else { return }
+            let same = granted && Core.fingerMatches(state)
+            // What the hand test reads from the PC (scripts/iphone-watch.sh):
+            // three answers, not the fingers' state itself.
+            NSLog(
+                "ITSaNAS finger: granted %@, state read %@, same fingers %@",
+                granted ? "yes" : "no", state.isEmpty ? "no" : "yes", same ? "yes" : "no")
+            guard same else { return }
             DispatchQueue.main.async { self.openRemembered() }
         }
     }
