@@ -22,6 +22,48 @@ pub fn passphrase_rule() -> String {
     .to_string()
 }
 
+/// The coordinator a phone's nodes belong to: the official one, unless a test
+/// set `slot` through [`use_coordinator`].
+pub fn network_in(slot: &Mutex<Option<Network>>) -> Result<Network, Failure> {
+    let test = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    Ok(test.clone().unwrap_or_else(Network::official))
+}
+
+/// What a phone's debug build is told by its end-to-end tests: every node the
+/// process creates, restores or opens is pinned to `address` instead of the
+/// official coordinator, through `slot`. Android's `useCoordinatorForTests`
+/// and iOS's `itsanas_use_coordinator_for_tests` pass `cfg!(debug_assertions)`.
+///
+/// Only a debug build takes it: the reason a phone cannot name its coordinator
+/// (see [`Network::pin`]) is exactly what a call that could reach a release
+/// build would undo, whoever made it.
+pub fn use_coordinator(
+    slot: &Mutex<Option<Network>>,
+    address: &str,
+    device: &str,
+    debug_build: bool,
+) -> Answer {
+    if !debug_build {
+        return Err(Failure::Usage(
+            "this build joins the official coordinator and no other".to_owned(),
+        ));
+    }
+    let device = (!device.is_empty()).then(|| device.to_owned());
+    if let Some(device) = &device {
+        itsanas_node::coordinator::parse_device(device)?;
+    }
+    let mut slot = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    *slot = Some(Network {
+        address: address.to_owned(),
+        device,
+    });
+    Ok(serde_json::json!({ "address": address }).to_string())
+}
+
 /// What a phone's `open` answers, for every phone shell, on the slot given.
 ///
 /// A node already open for `home` in this process is answered as it is, not

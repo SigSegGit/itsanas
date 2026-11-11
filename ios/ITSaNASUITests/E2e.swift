@@ -1,0 +1,278 @@
+import XCTest
+
+/// A scenario that cannot go on: the consequence for a person, and what was on
+/// the screen. Thrown, so the test stops where it went wrong.
+struct Failed: Error, CustomStringConvertible {
+    let description: String
+}
+
+/// What every scenario of the hand test shares: a phone with nothing on it,
+/// pinned to the coordinator `scripts/iphone-e2e.sh` started, the screens
+/// driven by taps and keys, and a screenshot kept wherever one fails.
+///
+/// Nothing here talks to the official coordinator. A run without
+/// `E2E_COORDINATOR` fails in `setUpWithError`, saying so, before it can.
+class E2eCase: XCTestCase {
+    let app = XCUIApplication()
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    /// The account a computer made, with two files in it, before the run.
+    var username = ""
+    var passphrase = ""
+    private var coordinator = ""
+    private var device = ""
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        let given = ProcessInfo.processInfo.environment
+        coordinator = given["E2E_COORDINATOR"] ?? ""
+        device = given["E2E_COORDINATOR_DEVICE"] ?? ""
+        username = given["E2E_USERNAME"] ?? ""
+        passphrase = given["E2E_PASSPHRASE"] ?? ""
+        if coordinator.isEmpty || username.isEmpty || passphrase.isEmpty {
+            throw Failed(description: "no E2E_COORDINATOR, E2E_USERNAME or E2E_PASSPHRASE: run "
+                + "scripts/iphone-e2e.sh, which starts a coordinator and a computer of its own. "
+                + "Without them this test would register names at the official coordinator.")
+        }
+        // The Face ID question, the first time the app asks for a face.
+        addUIInterruptionMonitor(withDescription: "biometric permission") { alert in
+            guard alert.buttons["OK"].exists, alert.label.contains("Face ID") else { return false }
+            alert.buttons["OK"].tap()
+            return true
+        }
+    }
+
+    override func tearDown() {
+        app.terminate()
+        super.tearDown()
+    }
+
+    // ------------------------------------------------------------ launching
+
+    /// Open the app; `wipe` empties the phone first, as a first install.
+    func launch(wipe: Bool) {
+        app.launchEnvironment = [
+            "E2E_COORDINATOR": coordinator,
+            "E2E_COORDINATOR_DEVICE": device,
+            "E2E_WIPE": wipe ? "1" : "0",
+        ]
+        app.launch()
+    }
+
+    /// Home screen, then back: what iOS calls leaving the app.
+    func leaveAndComeBack() {
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 2)
+        app.activate()
+        Thread.sleep(forTimeInterval: 2)
+    }
+
+    // -------------------------------------------------------------- waiting
+
+    /// Wait until `condition` holds; otherwise stop with `consequence` and
+    /// what the screen showed.
+    func waitFor(_ consequence: String, seconds: Double = 30, _ condition: () -> Bool) throws {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            if condition() { return }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        try fail(consequence)
+    }
+
+    /// Stop here, with a screenshot and what was on the screen.
+    func fail(_ consequence: String) throws -> Never {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "FAILED " + consequence
+        shot.lifetime = .keepAlways
+        add(shot)
+        throw Failed(description: "\(consequence) (on screen: \(onScreen()))")
+    }
+
+    /// The alert's words, the bar's title and the first texts: enough to tell
+    /// which screen a failure happened on.
+    func onScreen() -> String {
+        var said: [String] = []
+        for source in [app, springboard] where source.alerts.count > 0 {
+            let alert = source.alerts.firstMatch
+            let words = alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
+            said.append("alert \"\(alert.label)\": \(words)")
+        }
+        if app.navigationBars.count > 0 {
+            said.append("bar \"\(app.navigationBars.firstMatch.identifier)\"")
+        }
+        let texts = app.staticTexts.allElementsBoundByIndex.prefix(12).map(\.label).filter { !$0.isEmpty }
+        said.append("texts: " + texts.joined(separator: " | "))
+        return said.joined(separator: "; ")
+    }
+
+    // ----------------------------------------------------------------- page
+
+    /// An element of the page whose accessible name is `label`.
+    func web(_ label: String, _ type: XCUIElement.ElementType = .any) -> XCUIElement {
+        app.webViews.descendants(matching: type)
+            .matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    func webContaining(_ words: String, _ type: XCUIElement.ElementType = .any) -> XCUIElement {
+        app.webViews.descendants(matching: type)
+            .matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch
+    }
+
+    /// Scroll the page until `element` can be touched, then touch it.
+    func tapOnPage(_ element: XCUIElement, _ what: String) throws {
+        try waitFor("\(what) is not on the page") { element.exists }
+        for direction in [true, false] {
+            var swipes = 0
+            while !element.isHittable && swipes < 15 {
+                if direction { app.webViews.firstMatch.swipeUp() } else { app.webViews.firstMatch.swipeDown() }
+                swipes += 1
+            }
+        }
+        guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
+        element.tap()
+    }
+
+    // -------------------------------------------------------------- answers
+
+    /// Answer the question on screen, if there is one: the passphrase, or OK.
+    /// Answers whether there was one.
+    @discardableResult
+    func answerAlert() -> Bool {
+        guard app.alerts.count > 0 else { return false }
+        let alert = app.alerts.firstMatch
+        let field = alert.secureTextFields.count > 0
+            ? alert.secureTextFields.firstMatch : alert.textFields.firstMatch
+        if field.exists {
+            field.tap()
+            field.typeText(passphrase)
+        }
+        if alert.buttons["OK"].exists { alert.buttons["OK"].tap() }
+        return true
+    }
+
+    // ---------------------------------------------------------- the account
+
+    /// A phone with nothing on it logs in to the computer's account: the
+    /// page's steps, the passphrase in the native question, then the file list.
+    func logIn() throws {
+        launch(wipe: true)
+        let start = web("Start", .button)
+        try waitFor("Welcome never appeared on a phone with no account", seconds: 60) { start.exists }
+        try tapOnPage(start, "Start on Welcome")
+        try tapOnPage(webContaining("already have an account"), "\"No, I already have an account\"")
+        let named = app.webViews.textFields["Your username"]
+        let name = named.exists ? named : app.webViews.textFields.firstMatch
+        try tapOnPage(name, "the username field")
+        name.typeText(username)
+        let escrow = webContaining("recovery copy is kept by the network")
+        if escrow.exists { try tapOnPage(escrow, "the recovery copy box") }
+        try tapOnPage(web("Next", .button), "Next on the account step")
+        try throughSetup()
+    }
+
+    /// From the account step to the file list, whatever steps the page shows
+    /// a phone and whatever the engine asks.
+    private func throughSetup() throws {
+        let files = app.tables["files"]
+        var lastTap = Date.distantPast
+        try waitFor("the file list never opened after logging in, so the account is unusable", seconds: 240) {
+            if files.exists { return true }
+            if answerAlert() { return false }
+            let field = app.secureTextFields["unlock-pass"]
+            if field.exists && field.isHittable {
+                field.tap()
+                field.typeText(passphrase)
+                app.buttons["unlock-open"].tap()
+                return false
+            }
+            guard Date().timeIntervalSince(lastTap) > 3 else { return false }
+            for label in ["Close", "Start setting up", "Next"] {
+                let button = web(label, .button)
+                if button.exists && button.isHittable {
+                    button.tap()
+                    lastTap = Date()
+                    break
+                }
+            }
+            return false
+        }
+    }
+
+    // ------------------------------------------------------------ the files
+
+    /// Sync until `name` is listed: a round brings what the computer holds.
+    func syncUntilListed(_ name: String) throws {
+        let row = app.cells["file:" + name]
+        var lastSync = Date.distantPast
+        try waitFor("\(name), put on a computer of the account, never reached the phone's list", seconds: 120) {
+            if row.exists { return true }
+            if app.alerts.count > 0 { return false }
+            if Date().timeIntervalSince(lastSync) > 10 {
+                app.buttons["files-sync"].tap()
+                lastSync = Date()
+            }
+            return false
+        }
+    }
+
+    func back() {
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
+    }
+
+    func openSettings() throws {
+        app.buttons["files-settings"].tap()
+        try waitFor("Settings never opened", seconds: 60) { web("Security").exists }
+    }
+
+    // ----------------------------------------------------------- the finger
+
+    /// The simulator's enrolment, as the iPhone's settings would change it.
+    func enrol(_ enrolled: Bool) {
+        var token: Int32 = 0
+        notify_register_check("com.apple.BiometricKit.enrollmentChanged", &token)
+        notify_set_state(token, enrolled ? 1 : 0)
+        notify_post("com.apple.BiometricKit.enrollmentChanged")
+        Thread.sleep(forTimeInterval: 1)
+    }
+
+    /// A finger on the sensor, or a face before the camera, enrolled or not.
+    func touch(matching: Bool) {
+        let outcome = matching ? "match" : "nomatch"
+        notify_post("com.apple.BiometricKit_Sim.fingerTouch." + outcome)
+        notify_post("com.apple.BiometricKit_Sim.pearl." + outcome)
+        Thread.sleep(forTimeInterval: 1)
+    }
+
+    /// The system's finger sheet, wherever iOS draws it, put away.
+    func cancelFingerSheet() {
+        for source in [springboard, app] where source.buttons["Cancel"].exists {
+            source.buttons["Cancel"].tap()
+            return
+        }
+    }
+
+    /// Settings, Security, the fingerprint box, until it says `on`; then back
+    /// to the file list.
+    func setFinger(_ on: Bool) throws {
+        try openSettings()
+        let box = webContaining("Unlock with my fingerprint or face")
+        try waitFor("Settings offers no fingerprint on a phone with one enrolled") { box.exists }
+        // A checkbox's value reads "1" or 1, by iOS version.
+        let isOn = { String(describing: box.value ?? "") == "1" }
+        if isOn() != on { try tapOnPage(box, "the fingerprint box") }
+        try waitFor("the fingerprint box did not turn \(on ? "on" : "off")") { isOn() == on }
+        Thread.sleep(forTimeInterval: 1)
+        if app.alerts.count > 0 { try fail("turning the fingerprint \(on ? "on" : "off") was refused") }
+        back()
+        try waitFor("Settings did not close") { app.tables["files"].exists }
+    }
+
+    func unlockWithPassphrase() throws {
+        let field = app.secureTextFields["unlock-pass"]
+        try waitFor("the passphrase field is not there to open the account") { field.exists && field.isHittable }
+        field.tap()
+        field.typeText(passphrase)
+        app.buttons["unlock-open"].tap()
+        try waitFor("the passphrase did not open the account") { app.tables["files"].exists }
+    }
+}

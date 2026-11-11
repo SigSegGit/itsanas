@@ -20,9 +20,12 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
         field.delegate = self
         message.numberOfLines = 0
         message.textColor = .systemRed
+        field.accessibilityIdentifier = "unlock-pass"
+        message.accessibilityIdentifier = "unlock-message"
         let button = UIButton(type: .system)
         button.setTitle(NSLocalizedString("Unlock", comment: ""), for: .normal)
         button.addTarget(self, action: #selector(unlock), for: .touchUpInside)
+        button.accessibilityIdentifier = "unlock-open"
         let stack = UIStackView(arrangedSubviews: [field, button, message])
         stack.axis = .vertical
         stack.spacing = 16
