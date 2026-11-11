@@ -50,7 +50,7 @@ pub fn list(dir: &Path) -> BTreeMap<String, u64> {
         .collect()
 }
 
-fn write_all(dir: &Path, name: &str, text: &str) -> std::io::Result<()> {
+pub(crate) fn write_all(dir: &Path, name: &str, text: &str) -> std::io::Result<()> {
     // Renamed into place: a torn file would hide or show the wrong files.
     std::fs::create_dir_all(dir)?;
     let temporary = dir.join(format!("{name}.new"));

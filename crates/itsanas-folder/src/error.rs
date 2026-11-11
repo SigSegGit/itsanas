@@ -35,6 +35,12 @@ pub enum FolderError {
 
     #[error("file watcher: {0}")]
     Watch(#[from] notify::Error),
+
+    /// A file freed only once the account holds it as this folder does.
+    #[error(
+        "{0} is not freed: this folder's copy is not the account's, and an unsynced edit would be lost"
+    )]
+    NotSynced(String),
 }
 
 impl From<StoreError> for FolderError {

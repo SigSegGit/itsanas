@@ -40,7 +40,7 @@ use std::{
 };
 
 use itsanas_crypto::DeviceId;
-use itsanas_store::{LocalState, Store, trash};
+use itsanas_store::{LocalState, Store, freed, trash};
 
 pub use decision::{Decision, decide};
 pub use error::{FolderError, Result};
@@ -393,6 +393,7 @@ impl Folder {
         }
 
         let trashed = trash::list(store.root());
+        let freed = freed::list(store.root());
         let mut contents = Contents::default();
         for path in paths {
             // In this machine's trash: still the account's, hidden here, left
@@ -404,6 +405,18 @@ impl Folder {
                     continue;
                 }
                 if let Err(error) = Self::put_back(store, &path) {
+                    report.failed.push((path, error.to_string()));
+                    continue;
+                }
+            }
+            // Freed on this machine: absent on purpose, its bytes on the account's
+            // other machines, and no ledger entry, so it never reads as a delete.
+            // Back on disk, by hand or by `keep_here`, it is a file here again.
+            if freed.contains(&path) {
+                if !on_disk.contains_key(&path) {
+                    continue;
+                }
+                if let Err(error) = freed::take_out(store.root(), &path) {
                     report.failed.push((path, error.to_string()));
                     continue;
                 }
@@ -617,6 +630,45 @@ impl Folder {
         }
 
         Ok(())
+    }
+
+    /// Free `path` on this machine: its plain copy leaves this folder, the account
+    /// keeps it, and later passes leave it absent instead of reading a delete.
+    /// Only a file this folder holds as the account does: freeing an edit not yet
+    /// imported would lose it.
+    ///
+    /// The record is written before the ledger is cleared and the file removed,
+    /// so a crash between the steps leaves a file that syncs, never a delete.
+    ///
+    /// # Errors
+    ///
+    /// [`FolderError::NotSynced`] when the file is absent or differs from the
+    /// account's version; an I/O or store error when a step cannot be written.
+    pub fn free(&self, store: &Store, path: &str) -> Result<()> {
+        let real = scan::to_filesystem(&self.root, path)?;
+        let ledger = store.local_state(path)?.map(|state| state.content_hash);
+        let disk = Self::hash_on_disk(&real, None, true)?;
+        let held = store.stat(path)?.map(|entry| entry.content_hash);
+        if disk.is_none() || disk != held || disk != ledger {
+            return Err(FolderError::NotSynced(path.to_owned()));
+        }
+        freed::add(store.root(), path).map_err(|error| FolderError::io(real.clone(), error))?;
+        store.clear_local_state(path)?;
+        std::fs::remove_file(&real).map_err(|error| FolderError::io(real, error))
+    }
+
+    /// Keep `path` on this machine again: the next pass writes the account's
+    /// version into the folder. False when it was not freed here.
+    ///
+    /// # Errors
+    ///
+    /// When the record cannot be written.
+    pub fn keep_here(store: &Store, path: &str) -> Result<bool> {
+        if !freed::list(store.root()).contains(path) {
+            return Ok(false);
+        }
+        freed::take_out(store.root(), path).map_err(|error| FolderError::io(path, error))?;
+        Ok(true)
     }
 
     /// A trashed path found on disk again: out of the trash, and the ledger set to

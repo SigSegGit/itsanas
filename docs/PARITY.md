@@ -95,6 +95,7 @@ app, or it is not done there.
 | `itsanas put` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas get` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas rm` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas free` | ✅ | ✅ | ✅ | ⬜ a phone frees space with its keep limit; it has no synced folder of plain copies |
 | `itsanas trash` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas vault` | ✅ | ✅ | ✅ | ⬜ a phone has one app-private store |
 | `itsanas backup` | ✅ | ✅ | ✅ | ⬜ a phone has no drive to back up to |

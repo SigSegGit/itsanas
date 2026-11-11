@@ -375,6 +375,18 @@ enum Command {
         #[arg(long)]
         now: bool,
     },
+    /// Free this machine of a file of the synced folder: it stays in the
+    /// account, on its other machines, and only its copy here goes.
+    ///
+    /// Only a file the account already holds as it is here. `--keep` brings it
+    /// back on the next pass.
+    Free {
+        /// The file, as `itsanas ls` names it. Omit to list what is freed here.
+        path: Option<String>,
+        /// Keep it here again.
+        #[arg(long)]
+        keep: bool,
+    },
     /// What waits in this machine's trash, and what to do with it.
     Trash {
         #[command(subcommand)]
@@ -983,6 +995,7 @@ fn dispatch() -> Result<()> {
         Command::Put { path, source } => put(&home, &path, &source),
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path, now } => remove(&home, &path, now),
+        Command::Free { path, keep } => free(&home, path.as_deref(), keep),
         Command::Trash { action } => trash_command(&home, action.unwrap_or(TrashAction::List)),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
@@ -3026,6 +3039,34 @@ fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result
         }
     }
 
+    Ok(())
+}
+
+fn free(home: &Path, path: Option<&str>, keep: bool) -> Result<()> {
+    let node = open(home)?;
+    let Some(path) = path else {
+        for path in itsanas_store::freed::list(node.store.root()) {
+            println!("{path}");
+        }
+        return Ok(());
+    };
+    if keep {
+        if itsanas_folder::Folder::keep_here(&node.store, path)? {
+            println!("{path} comes back into the folder on the next pass");
+        } else {
+            println!("{path} was not freed here");
+        }
+        return Ok(());
+    }
+    let Some(root) = node.config.folder.clone() else {
+        return Err(CliError::Usage(
+            "no synced folder here: `itsanas folder <path>` sets one".to_owned(),
+        ));
+    };
+    itsanas_folder::Folder::open(&root)?.free(&node.store, path)?;
+    println!(
+        "{path} is freed here and stays in the account; `itsanas free --keep {path}` brings it back"
+    );
     Ok(())
 }
 

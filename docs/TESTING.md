@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1652 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 607 are red-team tests.**
+**Last updated: 2026-11-10 — 1654 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 609 are red-team tests.**
 
-**1536 of the 1652 tests have an entry of their own on this page** — an *entry*,
+**1538 of the 1654 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 26 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 352 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 61 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 205 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -2350,7 +2350,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-folder` — integration tests (26)
+# `itsanas-folder` — integration tests (28)
 
 | Test | What it proves |
 | --- | --- |
@@ -2359,6 +2359,8 @@ destructive if wrong.
 | **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — with the trash off, a genuine delete propagates at once, with a tombstone so an offline device does not resurrect it. |
 | **`red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back`** | A file deleted from the synced folder goes to the trash with no tombstone, is not written back by the next pass, and is written back once restored. Sabotaged (written at once): red. |
 | **`red_team_a_file_put_back_by_hand_leaves_the_trash`** | A trashed file put back on disk by hand leaves the trash and its new bytes reach the account as an edit, not a conflict. Sabotaged (no `take_out`): red. |
+| **`red_team_a_freed_file_is_never_trashed_nor_deleted_and_comes_back`** | `itsanas free` takes a file's copy off this folder and nothing else: later passes neither trash nor delete it, an edit made elsewhere leaves it freed, and `--keep` brings back the account's latest version. Sabotaged (the ledger entry kept, so the next pass reads a delete): red. |
+| **`red_team_an_edit_not_yet_synced_is_not_freed`** | A file whose copy here differs from the account's is not freed, and stays on disk as edited. Sabotaged (no comparison): red. |
 | **`red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash`** | A rename on disk is reported as one, and its old name is removed from the store at once rather than filling the trash. Sabotaged (no removal loop): red. |
 | **`an_imported_file_is_announced_to_peers_not_just_stored_locally`** | A real bug found by running two daemons: the reconciler wrote to the store but never sealed a log segment, so files looked synced on the machine that had them and existed nowhere else. |
 | **`a_deletion_is_announced_to_peers_too`** | The same, for deletes. |
