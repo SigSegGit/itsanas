@@ -10,7 +10,7 @@ import XCTest
 final class HandTest: E2eCase {
     /// 1. Open the account: an existing account, by its name and passphrase.
     func test1_anExistingAccountOpensOnThePhone() throws {
-        try logIn()
+        try logIn(fresh: true)
         XCTAssertTrue(app.buttons["files-trash"].exists, "the file list opened without its trash")
     }
 
@@ -61,7 +61,7 @@ final class HandTest: E2eCase {
         app.buttons["files-trash"].tap()
         try waitFor("a file deleted again is not in the trash") { trashed.exists }
         trashed.swipeLeft()
-        if !app.alerts.firstMatch.exists { app.buttons["Delete"].firstMatch.tap() }
+        if !app.alerts.firstMatch.exists { app.buttons["Delete"].tap() }
         let sure = app.alerts.firstMatch.buttons["Delete"]
         try waitFor("deleting from every machine asked nothing") { sure.exists }
         sure.tap()
@@ -78,9 +78,8 @@ final class HandTest: E2eCase {
 
     private func deleteFromList(_ row: XCUIElement) throws {
         row.swipeLeft()
-        // The CI simulator showed two buttons named Delete after the swipe;
-        // naming the one alone failed the test before it deleted anything.
-        let delete = app.buttons["Delete"].firstMatch
+        // The row's own Delete: the bar's trash button once read "Delete" too.
+        let delete = app.tables["files"].buttons["Delete"]
         if row.exists && delete.exists { delete.tap() }
         try waitFor("a deleted file is still in the list") { !row.exists }
     }
@@ -90,7 +89,7 @@ final class HandTest: E2eCase {
     /// opens; the right finger opens.
     func test4_touchIDOpensForTheRightFingerOnly() throws {
         enrol(true)
-        try logIn()
+        try logIn(fresh: true)
         try setFinger(true)
 
         leaveAndComeBack()
@@ -109,7 +108,7 @@ final class HandTest: E2eCase {
     /// the passphrase does; off and on again in Settings, a finger opens.
     func test5_aFingerEnrolledLaterOpensNothingUntilTouchIDIsTurnedOnAgain() throws {
         enrol(true)
-        try logIn()
+        try logIn(fresh: true)
         try setFinger(true)
         leaveAndComeBack()
         touch(matching: true)

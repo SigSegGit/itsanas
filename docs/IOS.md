@@ -162,6 +162,11 @@ did by hand:
 8. Settings shows no Disks, no USB key, no Advanced section, no lending of space;
 9. Sign out locks the app, and the app opened again asks for the passphrase.
 
+Steps 1, 4 and 5 start from an empty phone; the others open the account the
+step before left on it. A login fetches the account's recovery copy, which the
+coordinator gives one username five times in 15 minutes, and a run has more
+steps than that.
+
 The fingers are the simulator's. What is left for a person is what no
 simulator does: a real iPhone, a real finger, and iOS deciding when a round
 runs. Each step says what to do and what must be seen; note the step's number

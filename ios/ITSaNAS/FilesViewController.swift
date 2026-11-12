@@ -29,6 +29,9 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
                     target: self, action: #selector(settings)), "files-settings"),
                 named(UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(trash)), "files-trash"),
             ]
+            // The system's trash icon reads "Delete" to VoiceOver: this one
+            // opens the trash, and a swiped row's Delete is another button.
+            navigationItem.leftBarButtonItems?.last?.accessibilityLabel = NSLocalizedString("Trash", comment: "")
         }
         tableView.accessibilityIdentifier = "files"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")

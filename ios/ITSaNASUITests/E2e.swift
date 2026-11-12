@@ -223,9 +223,20 @@ class E2eCase: XCTestCase {
 
     // ---------------------------------------------------------- the account
 
+    /// Whether the last scenario left the phone logged in to the account.
+    private static var phoneHoldsTheAccount = false
+
     /// A phone with nothing on it logs in to the computer's account: the
     /// page's steps, the passphrase in the native question, then the file list.
-    func logIn() throws {
+    ///
+    /// A login fetches the account's recovery copy, which the coordinator
+    /// gives one username five times in 15 minutes against guessing
+    /// (`ESCROW_ATTEMPTS`); the sixth login of a run stopped setup. So a
+    /// scenario that is not about the first login (`fresh` false) opens the
+    /// account the phone kept from the one before, when there is one.
+    func logIn(fresh: Bool = false) throws {
+        if !fresh && Self.phoneHoldsTheAccount && openKept() { return }
+        Self.phoneHoldsTheAccount = false
         launch(wipe: true)
         let start = web("Start", .button)
         try waitFor("Welcome never appeared on a phone with no account", seconds: 60) { start.exists }
@@ -239,15 +250,37 @@ class E2eCase: XCTestCase {
         if escrow.exists { try tapOnPage(escrow, "the recovery copy box") }
         try tapOnPage(web("Next", .button), "Next on the account step")
         try throughSetup()
+        Self.phoneHoldsTheAccount = true
+    }
+
+    /// The account the phone kept, opened again: from the Keychain, or with
+    /// the passphrase when a finger is asked and put away. False when the
+    /// phone shows setup instead.
+    private func openKept() -> Bool {
+        launch(wipe: false)
+        let files = app.tables["files"]
+        let start = web("Start", .button)
+        let end = Date().addingTimeInterval(30)
+        while Date() < end {
+            if files.exists { return true }
+            if start.exists { return false }
+            cancelFingerSheet()
+            typePassphraseIfAsked()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return false
     }
 
     /// From the account step to the file list, whatever steps the page shows
     /// a phone and whatever the engine asks.
     private func throughSetup() throws {
         let files = app.tables["files"]
+        // The last page's Close also closes a setup that stopped, and the
+        // phone then starts over at Welcome: the reason would be lost.
+        let stopped = web("Setup stopped")
         var lastTap = Date.distantPast
         try waitFor("the file list never opened after logging in, so the account is unusable", seconds: 240) {
-            if files.exists { return true }
+            if files.exists || stopped.exists { return true }
             if answerAlert() { return false }
             if typePassphraseIfAsked() { return false }
             guard Date().timeIntervalSince(lastTap) > 3 else { return false }
@@ -261,6 +294,7 @@ class E2eCase: XCTestCase {
             }
             return false
         }
+        if stopped.exists { try fail("setup stopped while logging in, so the account is unusable") }
     }
 
     // ------------------------------------------------------------ the files
