@@ -40,6 +40,7 @@
 //! again; pause, resume, sync now and the interval go through the control
 //! file (`control.rs`) as the tray's do.
 
+mod deletion;
 mod features;
 mod hosting;
 mod http;
@@ -836,8 +837,14 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/api/remove") if ctx.mode == Mode::Settings => remove_check(ctx),
         ("POST", "/api/remove") if ctx.mode == Mode::Settings => remove_account(ctx, request),
         ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
-        ("GET", "/api/trash") if ctx.mode == Mode::Settings => ok_json(trash_json(&ctx.home, "")),
-        ("POST", "/api/trash") if ctx.mode == Mode::Settings => trash_change(ctx, request),
+        ("GET", "/api/trash") if ctx.mode == Mode::Settings => deletion::trash_list(ctx),
+        ("POST", "/api/trash") if ctx.mode == Mode::Settings => {
+            deletion::trash_change(ctx, request)
+        }
+        ("GET", "/api/deletion") if ctx.mode == Mode::Settings => deletion::rules(ctx),
+        ("POST", "/api/deletion") if ctx.mode == Mode::Settings => {
+            deletion::rules_change(ctx, request)
+        }
         ("GET", "/api/files") if ctx.mode == Mode::Settings => {
             node_call(ctx, |node| crate::freeing::files(node))
         }
@@ -1488,10 +1495,19 @@ fn node_call(
     ctx: &Context,
     body: impl FnOnce(&mut Node) -> std::result::Result<String, Failure>,
 ) -> Response {
-    let nodes = &ctx.backends.nodes;
-    if let Err(failure) = nodes.open() {
-        return Response::refuse(409, &failure.message());
+    match with_node(ctx, body) {
+        Ok(json) => ok_json(json),
+        Err(failure) => Response::refuse(409, &failure.message()),
     }
+}
+
+/// [`node_call`]'s work, for a caller that answers in its own way (a job).
+fn with_node(
+    ctx: &Context,
+    body: impl FnOnce(&mut Node) -> std::result::Result<String, Failure>,
+) -> std::result::Result<String, Failure> {
+    let nodes = &ctx.backends.nodes;
+    nodes.open()?;
     // A change to the node needs it alone. The service's next look starts the
     // loop again, on the new values.
     crate::host_run::stop_current();
@@ -1503,10 +1519,7 @@ fn node_call(
         }
     };
     nodes.release();
-    match outcome {
-        Ok(json) => ok_json(json),
-        Err(failure) => Response::refuse(409, &failure.message()),
-    }
+    outcome
 }
 
 /// The account's devices, this machine marked, as the coordinator lists them.
@@ -1645,40 +1658,6 @@ fn delete_account(ctx: &Context, request: &Request) -> Response {
     }
 }
 
-/// The machines typed in by address, which this one also syncs with.
-/// Restore, delete now, or set the days. The trash's record alone, never the
-/// node: the daemon holds the store, and its next round writes a restored file
-/// back into the folder, or deletes a file from every machine.
-fn trash_change(ctx: &Context, request: &Request) -> Response {
-    use itsanas_store::trash;
-    let form = match json::parse_form(&request.body) {
-        Ok(form) => form,
-        Err(why) => return Response::refuse(400, &why),
-    };
-    let dir = crate::trash::record_dir(&ctx.home);
-    let trashed = |path: &str| trash::list(&dir).contains_key(path);
-    let done = match (field(&form, "action"), field(&form, "path")) {
-        (Some("restore"), Some(path)) if trashed(path) => trash::take_out(&dir, path)
-            .map(|()| "Restored. The folder gets it back on its next pass."),
-        (Some("delete"), Some(path)) if trashed(path) => {
-            trash::put(&dir, path, itsanas_store::now_unix(), 0)
-                .map(|()| "Deleted from every machine on the next round.")
-        }
-        (Some("restore" | "delete"), _) => {
-            return Response::refuse(400, "that file is not in the trash");
-        }
-        (Some("days"), _) => match field(&form, "days").and_then(|days| days.parse().ok()) {
-            Some(days) => trash::set_days(&dir, days).map(|()| "Saved."),
-            None => return Response::refuse(400, "the days are a whole number"),
-        },
-        _ => return Response::refuse(400, "the action is restore, delete or days"),
-    };
-    match done {
-        Ok(said) => ok_json(trash_json(&ctx.home, said)),
-        Err(error) => Response::refuse(500, &format!("the trash could not be written: {error}")),
-    }
-}
-
 /// Free a file of the synced folder here, or keep it here again
 /// ([`crate::freeing`]); answers the list as it now stands.
 fn files_change(ctx: &Context, request: &Request) -> Response {
@@ -1746,29 +1725,6 @@ fn autostart_json(service: &dyn ServiceControl, said: &str) -> String {
     ])
 }
 
-fn trash_json(home: &Path, said: &str) -> String {
-    use itsanas_store::trash;
-    let dir = crate::trash::record_dir(home);
-    let now = itsanas_store::now_unix();
-    let rows: Vec<String> = trash::list(&dir)
-        .iter()
-        .map(|(path, due)| {
-            object(&[
-                ("path", quote(path)),
-                (
-                    "days",
-                    due.saturating_sub(now).div_ceil(trash::DAY).to_string(),
-                ),
-            ])
-        })
-        .collect();
-    object(&[
-        ("trashed", format!("[{}]", rows.join(","))),
-        ("days", trash::days(&dir).to_string()),
-        ("said", quote(said)),
-    ])
-}
-
 fn peers_list(ctx: &Context) -> Response {
     node_call(ctx, |node| Ok(peers_json(node, "")))
 }
@@ -1805,6 +1761,10 @@ fn peers_json(node: &Node, said: &str) -> String {
 /// What a secret job does with the prompt and the service it is given.
 type JobBody = fn(&Context, &mut dyn SecretPrompt, &dyn ServiceControl) -> Result<String>;
 
+/// A job that carries what it was asked (the files to delete, the rules to set).
+type BoxedJob =
+    Box<dyn FnOnce(&Context, &mut dyn SecretPrompt, &dyn ServiceControl) -> Result<String> + Send>;
+
 /// Start `body` on a thread of its own, as a setup run is: the page follows it
 /// through `/api/state` (`waiting` says what the window wants) and never sees a
 /// secret. One at a time with every run.
@@ -1813,6 +1773,16 @@ fn start_job(
     name: &'static str,
     waiting: &'static str,
     body: JobBody,
+) -> Response {
+    start_boxed(ctx, name, waiting, Box::new(body))
+}
+
+/// [`start_job`] for a job that carries its request.
+fn start_boxed(
+    ctx: &Arc<Context>,
+    name: &'static str,
+    waiting: &'static str,
+    body: BoxedJob,
 ) -> Response {
     {
         let mut run = lock(&ctx.run);

@@ -323,6 +323,15 @@ class E2eCase: XCTestCase {
         try waitFor("Settings never opened", seconds: 60) { web("Security").exists }
     }
 
+    /// Settings' section titled `title` opened, unless `inside` is already
+    /// there: a closed section keeps its cards out of reach, and a second
+    /// touch would close it again.
+    func openSection(_ title: String, for inside: XCUIElement) throws {
+        if inside.exists { return }
+        try tapOnPage(web(title), "the \(title) section of Settings")
+        try waitFor("the \(title) section did not open") { inside.exists }
+    }
+
     // ----------------------------------------------------------- the finger
 
     /// The simulator's enrolment, as the iPhone's settings would change it.
@@ -355,7 +364,7 @@ class E2eCase: XCTestCase {
     func setFinger(_ on: Bool) throws {
         try openSettings()
         let box = webContaining("Unlock with my fingerprint or face")
-        try waitFor("Settings offers no fingerprint on a phone with one enrolled") { box.exists }
+        try openSection("Security", for: box)
         // A checkbox's value reads "1" or 1, by iOS version.
         let isOn = { String(describing: box.value ?? "") == "1" }
         if isOn() != on { try tapOnPage(box, "the fingerprint box") }

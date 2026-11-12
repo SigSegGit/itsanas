@@ -133,6 +133,31 @@ pub struct Catalogue {
 /// A path that is both is reported once, as [`Presence::Local`]: having the
 /// content beats knowing about it.
 pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
+    let mut listed = catalogue_with_reserved(store, vault)?;
+    // The account's own files (its deletion rules, its trash) are no one's to
+    // open or delete: no listing shows them.
+    listed
+        .files
+        .retain(|known| !crate::deletion::is_reserved(&known.path));
+    Ok(listed)
+}
+
+/// The account's own files ([`crate::deletion::RESERVED`]), whether their
+/// content is here or not: their path is all they say.
+///
+/// # Errors
+///
+/// If the vault or the store cannot be read.
+pub fn reserved(store: &Store, vault: &Vault) -> Result<Vec<String>> {
+    Ok(catalogue_with_reserved(store, vault)?
+        .files
+        .into_iter()
+        .map(|known| known.path)
+        .filter(|path| crate::deletion::is_reserved(path))
+        .collect())
+}
+
+fn catalogue_with_reserved(store: &Store, vault: &Vault) -> Result<Catalogue> {
     let owner = store.owner();
     let mine = store.device_id();
 

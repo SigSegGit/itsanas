@@ -1,45 +1,31 @@
+import LocalAuthentication
 import UIKit
 
-/// What was deleted on this phone and still waits: put it back, or delete it
-/// from every machine now.
+/// What was deleted and still waits: put it back, or delete it for good. What a
+/// delete does, and for how many days, is this phone's rules, set in Settings,
+/// Trash (HANDOVER §8 13); a delete for good asks who is there first when they
+/// say so, once for the whole trash.
 final class TrashViewController: UITableViewController {
     private var rows: [[String: Any]] = []
     private var now: Double = 0
+    private var askAuth = true
+    private var confirm = true
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = NSLocalizedString("Trash", comment: "")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: nil, style: .plain, target: self, action: #selector(askDays))
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "trash-days"
-        tableView.accessibilityIdentifier = "trash"
-        showDays()
+        let empty = UIBarButtonItem(
+            title: NSLocalizedString("Empty", comment: ""), style: .plain, target: self, action: #selector(emptyAll))
+        empty.accessibilityIdentifier = "trash-empty"
+        navigationItem.rightBarButtonItem = empty
         reload()
     }
 
-    /// How many days a file deleted from now on waits, as on Android.
-    @objc private func askDays() {
-        let alert = UIAlertController(
-            title: NSLocalizedString("Days in the trash", comment: ""),
-            message: NSLocalizedString("A file deleted from now on waits this many days.", comment: ""),
-            preferredStyle: .alert)
-        alert.addTextField { field in
-            field.keyboardType = .numberPad
-            field.text = String(Core.trashDays)
-        }
-        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
-        alert.addAction(UIAlertAction(title: NSLocalizedString("Keep", comment: ""), style: .default) { _ in
-            guard let typed = alert.textFields?.first?.text.flatMap({ UInt64($0) }), typed >= 1 else { return }
-            Core.trashDays = typed
-            self.showDays()
-        })
-        present(alert, animated: true)
-    }
-
-    private func showDays() {
-        navigationItem.rightBarButtonItem?.title =
-            String(format: NSLocalizedString("%d days", comment: ""), Int(Core.trashDays))
+    @objc private func emptyAll() {
+        let files = rows.compactMap { $0["path"] as? String }
+        guard !files.isEmpty else { return }
+        deleteForGood(files)
     }
 
     private func reload() {
@@ -50,6 +36,8 @@ final class TrashViewController: UITableViewController {
                 case .success(let list):
                     self.rows = list["trashed"] as? [[String: Any]] ?? []
                     self.now = (list["now"] as? NSNumber)?.doubleValue ?? 0
+                    self.askAuth = list["ask_auth"] as? Bool ?? true
+                    self.confirm = list["confirm"] as? Bool ?? true
                     self.tableView.reloadData()
                 case .failure(let error):
                     self.show(error.localizedDescription)
@@ -85,19 +73,59 @@ final class TrashViewController: UITableViewController {
             done(true)
         }
         let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Delete", comment: "")) { _, _, done in
-            self.confirmDelete(file)
+            self.deleteForGood([file])
             done(false)
         }
         return UISwipeActionsConfiguration(actions: [delete, restore])
     }
 
-    private func confirmDelete(_ file: String) {
+    /// "Are you sure" when the rules ask it, then who is there when they ask
+    /// that, then every file of `files`, gone from every machine.
+    private func deleteForGood(_ files: [String]) {
+        let go = {
+            self.proveIdentity {
+                self.act { for file in files { try Core.trashDelete(file) } }
+            }
+        }
+        guard confirm else { return go() }
         let alert = UIAlertController(
             title: NSLocalizedString("Delete from every machine?", comment: ""),
-            message: file, preferredStyle: .alert)
+            message: files.count == 1 ? files[0] : String(format: NSLocalizedString("%d files", comment: ""), files.count),
+            preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: NSLocalizedString("Back", comment: ""), style: .cancel))
-        alert.addAction(UIAlertAction(title: NSLocalizedString("Delete", comment: ""), style: .destructive) { _ in
-            self.act { try Core.trashDelete(file) }
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Delete", comment: ""), style: .destructive) { _ in go() })
+        present(alert, animated: true)
+    }
+
+    /// The phone's own lock (Face ID, Touch ID, passcode) when it has one, the
+    /// account's passphrase otherwise; `proved` runs only when it answered.
+    private func proveIdentity(_ proved: @escaping () -> Void) {
+        guard askAuth else { return proved() }
+        let context = LAContext()
+        let reason = NSLocalizedString("Delete files for good", comment: "")
+        if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) {
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
+                DispatchQueue.main.async {
+                    if success { proved() } else { self.show(NSLocalizedString("Not confirmed: nothing was deleted.", comment: "")) }
+                }
+            }
+            return
+        }
+        let alert = UIAlertController(
+            title: NSLocalizedString("Who is there?", comment: ""), message: reason, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.isSecureTextEntry = true
+            field.accessibilityIdentifier = "identity-pass"
+        }
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Back", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Confirm", comment: ""), style: .default) { _ in
+            let typed = alert.textFields?.first?.text ?? ""
+            DispatchQueue.global(qos: .userInitiated).async {
+                let right = (try? Core.open(passphrase: typed)) != nil
+                DispatchQueue.main.async {
+                    if right { proved() } else { self.show(NSLocalizedString("Not confirmed: nothing was deleted.", comment: "")) }
+                }
+            }
         })
         present(alert, animated: true)
     }

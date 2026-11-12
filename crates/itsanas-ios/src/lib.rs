@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use itsanas_cli::phone::{
     get_file, list_at, network_in, open_into, passphrase_rule, put_file, status_of, sync_node,
-    trash_delete, trash_list, trash_put, trash_restore, use_coordinator,
+    trash_delete, trash_list, trash_put, trash_restore_in, use_coordinator,
 };
 use itsanas_cli::shell::{
     Answer, Backends, Failure, Features, Held, Mode, Network, SecretPrompt, Server, Stop,
@@ -258,12 +258,15 @@ pub extern "C" fn itsanas_trash_list() -> *mut c_char {
     answer(|| with_node(trash_list))
 }
 
-/// Take a file out of the trash.
+/// Take a file out of the trash, wherever it waits: the account's trash
+/// brings it back on every machine. `_home` is kept for the app's call.
 #[unsafe(no_mangle)]
-pub extern "C" fn itsanas_trash_restore(home: *const c_char, path: *const c_char) -> *mut c_char {
-    let home = home_of(home);
+pub extern "C" fn itsanas_trash_restore(_home: *const c_char, path: *const c_char) -> *mut c_char {
     let path = c::text(path, "the path");
-    answer(move || trash_restore(&home?, &path?))
+    answer(move || {
+        let path = path?;
+        with_node(|node| trash_restore_in(node, &path))
+    })
 }
 
 /// Delete a file from every machine now.

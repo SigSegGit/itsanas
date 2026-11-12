@@ -25,6 +25,7 @@ mod bench;
 mod control;
 mod copy_to_key;
 mod daemon;
+pub mod deleting;
 pub mod devices;
 mod discovery;
 mod drives;
@@ -213,18 +214,6 @@ enum BackupAction {
 }
 
 #[derive(Subcommand)]
-enum TrashAction {
-    /// List what is in the trash and when each file is really deleted.
-    List,
-    /// Take a file out of the trash; a synced folder gets it back on its next pass.
-    Restore { path: String },
-    /// Delete a file of the trash from every machine on the next round.
-    Delete { path: String },
-    /// Set how many days a deleted file waits; 0 turns the trash off.
-    Days { days: u64 },
-}
-
-#[derive(Subcommand)]
 enum Command {
     /// Create a new account on this machine and print its recovery phrase.
     Init {
@@ -388,10 +377,10 @@ enum Command {
         #[arg(long)]
         keep: bool,
     },
-    /// What waits in this machine's trash, and what to do with it.
+    /// What waits in the trash, and the rules a delete follows.
     Trash {
         #[command(subcommand)]
-        action: Option<TrashAction>,
+        action: Option<deleting::TrashAction>,
     },
     /// Set, or show, where this node keeps what it holds for others.
     ///
@@ -997,7 +986,7 @@ fn dispatch() -> Result<()> {
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path, now } => remove(&home, &path, now),
         Command::Free { path, keep } => free(&home, path.as_deref(), keep),
-        Command::Trash { action } => trash_command(&home, action.unwrap_or(TrashAction::List)),
+        Command::Trash { action } => trash_command(&home, action),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
         command
@@ -3082,74 +3071,33 @@ fn remove(home: &Path, path: &str, now: bool) -> Result<()> {
         } else {
             println!("no such file: {path}");
         }
-    } else if itsanas_store::trash::delete(
-        &node.store,
-        &node.vault,
-        path,
-        itsanas_store::now_unix(),
-    )? {
-        match itsanas_store::trash::days(node.store.root()) {
-            0 => println!("deleted {path}"),
-            days => println!(
-                "{path} is in the trash for {days} days; `itsanas trash restore {path}` brings it back"
-            ),
-        }
     } else {
-        println!("no such file: {path}");
+        use itsanas_store::trash::Deleted;
+        match itsanas_store::trash::delete(
+            &node.store,
+            &node.vault,
+            path,
+            itsanas_store::now_unix(),
+        )? {
+            Deleted::Unknown => println!("no such file: {path}"),
+            Deleted::Everywhere => println!("deleted {path} from every machine"),
+            Deleted::Trashed => println!(
+                "{path} is in the account's trash; `itsanas trash restore {path}` brings it back on every machine"
+            ),
+            Deleted::Waiting => println!(
+                "{path} waits here for `itsanas trash delete {path}` to delete it from every machine"
+            ),
+            Deleted::HereOnly => println!("{path} left this machine; the account keeps it"),
+        }
     }
 
     Ok(())
 }
 
-/// The trash from a terminal. Its record alone, never the node: a running
-/// daemon holds the store, and the next round does what is asked here.
-fn trash_command(home: &Path, action: TrashAction) -> Result<()> {
-    let dir = trash::record_dir(home);
-    let now = itsanas_store::now_unix();
-    let written = |source| itsanas_node::NodeError::Io {
-        path: dir.clone(),
-        source,
-    };
-    match action {
-        TrashAction::List => {
-            let trashed = itsanas_store::trash::list(&dir);
-            if trashed.is_empty() {
-                println!("the trash is empty");
-            }
-            for (path, due) in trashed {
-                let days = due.saturating_sub(now).div_ceil(itsanas_store::trash::DAY);
-                println!("{days:>4} days  {path}");
-            }
-            match itsanas_store::trash::days(&dir) {
-                0 => println!("the trash is off: a delete is written at once"),
-                days => println!("a deleted file waits {days} days"),
-            }
-        }
-        TrashAction::Restore { path } => {
-            if itsanas_store::trash::list(&dir).contains_key(&path) {
-                itsanas_store::trash::take_out(&dir, &path).map_err(written)?;
-                println!("{path} is back");
-            } else {
-                println!("{path} is not in the trash");
-            }
-        }
-        TrashAction::Delete { path } => {
-            if itsanas_store::trash::list(&dir).contains_key(&path) {
-                itsanas_store::trash::put(&dir, &path, now, 0).map_err(written)?;
-                println!("{path} is deleted from every machine on the next round");
-            } else {
-                println!("{path} is not in the trash");
-            }
-        }
-        TrashAction::Days { days } => {
-            itsanas_store::trash::set_days(&dir, days).map_err(written)?;
-            match itsanas_store::trash::days(&dir) {
-                0 => println!("the trash is off: a delete is written at once"),
-                days => println!("a deleted file now waits {days} days"),
-            }
-        }
-    }
-    Ok(())
+/// `itsanas trash`, its list when nothing is asked ([`deleting::command`]).
+fn trash_command(home: &Path, action: Option<deleting::TrashAction>) -> Result<()> {
+    deleting::command(home, action.unwrap_or(deleting::TrashAction::List))
+        .map_err(|failure| CliError::Usage(failure.message()))
 }
 
 fn folder(home: &Path, path: Option<&Path>, confirm: bool) -> Result<()> {
@@ -4985,6 +4933,15 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
 fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()> {
     refuse_if_departed(home)?;
     let node = open(home)?;
+    // What the trash holds no longer, by its days or by `trash delete`, leaves
+    // every machine with this round, as with the daemon's: before, only the
+    // daemon emptied it, so `trash delete` then `sync` sent nothing.
+    if let Err(error) = phone::purged_trash(&node) {
+        eprintln!(
+            "itsanas: the trash could not be emptied: {}",
+            error.message()
+        );
+    }
     // What changed in the folder goes out with this sync, not the next one.
     sync_folder(&node);
 

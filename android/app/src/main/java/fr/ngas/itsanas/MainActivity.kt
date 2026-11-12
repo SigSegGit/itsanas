@@ -498,6 +498,8 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     suspend fun refresh(folder: String = level.at) {
         level = Account.level(folder)
         status = Account.status()
+        // What a delete does here, before the person deletes anything.
+        runCatching { Trash.readRules() }
     }
 
     // A round now, as the button does: in the background the next one can be two
@@ -795,7 +797,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             onDismissRequest = { confirmDelete = null },
             title = { Text(stringResource(R.string.delete_title, file.name)) },
             text = {
-                Text(stringResource(R.string.delete_body, Trash.days(trashContext)))
+                val rules = Trash.rules
+                Text(
+                    when (rules.mode) {
+                        "direct" -> stringResource(R.string.delete_body_direct)
+                        "local" -> stringResource(R.string.delete_body_local)
+                        else -> stringResource(R.string.delete_body, rules.days)
+                    },
+                )
             },
             confirmButton = {
                 TextButton(modifier = Modifier.testTag("delete-confirm"), onClick = {
@@ -803,7 +812,8 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     confirmDelete = null
                     scope.launch {
                         try {
-                            Trash.put(trashContext, doomed.path)
+                            val became = Trash.put(doomed.path)
+                            if (became == "waiting") complain(trashContext.getString(R.string.delete_waiting))
                             refresh()
                         } catch (error: Throwable) {
                             complain(error.message ?: "could not delete it")

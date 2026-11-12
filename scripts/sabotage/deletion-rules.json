@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "keeps_less"
+  ],
+  "defences": {
+    "page: a rule that keeps less is set with nobody asked": {
+      "file": "crates/itsanas-cli/src/deleting.rs",
+      "live": "    Ok(now.ask_auth && (now.loosened_by(&next) || others_loosen))",
+      "dead": "    Ok(next.days == 0 && now.ask_auth && (now.loosened_by(&next) || others_loosen))"
+    }
+  }
+}

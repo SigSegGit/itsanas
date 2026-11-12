@@ -40,7 +40,7 @@ use std::{
 };
 
 use itsanas_crypto::DeviceId;
-use itsanas_store::{LocalState, Store, freed, trash};
+use itsanas_store::{LocalState, Store, deletion, freed, trash};
 
 pub use decision::{Decision, decide};
 pub use error::{FolderError, Result};
@@ -394,8 +394,22 @@ impl Folder {
 
         let trashed = trash::list(store.root());
         let freed = freed::list(store.root());
+        let shared = deletion::shared_known_here(store)?;
         let mut contents = Contents::default();
         for path in paths {
+            // In the account's trash, from this machine or another: no plain
+            // copy anywhere until it is restored, and no delete read from its
+            // absence. A copy edited by hand meanwhile takes it out instead.
+            if shared.contains_key(&path) {
+                match self.trashed_in_account(store, &path, deep) {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        report.failed.push((path, error.to_string()));
+                        continue;
+                    }
+                }
+            }
             // In this machine's trash: still the account's, hidden here, left
             // alone until its delay runs out or a person restores it, which
             // takes it out and lets the next pass write it back. Put back on
@@ -441,8 +455,12 @@ impl Folder {
             // move look like a copy, and leave the old name in the trash.
             let trashed = trash::list(store.root());
             let mut live: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+            let shared = deletion::shared_known_here(store)?;
             for (path, entry) in store.entries()? {
-                if !trashed.contains_key(&path) {
+                if !trashed.contains_key(&path)
+                    && !shared.contains_key(&path)
+                    && !deletion::is_reserved(&path)
+                {
                     *live.entry(entry.content_hash).or_default() += 1;
                 }
             }
@@ -454,6 +472,9 @@ impl Folder {
             for (from, _) in &report.renamed_here {
                 store.remove_file(from)?;
                 trash::take_out(store.root(), from)
+                    .map_err(|error| FolderError::io(self.root.clone(), error))?;
+                deletion::restore_shared_known(store, from)?;
+                freed::take_out(store.root(), from)
                     .map_err(|error| FolderError::io(self.root.clone(), error))?;
             }
         }
@@ -690,16 +711,51 @@ impl Folder {
         Ok(())
     }
 
-    /// A file the person deleted from disk: into this machine's trash, or out of
-    /// the store at once when the trash is off.
-    fn trash_or_remove(store: &Store, path: &str, real: &Path) -> Result<()> {
-        let days = trash::days(store.root());
-        if days == 0 {
-            store.remove_file(path)?;
-            return Ok(());
+    /// A path in the account's trash: true when this pass has nothing more to
+    /// do with it. Gone from disk, it stays gone. On disk as the ledger last
+    /// saw it, the trash was emptied of it elsewhere: the plain copy goes, and
+    /// the ledger with it, so its absence is never read as a delete. On disk
+    /// changed, a person put it back by hand: out of the trash, and it syncs.
+    fn trashed_in_account(&self, store: &Store, path: &str, deep: bool) -> Result<bool> {
+        let real = scan::to_filesystem(&self.root, path)?;
+        let ledger = store.local_state(path)?;
+        let Some(disk) = Self::hash_on_disk(&real, ledger.as_ref(), deep)? else {
+            return Ok(true);
+        };
+        if ledger.is_some_and(|state| state.content_hash == disk) {
+            self.delete_from_disk(&real)?;
+            store.clear_local_state(path)?;
+            return Ok(true);
         }
-        trash::put(store.root(), path, itsanas_store::now_unix(), days)
-            .map_err(|error| FolderError::io(real.to_owned(), error))
+        deletion::restore_shared_known(store, path)?;
+        Self::put_back(store, path)?;
+        Ok(false)
+    }
+
+    /// A file the person deleted from disk, by this machine's rules
+    /// ([`deletion::rules_known_here`]): into the account's trash, waiting here
+    /// for a confirmation, gone from this machine only, or out of the store at
+    /// once.
+    fn trash_or_remove(store: &Store, path: &str, real: &Path) -> Result<()> {
+        let rules = deletion::rules_known_here(store)?;
+        let now = itsanas_store::now_unix();
+        let off = trash::days(store.root()) == 0;
+        match rules.mode {
+            deletion::Mode::Direct if rules.ask_auth && !off => {
+                trash::put(store.root(), path, now, trash::MAX_DAYS)
+                    .map_err(|error| FolderError::io(real.to_owned(), error))
+            }
+            _ if off || rules.mode == deletion::Mode::Direct => {
+                store.remove_file(path)?;
+                Ok(())
+            }
+            deletion::Mode::Local => freed::add(store.root(), path)
+                .map_err(|error| FolderError::io(real.to_owned(), error)),
+            deletion::Mode::Trash | deletion::Mode::Direct => {
+                deletion::trash_shared(store, path, now, rules.days)?;
+                Ok(())
+            }
+        }
     }
 
     /// The content hash of a file on disk, or `None` if it is not there.
