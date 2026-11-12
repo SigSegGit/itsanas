@@ -144,7 +144,7 @@
     },
     "trash: a file put back stays hidden": {
       "file": "crates/itsanas-cli/src/phone.rs",
-      "live": "    trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))?;\n    Ok(entry)",
+      "live": "    itsanas_store::deletion::restore_shared(&node.store, &node.vault, path)?;\n    Ok(entry)",
       "dead": "    Ok(entry)"
     },
     "folder: a bad row is skipped": {
