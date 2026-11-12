@@ -90,19 +90,30 @@ class E2eCase: XCTestCase {
 
     /// The alert's words, the bar's title and the first texts: enough to tell
     /// which screen a failure happened on.
+    /// Read from one snapshot of each app: an element queried by index
+    /// vanishes when the screen changes, and the query then fails the test
+    /// in place of the sentence that says why (seen as "No matches found
+    /// for Element at index 10").
     func onScreen() -> String {
         var said: [String] = []
-        for source in [app, springboard] where source.alerts.count > 0 {
-            let alert = source.alerts.firstMatch
-            let words = alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
-            said.append("alert \"\(alert.label)\": \(words)")
+        for source in [app, springboard] {
+            guard let root = try? source.snapshot() else { continue }
+            for alert in Self.all(.alert, in: root) {
+                let words = Self.all(.staticText, in: alert).map(\.label).joined(separator: " / ")
+                said.append("alert \"\(alert.label)\": \(words)")
+            }
         }
-        if app.navigationBars.count > 0 {
-            said.append("bar \"\(app.navigationBars.firstMatch.identifier)\"")
-        }
-        let texts = app.staticTexts.allElementsBoundByIndex.prefix(12).map(\.label).filter { !$0.isEmpty }
+        guard let root = try? app.snapshot() else { return said.joined(separator: "; ") }
+        if let bar = Self.all(.navigationBar, in: root).first { said.append("bar \"\(bar.identifier)\"") }
+        let texts = Self.all(.staticText, in: root).map(\.label).filter { !$0.isEmpty }.prefix(20)
         said.append("texts: " + texts.joined(separator: " | "))
+        let buttons = Self.all(.button, in: root).map(\.label).filter { !$0.isEmpty }.prefix(12)
+        said.append("buttons: " + buttons.joined(separator: " | "))
         return said.joined(separator: "; ")
+    }
+
+    static func all(_ type: XCUIElement.ElementType, in root: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
+        (root.elementType == type ? [root] : []) + root.children.flatMap { all(type, in: $0) }
     }
 
     // ----------------------------------------------------------------- page
@@ -150,11 +161,14 @@ class E2eCase: XCTestCase {
     }
 
     /// The native passphrase field, once it stands still: typed into, then Open.
-    /// Whether it was there.
+    /// Whether it was typed. A touch that gave the field no keyboard (the
+    /// screen still settling) types nothing and is tried again by the caller:
+    /// typing with no focus fails the test.
     @discardableResult
     func typePassphraseIfAsked() -> Bool {
         guard let centre = settledCentre(app.secureTextFields["unlock-pass"]) else { return false }
         tapAt(centre)
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 3) else { return false }
         app.typeText(passphrase)
         if let open = settledCentre(app.buttons["unlock-open"]) { tapAt(open) }
         return true

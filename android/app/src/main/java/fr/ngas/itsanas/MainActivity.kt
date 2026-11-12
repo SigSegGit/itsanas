@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OpenInNew
@@ -511,9 +512,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         }
         try {
             val plan = Vault.plan(context, foreground = true)
-            Account.syncNow(metadataOnly = !plan.movesContent)
+            val answer = org.json.JSONObject(Account.syncNow(metadataOnly = !plan.movesContent))
             refresh()
-            tell(plan.because)
+            tell(changesLine(context, answer) ?: plan.because)
         } catch (left: CancellationException) {
             // The person left this screen mid-round. That is no failure, and the
             // callers catching everything would put it in a dialog over the next one.
@@ -767,6 +768,17 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                             }
                         },
                         onDelete = { confirmDelete = file },
+                        onFree = {
+                            scope.launch {
+                                try {
+                                    val answer = withContext(Dispatchers.IO) { org.json.JSONObject(Native.release(file.path)) }
+                                    refresh()
+                                    snackbar.showSnackbar(answer.getString("said"))
+                                } catch (error: Throwable) {
+                                    complain(error.message ?: "could not free it")
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -847,7 +859,7 @@ private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit, onFree: () -> Unit) {
     Card(
         Modifier
             .fillMaxWidth()
@@ -879,9 +891,31 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                     stringResource(if (file.here) R.string.file_open else R.string.file_fetch),
                 )
             }
+            if (file.here) {
+                IconButton(onFree, Modifier.testTag("file-free")) {
+                    Icon(Icons.Default.CloudUpload, stringResource(R.string.file_free))
+                }
+            }
             IconButton(onDelete, Modifier.testTag("file-delete")) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
         }
     }
+}
+
+/** What a round brought, named: "2 new: a, b · 1 changed: c", or null when nothing. */
+private fun changesLine(context: android.content.Context, answer: org.json.JSONObject): String? {
+    val parts = listOf(
+        "new" to R.string.round_new,
+        "changed" to R.string.round_changed,
+        "gone" to R.string.round_gone,
+    ).mapNotNull { (key, label) ->
+        val part = answer.optJSONObject(key) ?: return@mapNotNull null
+        val count = part.optInt("count")
+        if (count == 0) return@mapNotNull null
+        val names = part.optJSONArray("names") ?: org.json.JSONArray()
+        val listed = List(names.length()) { names.getString(it).substringAfterLast('/') }.joinToString(", ")
+        context.getString(label, count) + ": " + listed + if (count > names.length()) ", …" else ""
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 /** The name a picked document has, or something usable if it will not say. */

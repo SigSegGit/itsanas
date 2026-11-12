@@ -81,6 +81,31 @@ pub fn release_all(node: &Node) {
     }
 }
 
+/// Let this machine's copy of `path` go where there is no folder of plain
+/// copies: a phone's own store. It goes only once other machines have proved
+/// they hold it ([`itsanas_store::Store::release`]); fetching brings it back.
+///
+/// # Errors
+///
+/// When the store cannot be read or written.
+pub fn release_here(node: &Node, path: &str) -> Result<String, Failure> {
+    let (freed, said) = match node.store.release(path, itsanas_store::now_unix())? {
+        Release::Gone(report) => (
+            true,
+            format!(
+                "{} freed on this device. The file stays in the account; fetch it to bring it back.",
+                format_size(report.bytes)
+            ),
+        ),
+        Release::NotSafeYet { .. } => (
+            false,
+            "Kept here: no other machine has proved yet that it holds this file.".to_owned(),
+        ),
+        Release::NotHere => (false, "It was not on this device.".to_owned()),
+    };
+    Ok(json!({ "freed": freed, "said": said }).to_string())
+}
+
 /// The account's files for the page: whether each is here, and freed here.
 ///
 /// # Errors
@@ -142,6 +167,13 @@ mod tests {
         assert!(
             listed.contains("\"freed\":true"),
             "the page does not show it freed: {listed}"
+        );
+
+        let phone = release_here(&node, "film.mov").expect("release");
+        assert!(
+            phone.contains("\"freed\":false")
+                && node.store.read_file("film.mov").expect("read").is_some(),
+            "a phone let go of the only proved copy: {phone}"
         );
 
         keep(&node, "film.mov").expect("keep");

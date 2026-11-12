@@ -67,6 +67,10 @@
     <string name="file_open">Open</string>
     <string name="file_fetch">Fetch and open</string>
     <string name="file_delete">Delete</string>
+    <string name="file_free">Free up on this phone</string>
+    <string name="round_new">%1$d new</string>
+    <string name="round_changed">%1$d changed</string>
+    <string name="round_gone">%1$d removed</string>
     <string name="file_not_here">not on this phone</string>
     <string name="tree_up">Up one folder</string>
     <string name="tree_one_file">1 file · %1$s</string>

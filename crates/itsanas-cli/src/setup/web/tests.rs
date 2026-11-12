@@ -3189,23 +3189,76 @@ fn red_team_deleting_the_account_through_the_page_takes_its_own_name_typed() {
     });
 }
 
+/// An installed service that writes down what was done to it.
+struct Recorded(Arc<Mutex<Vec<&'static str>>>);
+
+impl ServiceControl for Recorded {
+    fn passphrase_file(&self) -> PathBuf {
+        PathBuf::new()
+    }
+    fn installed(&self) -> bool {
+        true
+    }
+    fn install(&self, _: bool) -> Result<String> {
+        Ok(String::new())
+    }
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        self.0.lock().expect("lock").push("stop");
+        Ok(())
+    }
+    fn set_autostart(&self, _: bool) -> Result<()> {
+        Ok(())
+    }
+    fn uninstall(&self) -> Result<()> {
+        self.0.lock().expect("lock").push("uninstall");
+        Ok(())
+    }
+    fn log_hint(&self) -> String {
+        "the test".to_owned()
+    }
+}
+
+/// A computer removes the account from its Settings too, and its background
+/// service goes with it: a task left behind would start, at every logon, for
+/// an account whose home is gone. Sabotage: drop the `uninstall` call.
 #[test]
-fn a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page() {
+fn red_team_a_computer_that_removes_the_account_leaves_no_service_behind() {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("node");
-    std::fs::create_dir_all(&home).expect("home");
-    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
-    for (method, path) in [
-        ("GET", "/api/remove"),
-        ("POST", "/api/remove"),
-        ("POST", "/api/delete"),
-    ] {
-        assert_eq!(
-            page.api(method, path, "confirm=x").status,
-            403,
-            "{path} answers on a computer, where the service would be left behind"
-        );
-    }
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
+    let done = Arc::new(Mutex::new(Vec::new()));
+    let seen = done.clone();
+    let page = Page::start_with(
+        &home,
+        dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        move |b| {
+            b.features = Features::DESKTOP;
+            b.nodes = Arc::new(super::Held(slot));
+            b.host = Arc::new(Heard::default());
+            b.service = Box::new(move || {
+                let service: Box<dyn ServiceControl> = Box::new(Recorded(seen.clone()));
+                service
+            });
+        },
+    );
+    let removed = page.api("POST", "/api/remove", "");
+    assert_eq!(
+        removed.status, 200,
+        "a computer could not remove the account: {}",
+        removed.body
+    );
+    assert!(!home.exists(), "the home survived the removal");
+    assert!(
+        done.lock().expect("lock").contains(&"uninstall"),
+        "the service was left behind: it starts at every logon for an account that is gone"
+    );
 }
 
 /// A phone person leaves with Back: the server must end then, not at the idle

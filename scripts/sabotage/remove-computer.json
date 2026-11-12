@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::web::tests::red_team_a_computer_that_removes_the_account"
+  ],
+  "defences": {
+    "page: removing the account takes the service away": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        let _ = service.uninstall();\n",
+      "dead": ""
+    }
+  }
+}

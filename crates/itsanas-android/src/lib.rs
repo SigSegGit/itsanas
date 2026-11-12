@@ -510,6 +510,21 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_get(
     })
 }
 
+/// Let this phone's copy of a file go, once other machines have proved they
+/// hold it ([`itsanas_cli::freeing::release_here`]).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_release(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let path = path?;
+        with_node(|node| itsanas_cli::freeing::release_here(node, &path))
+    })
+}
+
 /// Put a file into the account.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_put(

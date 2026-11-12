@@ -4021,8 +4021,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     command, Settings' *Files on this machine* card `/api/files` and the daemon): the sealed copy
     leaves too through `Store::release`, at once or on a later round once other machines have
     proved they hold it, and Keep here fetches it back (`fetch_absent`) when it left. The bench's
-    phase H frees and keeps a file across three machines. **Left:** a phone has no such list; the
-    release with real proved holders has run on no fleet.
+    phase H frees and keeps a file across three machines. An Android phone frees a file from its
+    Files screen (`file-free`, `freeing::release_here`), kept while no other machine has proved it
+    holds it (`FreeTest`). **Left:** the iPhone's Files screen; the release with real proved holders
+    has run on no fleet.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`
@@ -4061,8 +4063,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
     h. 🟨 **The fleet's F row with the trash.** Built 2026-11-10: before `F delete`, `agent.sh` and
        `agent.ps1` write `0` into the `test` home's `store/trash-days`, so the delete is not held in
-       the writer's trash. **Left:** not run on the fleet; `check-fleet.sh`'s bench does not assert the
-       file is written; the trash's purge across real machines is untested (a run with the trash on
+       the writer's trash. Ran on the fleet with 0.1.19 (2026-11-11, both runs green), and
+       `check-fleet.sh` asserts the file is written before the delete (a `trashy` machine; sabotaged
+       red). **Left:** the trash's purge across real machines is untested (a run with the trash on
        and `itsanas trash delete NAME` after the daemon trashed the file would test it).
 
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on

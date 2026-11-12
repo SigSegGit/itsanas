@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "phone::tests::red_team_a_round_names"
+  ],
+  "defences": {
+    "phone: an edit is told apart from an untouched file": {
+      "file": "crates/itsanas-cli/src/phone.rs",
+      "live": ".filter(|(path, version)| before.get(*path).is_some_and(|was| was != *version))",
+      "dead": ".filter(|(path, _)| !before.contains_key(*path))"
+    }
+  }
+}

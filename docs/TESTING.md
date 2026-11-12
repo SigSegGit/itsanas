@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-11 — 1657 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 611 are red-team tests.**
+**Last updated: 2026-11-10 — 1658 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 613 are red-team tests.**
 
-**1541 of the 1657 tests have an entry of their own on this page** — an *entry*,
+**1542 of the 1658 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 354 |
+| `itsanas-cli` unit | 355 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 20 |
 | `itsanas-drive` unit | 21 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 206 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 208 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1234,7 +1234,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (354)
+# `itsanas-cli` — unit tests (355)
 
 ## `bench` — measuring this machine (4)
 
@@ -1421,7 +1421,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_removing_the_account_through_the_page_needs_its_name_where_pieces_are_only_here`** | A phone's page over a held node and a real coordinator, with a file only this node has: the check reports the pieces as only here; no name, a truncated name and another name are each refused with the home, the slot and the shell untouched; the right name erases the home, frees the device's place and tells the shell. Sabotaged (the name is not required): red. |
 | **`red_team_deleting_the_account_through_the_page_takes_its_own_name_typed`** | `/api/delete` with no name, a truncated one or another account's: refused, the home stays and the shell is told nothing; the account's own name deletes it, erases the home and tells the shell. Sabotaged (the typed name not compared): red. |
 | **`red_team_a_phone_refuses_to_replace_the_keys_under_an_open_node`** | `/api/forgot` answers 403 on a phone, whose open node would hold the store for good, and says to lock and choose I forgot. Sabotaged. |
-| **`a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page`** | `/api/remove` and `/api/delete` answer 403 where `remove_account` is off. |
+| **`red_team_a_computer_that_removes_the_account_leaves_no_service_behind`** | A computer removes the account from Settings as a phone does, and its scheduled task, unit or agent and the tray's start at logon go with it (`ServiceControl::uninstall`). Sabotaged (no `uninstall`): red. |
 | **`machines_typed_on_the_page_are_kept_listed_and_forgotten`** | `/api/peers` adds an address to the node's file and lists it, refuses a parked `relay:` machine, forgets it, and is refused to a shell without Advanced. |
 | **`a_setup_that_stopped_at_the_device_limit_says_so_to_the_page`** | A failed run whose refusal names the device limit carries `atCap`, which opens the devices under the failure; any other refusal does not. |
 | **`red_team_another_account_never_takes_the_home_of_one_already_here`** | "Set up another account" (POST /api/another) refuses the name of an account already on this computer (409) and a name that is no instance name (400), and accepts a free one; Sabotaged (existing-home check dropped): red. |
@@ -1622,6 +1622,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_file_is_copied_once_and_again_when_it_changes`** | A new file is asked for, a recorded one is not, a changed size or date is, and the newest line of the record wins. |
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
+
+## `phone` — what a phone's round says it changed (1)
+
+| Test | What it proves |
+|---|---|
+| **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
 
 ## `freeing` — files that need not stay on this machine (1)
 

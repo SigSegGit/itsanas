@@ -65,6 +65,10 @@
     <string name="file_open">Ouvrir</string>
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
+    <string name="file_free">Libérer sur ce téléphone</string>
+    <string name="round_new">%1$d nouveau(x)</string>
+    <string name="round_changed">%1$d modifié(s)</string>
+    <string name="round_gone">%1$d supprimé(s)</string>
     <string name="file_not_here">pas sur ce téléphone</string>
     <string name="tree_up">Remonter d\'un dossier</string>
     <string name="tree_one_file">1 fichier · %1$s</string>

@@ -130,6 +130,16 @@ out=$(agent wall B check "$name" "$sha" 2>&1)
 case "$out" in PASS*) ok "B check reads it back" ;; *) bad "B check: $out" ;; esac
 [ -f "$WORK/wall-folder/notes.txt" ] && ok "a file the kit did not write is still there" || bad "notes.txt is gone"
 
+# F is a delete reaching every machine, which the trash would hold on the writer
+# for 30 days: the agent turns the test home's trash off before it deletes.
+machine trashy "$WORK/trashy-folder"
+mkdir -p "$WORK/trashy/test/store"
+read -r _ _ _ fname _ <<<"$(agent trashy B write 2>&1)"
+agent trashy F delete "$fname" >/dev/null 2>&1
+[ "$(cat "$WORK/trashy/test/store/trash-days" 2>/dev/null)" = 0 ] && [ ! -e "$WORK/trashy-folder/$fname" ] &&
+    ok "F delete turns the test home's trash off, then deletes" ||
+    bad "F delete left the trash on, or deleted nothing: the delete would wait 30 days on the writer"
+
 MAX_FILES=1 machine capped "$WORK/capped-folder"
 agent capped B write >/dev/null 2>&1
 out=$(agent capped B write 2>&1)
