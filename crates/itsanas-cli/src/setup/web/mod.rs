@@ -1548,6 +1548,9 @@ fn account_gone(ctx: &Context, how: &str) {
     if service.installed() {
         let _ = service.set_autostart(false);
         let _ = service.stop();
+        // A computer's task, unit or agent would start again for an account
+        // that is gone; a phone app is its own service and keeps nothing.
+        let _ = service.uninstall();
     }
     let _ = service.forget_passphrase();
     ctx.backends.nodes.keep_stopped();

@@ -4021,8 +4021,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     command, Settings' *Files on this machine* card `/api/files` and the daemon): the sealed copy
     leaves too through `Store::release`, at once or on a later round once other machines have
     proved they hold it, and Keep here fetches it back (`fetch_absent`) when it left. The bench's
-    phase H frees and keeps a file across three machines. **Left:** a phone has no such list; the
-    release with real proved holders has run on no fleet.
+    phase H frees and keeps a file across three machines. An Android phone frees a file from its
+    Files screen (`file-free`, `freeing::release_here`), kept while no other machine has proved it
+    holds it (`FreeTest`). **Left:** the iPhone's Files screen; the release with real proved holders
+    has run on no fleet.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`

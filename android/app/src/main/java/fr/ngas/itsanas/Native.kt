@@ -87,6 +87,9 @@ object Native {
 
     external fun get(path: String, destination: String): String
 
+    /** Let this phone's copy go once other machines prove they hold it: `{"freed","said"}`. */
+    external fun release(path: String): String
+
     external fun put(path: String, source: String): String
 
     external fun remove(path: String): String
