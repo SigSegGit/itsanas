@@ -86,6 +86,11 @@
       "file": "crates/itsanas-ios/src/lib.rs",
       "live": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &network()?,",
       "dead": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &Network::official(),"
+    },
+    "free up: freed without asking the store": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "        with_node(|node| itsanas_cli::freeing::release_here(node, &path))\n",
+      "dead": "        with_node(|_| Ok(serde_json::json!({ \"freed\": true, \"said\": path }).to_string()))\n"
     }
   }
 }

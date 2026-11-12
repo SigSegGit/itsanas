@@ -10,7 +10,7 @@ for Settings. It runs on iOS 14 and later, which includes the first iPhone SE
 | Piece | Where |
 | --- | --- |
 | The core | unchanged, built as a static library for `aarch64-apple-ios` |
-| What both phones ask the core (open, list, fetch, add, round, status) | `crates/itsanas-cli/src/phone.rs`, called by Android through JNI and by the iPhone through C |
+| What both phones ask the core (open, list, fetch, add, free up, round, status) | `crates/itsanas-cli/src/phone.rs`, called by Android through JNI and by the iPhone through C |
 | The C boundary | `crates/itsanas-ios`, its header in `crates/itsanas-ios/include/itsanas.h` |
 | The setup engine and Settings, as a page | `crates/itsanas-cli`, served on 127.0.0.1 and shown in a `WKWebView`, as on Android |
 | The application | `ios/`, Swift and UIKit, described by `ios/project.yml` (XcodeGen) |
@@ -161,6 +161,12 @@ did by hand:
    ID turned off and on again opens with a finger;
 8. Settings shows no Disks, no USB key, no Advanced section, no lending of space;
 9. Sign out locks the app, and the app opened again asks for the passphrase.
+
+`FreeTest` adds one more, as Android's does: the file from the computer,
+fetched to the phone, swiped and freed up, stays, and the line above the list
+says it was kept, since no two machines have proved yet that they hold it. After
+a round that changed anything, that line names it ("2 new: a, b · 1 changed:
+c"), from the `new`, `changed` and `gone` of the round's answer.
 
 The fingers are the simulator's. What is left for a person is what no
 simulator does: a real iPhone, a real finger, and iOS deciding when a round

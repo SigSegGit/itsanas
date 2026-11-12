@@ -28,6 +28,7 @@ char *itsanas_close(void);
 
 char *itsanas_list_at(const char *folder);
 char *itsanas_get(const char *path, const char *destination);
+char *itsanas_release(const char *path);
 char *itsanas_put(const char *path, const char *source);
 char *itsanas_trash_put(const char *path, uint64_t days);
 char *itsanas_trash_list(void);

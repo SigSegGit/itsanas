@@ -4023,8 +4023,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
     proved they hold it, and Keep here fetches it back (`fetch_absent`) when it left. The bench's
     phase H frees and keeps a file across three machines. An Android phone frees a file from its
     Files screen (`file-free`, `freeing::release_here`), kept while no other machine has proved it
-    holds it (`FreeTest`). **Left:** the iPhone's Files screen; the release with real proved holders
-    has run on no fleet.
+    holds it (`FreeTest`); the iPhone does the same from a swipe on its Files screen (`itsanas_release`,
+    `ios/ITSaNASUITests/FreeTest.swift`), and both phones name what a round changed. **Left:** the
+    release with real proved holders has run on no fleet.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`

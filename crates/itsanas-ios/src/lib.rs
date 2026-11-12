@@ -231,6 +231,17 @@ pub extern "C" fn itsanas_get(path: *const c_char, destination: *const c_char) -
     })
 }
 
+/// Let this phone's copy of a file go, once other machines have proved they
+/// hold it ([`itsanas_cli::freeing::release_here`]): `{"freed","said"}`.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_release(path: *const c_char) -> *mut c_char {
+    let path = c::text(path, "the path");
+    answer(move || {
+        let path = path?;
+        with_node(|node| itsanas_cli::freeing::release_here(node, &path))
+    })
+}
+
 /// Put the file at `source` into the account as `path`.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_put(path: *const c_char, source: *const c_char) -> *mut c_char {

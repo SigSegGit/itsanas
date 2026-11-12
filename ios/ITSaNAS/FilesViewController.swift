@@ -2,11 +2,15 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// One folder of the account: open a subfolder, fetch a file and share or
-/// save it, add a file from the Files app, run a round, open Settings.
+/// save it, add a file from the Files app, free one up, run a round, open
+/// Settings.
 final class FilesViewController: UITableViewController, UIDocumentPickerDelegate {
     private let folder: String
     private var folders: [[String: Any]] = []
     private var files: [[String: Any]] = []
+    /// What the last round or Free up said, above the list: a line, not an
+    /// alert, so it never stands between a person and the next tap.
+    private let told = UILabel()
 
     init(folder: String) {
         self.folder = folder
@@ -32,6 +36,19 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         }
         tableView.accessibilityIdentifier = "files"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
+        told.numberOfLines = 0
+        told.font = .preferredFont(forTextStyle: .footnote)
+        told.accessibilityIdentifier = "files-told"
+    }
+
+    private func tell(_ text: String) {
+        told.text = text
+        let width = tableView.bounds.width - 32
+        let height = told.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        let header = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: height + 16))
+        told.frame = CGRect(x: 16, y: 8, width: width, height: height)
+        header.addSubview(told)
+        tableView.tableHeaderView = header
     }
 
     /// What the UI tests (ios/ITSaNASUITests) tap.
@@ -63,7 +80,21 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         }
     }
 
-    @objc private func sync() { work { _ = try Core.sync() } }
+    @objc private func sync() {
+        var answer: [String: Any] = [:]
+        work({ answer = try Core.sync() }, then: {
+            if let line = Core.changesLine(answer) { self.tell(line) }
+        })
+    }
+
+    /// Free up: the phone's copy goes only once other machines have proved
+    /// they hold the file; the core says which, and why.
+    private func free(_ path: String) {
+        var said = ""
+        work({ said = try Core.release(path)["said"] as? String ?? "" }, then: {
+            if !said.isEmpty { self.tell(said) }
+        })
+    }
 
     @objc private func settings() {
         navigationController?.pushViewController(PageViewController(mode: "settings"), animated: true)
@@ -132,12 +163,18 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
         guard indexPath.row >= folders.count else { return nil }
-        let path = files[indexPath.row - folders.count]["path"] as? String ?? ""
+        let file = files[indexPath.row - folders.count]
+        let path = file["path"] as? String ?? ""
         let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Delete", comment: "")) { _, _, done in
             self.work { try Core.trashPut(path) }
             done(true)
         }
-        return UISwipeActionsConfiguration(actions: [delete])
+        guard file["here"] as? Bool ?? false else { return UISwipeActionsConfiguration(actions: [delete]) }
+        let free = UIContextualAction(style: .normal, title: NSLocalizedString("Free up", comment: "")) { _, _, done in
+            self.free(path)
+            done(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete, free])
     }
 
     private func show(_ message: String) {

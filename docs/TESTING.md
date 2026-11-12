@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-10 — 1657 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 612 are red-team tests.**
+**Last updated: 2026-11-12 — 1659 test functions across 43 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 614 are red-team tests.**
 
-**1541 of the 1657 tests have an entry of their own on this page** — an *entry*,
+**1543 of the 1659 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 355 |
 | `itsanas-android` unit | 26 |
-| `itsanas-ios` unit | 19 |
+| `itsanas-ios` unit | 21 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 34 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 207 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 209 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -2127,13 +2127,36 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (19)
+# `itsanas-ios` — the C boundary (21)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
 tests above exercise it; what is tested here is the boundary itself. **The Swift
 is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
-(`scripts/build-ios.sh ci`), against the core linked into the app ([IOS.md](IOS.md)).
+(`scripts/build-ios.sh ci`), against the core linked into the app ([IOS.md](IOS.md)),
+**and by the hand test's UI tests, `ios/ITSaNASUITests`** (`scripts/iphone-e2e.sh`,
+run by the same job after the unit tests): the debug app on a simulator, pinned
+to a coordinator the script starts, logs in to an account a computer made (a
+node on the Mac, `register --recovery`, holding two files), and does steps 1 to
+5, 8 and 9 of the hand test as a person would. Each scenario starts from a phone
+with nothing on it; a failure stops with its consequence, the screen's texts
+and a screenshot in `result.xcresult`.
+
+| UI test (`HandTest`, `FreeTest`) | What it establishes |
+| --- | --- |
+| `test1_anExistingAccountOpensOnThePhone` | Step 1: Welcome, "I already have an account", the name, the passphrase in the native question, and the file list opens. |
+| `test2_aFileFromAComputerIsListedAndOpens` | Step 2: a file the computer holds is listed after Sync, and tapping it fetches it and opens the share sheet. |
+| `test3_theTrashKeepsItsDaysRestoresAndDeletesForGood` | Step 3: the days typed are kept, a deleted file leaves the list for the trash with its days, Restore brings it back, and a delete from every machine leaves the trash and the list after a round; the script then finds it gone from the computer, and the other file still there. |
+| **`test4_touchIDOpensForTheRightFingerOnly`** | Step 4: with the fingerprint on, coming back from the home screen asks a finger; one that is not enrolled leaves the passphrase field, which opens; the enrolled one opens. Fingers are the simulator's (`notify_post` of BiometricKit's notifications). |
+| **`test5_aFingerEnrolledLaterOpensNothingUntilTouchIDIsTurnedOnAgain`** | Step 5: once the enrolment changes, the enrolled finger opens nothing and the passphrase does; turned off and on in Settings, a finger opens again. |
+| `test8_settingsHidesWhatAnIPhoneDoesNotDo` | Step 8: Settings shows no Disks, no USB key, no Advanced, no lending of space. |
+| **`test9_signingOutLocksTheAppUntilThePassphrase`** | Step 9: Sign out asks, then locks the app; opened again, it asks for the passphrase. It found that the page's `window.confirm` answered "no" unseen on an iPhone (the web view had no `WKUIDelegate`), so Sign out did nothing. |
+| **`FreeTest.testFreeUpKeepsAFileNoOtherMachineHasProvedItHolds`** | Free up, as Android's `FreeTest`: the file from the computer, fetched and freed on the phone, stays, and the line above the list says it was kept, since the account has one computer and a file goes only once two machines have proved they hold it. |
+
+The UI tests run on the Mac job only, so their sabotages cannot be plans in
+`scripts/sabotage/` (that job runs on Linux): the core's side of them is the
+red-team test `red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator`
+below, and the app's side is read in the Mac job's log.
 
 | Test | What it establishes |
 | --- | --- |
@@ -2147,12 +2170,14 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 | `a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round` | Nothing kept: no round. A kept passphrase opens the account, the round is tried, and the node is left to the app to close. |
 | `a_background_pass_deletes_what_the_trash_has_held_long_enough` | A file past its days is deleted in the pass, with the app closed. Sabotaged (no trash): red. |
 | **`red_team_a_left_pages_news_does_not_close_the_next_page`** | A `closed` left in the mailbox by the last page is not read by the next one, which would close as it opens. Sabotaged (old news kept): red. |
+| **`red_team_free_up_on_an_iphone_keeps_a_file_no_other_machine_holds`** | `itsanas_release` on a file only this phone has answers `freed: false` and "Kept here", and the store still reads the file: Free up on an iPhone never loses the only copy. Sabotaged (`freed` answered without asking the store): red. |
 | `a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted` | Through the C entry points against a real node: a file in the trash is not listed, the trash shows it, restoring brings it back, and a delete from the trash does not come back. |
 | **`red_team_touch_id_keeps_the_passphrase_from_the_engine`** | With Touch ID on, the engine is told no passphrase is remembered and a passphrase the page changes is kept; turning it off keeps the passphrase; Sign out turns it off. Sabotaged (the engine reads it; Sign out leaves it on): red. |
 | **`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`** | With no passphrase to guard, Touch ID reads as off and the app is told. Sabotaged (an empty passphrase guarded): red. |
 | `a_page_with_no_such_name_is_refused` | Only `setup` and `settings` start a page. |
 | `a_reply_to_nobody_is_not_taken` | The app is told a reply to no question was not taken. |
 | `the_header_declares_exactly_what_the_crate_exports` | `include/itsanas.h`, all Swift sees, names exactly the `extern "C"` functions of `src/lib.rs`. |
+| **`red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator`** | `itsanas_use_coordinator_for_tests`, which the UI tests need, is what the official network forbids a phone: the shim passes `cfg!(debug_assertions)`, no node of the crate is made or opened on anything but `network()`, a phone nobody pinned is on the official coordinator, and a refused pin moves nothing. Sabotaged twice (the shim says debug; `open` on the official network directly): red. |
 | `a_question_reaches_the_app_and_its_answer_reaches_the_engine` | A passphrase asked by the page's engine reaches the app through the mailbox, and what the app answers is what the engine gets. |
 | **`red_team_a_stray_reply_cannot_answer_the_next_question`** | A reply to a question nobody asked, or a second reply to one already answered, is dropped and left nowhere: the next passphrase asked cannot be a secret its owner never typed. Sabotaged (a second reply taken; a reply to nobody kept): red. |
 | **`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`** | Once its page is left, an engine is told the screen was closed instead of waiting, and its question is taken off the app's screen. Sabotaged (the question left in the mailbox): red. |
