@@ -1,6 +1,8 @@
 package fr.ngas.itsanas
 
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.test.espresso.intent.Intents
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -16,7 +18,12 @@ class FreeTest {
 
     @Before fun before() = E2e.begin(compose)
 
-    @After fun after() = E2e.end()
+    // `Flows.addFile` stubs the document picker through Intents: left
+    // initialised, the next class to stub one fails on "init twice".
+    @After fun after() {
+        runCatching { Intents.release() }
+        E2e.end()
+    }
 
     @Test
     fun a_file_no_other_machine_proved_it_holds_stays_on_the_phone() {
@@ -25,11 +32,12 @@ class FreeTest {
 
         Flows.click(compose, "file-free")
         E2e.waitFor("freeing said nothing, or let the file go") {
-            runCatching { Flows.textOf(compose, "files-told").contains("Kept here") }.getOrDefault(false)
+            compose.onAllNodesWithText("Kept here", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
+        val listed = Native.list()
         assertTrue(
-            "the phone let go of a file no other machine holds: it is lost",
-            Native.list().contains("\"here\":true") && Native.list().contains(name),
+            "the phone let go of a file no other machine holds: it is lost ($listed)",
+            listed.contains(name) && listed.contains("\"here\":true"),
         )
     }
 }
