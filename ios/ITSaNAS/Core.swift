@@ -74,17 +74,9 @@ enum Core {
     /// Whether the fingers enrolled now are those Touch ID was turned on with.
     static func fingerMatches(_ state: String) -> Bool { itsanas_finger_matches(state) }
 
-    /// How long a deleted file waits: 30 days unless the trash screen says
-    /// otherwise, as on Android, and never less than one.
-    static var trashDays: UInt64 {
-        get {
-            let kept = UserDefaults.standard.integer(forKey: "trashDays")
-            return kept > 0 ? UInt64(kept) : 30
-        }
-        set { UserDefaults.standard.set(Int(min(max(newValue, 1), 9999)), forKey: "trashDays") }
-    }
-
-    static func trashPut(_ path: String) throws { _ = try take(itsanas_trash_put(path, trashDays)) }
+    /// Delete as this phone's rules say (Settings, Trash): the days are the
+    /// rules' too, so the count passed is not used.
+    static func trashPut(_ path: String) throws { _ = try take(itsanas_trash_put(path, 0)) }
     static func trashList() throws -> [String: Any] { try object(itsanas_trash_list()) }
     static func trashRestore(_ path: String) throws { _ = try take(itsanas_trash_restore(home, path)) }
     static func trashDelete(_ path: String) throws { _ = try take(itsanas_trash_delete(path)) }

@@ -109,8 +109,8 @@ fn a_file_the_user_deletes_is_deleted_everywhere() {
 // Ordinary flow
 // ---------------------------------------------------------------------------
 
-/// The trash on a computer, the same as on a phone. Sabotage: write the
-/// deletion at once in `trash_or_remove`.
+/// The account's trash, the same on a computer as on a phone. Sabotage: write
+/// the deletion at once in `trash_or_remove`.
 #[test]
 fn red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back() {
     let node = node(3);
@@ -124,7 +124,12 @@ fn red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back() {
         node.store.tombstone("photo.jpg").unwrap().is_none(),
         "a delete in the folder was written at once: every machine drops the file, no undo"
     );
-    assert!(itsanas_store::trash::list(node.store.root()).contains_key("photo.jpg"));
+    assert!(
+        itsanas_store::deletion::shared_known_here(&node.store)
+            .unwrap()
+            .contains_key("photo.jpg"),
+        "a file deleted in the folder is not in the account's trash"
+    );
 
     node.folder.reconcile(&node.store, false).unwrap();
     assert_eq!(
@@ -133,7 +138,7 @@ fn red_team_a_file_deleted_from_the_folder_waits_in_the_trash_and_comes_back() {
         "a file in the trash was written back to the folder the person emptied"
     );
 
-    itsanas_store::trash::take_out(node.store.root(), "photo.jpg").unwrap();
+    itsanas_store::deletion::restore_shared_known(&node.store, "photo.jpg").unwrap();
     node.folder.reconcile(&node.store, false).unwrap();
     assert_eq!(
         read_disk(node.folder.root(), "photo.jpg").as_deref(),
@@ -154,7 +159,9 @@ fn red_team_a_file_put_back_by_hand_leaves_the_trash() {
     write_disk(node.folder.root(), "a.txt", b"two");
     node.folder.reconcile(&node.store, false).unwrap();
     assert!(
-        itsanas_store::trash::list(node.store.root()).is_empty(),
+        itsanas_store::deletion::shared_known_here(&node.store)
+            .unwrap()
+            .is_empty(),
         "a file put back stays in the trash, and is deleted when the old delay runs out"
     );
     assert_eq!(
@@ -256,7 +263,9 @@ fn red_team_a_moved_file_does_not_leave_its_old_name_in_the_trash() {
         [("old.txt".to_owned(), "new.txt".to_owned())]
     );
     assert!(
-        itsanas_store::trash::list(node.store.root()).is_empty(),
+        itsanas_store::deletion::shared_known_here(&node.store)
+            .unwrap()
+            .is_empty(),
         "every rename fills the trash, and the old name shows on other machines for weeks"
     );
     assert_eq!(node.store.read_file("old.txt").unwrap(), None);

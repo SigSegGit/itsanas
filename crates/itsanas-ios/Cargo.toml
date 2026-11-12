@@ -27,6 +27,7 @@ zeroize = "1.9.0"
 security-framework = "3"
 
 [dev-dependencies]
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 tempfile = "3.23.0"
 
 # Deliberately NOT `workspace = true`, for the reason `itsanas-android` gives:

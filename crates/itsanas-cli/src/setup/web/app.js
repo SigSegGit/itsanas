@@ -56,6 +56,15 @@
 
   const $ = function (id) { return document.getElementById(id); };
 
+  // Open the section an element sits in, so it can be seen and used: the trays'
+  // jump to a card, and anything that drives the page (its tests) by id.
+  function reveal(element) {
+    for (let node = element; node; node = node.parentElement) {
+      if (node.tagName === 'DETAILS') { node.open = true; }
+    }
+  }
+  window.itsanasReveal = function (id) { reveal($(id) || document.querySelector(id)); return true; };
+
   // ------------------------------------------------------------- languages
   //
   // English is written in the page; other languages are i18n.js, keyed by the
@@ -930,50 +939,153 @@
     line.textContent = said(reply.said);
   }
 
-  // ------------------------------------------------------------------- trash
+  // ------------------------------------------------------------ trash and rules
   //
-  // The record alone (/api/trash): the daemon holds the store, and its next
-  // round writes a restored file back into the folder, or deletes a file from
-  // every machine.
-  async function trash(action, path) {
+  // The rules (/api/deletion) and the trash (/api/trash) go through the node.
+  // What keeps less than now is a job: the engine asks who is there in a window
+  // of the system's own, once for the whole selection, and this page follows it
+  // through /api/state as it does the other windows.
+  let deletionRules = null;
+
+  function ruleForm() {
+    const checked = function (name) {
+      const box = document.querySelector('input[name="' + name + '"]:checked');
+      return box ? box.value : '';
+    };
+    return {
+      mode: checked('st-del-mode'),
+      receive: checked('st-del-receive'),
+      days: $('st-del-days').value,
+      ask_auth: $('st-del-auth').checked ? 'true' : 'false',
+      confirm: $('st-del-confirm').checked ? 'true' : 'false',
+    };
+  }
+
+  function ruleWords(rules) {
+    const mode = { trash: t('to the trash'), direct: t('at once, everywhere'), local: t('from this machine only') }[rules.mode] || rules.mode;
+    const receive = rules.receive === 'protect' ? t('keeps what others delete') : t('lets it go');
+    return mode + ' \u00b7 ' + receive + ' \u00b7 ' + rules.days + ' ' + t('days');
+  }
+
+  function showRules(reply) {
+    deletionRules = reply;
+    const here = reply.here;
+    document.querySelectorAll('input[name="st-del-mode"]').forEach(function (box) { box.checked = box.value === here.mode; });
+    document.querySelectorAll('input[name="st-del-receive"]').forEach(function (box) { box.checked = box.value === here.receive; });
+    $('st-del-days').value = here.days;
+    $('st-del-auth').checked = here.ask_auth;
+    $('st-del-confirm').checked = here.confirm;
+    $('st-del-follow').hidden = !reply.own;
+    $('st-del-account').textContent = t('The account:') + ' ' + ruleWords(reply.account) +
+      (reply.own ? '' : ' \u00b7 ' + t('this machine follows it'));
+    const list = $('st-del-machines');
+    list.textContent = '';
+    reply.machines.forEach(function (machine) {
+      const item = document.createElement('li');
+      item.textContent = machine.device.slice(0, 12) + (machine.me ? ' \u00b7 ' + t('this machine') : '') + ': ' + ruleWords(machine.rules);
+      list.appendChild(item);
+    });
+  }
+
+  async function loadRules() {
+    try { showRules(await api('GET', '/api/deletion')); } catch (e) { $('st-del-said').textContent = e.message; }
+  }
+
+  // A job the engine started: follow it until it is over, then say how it ended.
+  async function followJob(line) {
+    for (;;) {
+      await new Promise(function (resolve) { setTimeout(resolve, 1000); });
+      const state = await refreshSettings();
+      if (!state || state.run.phase === 'running') { continue; }
+      if (state.run.phase === 'done') {
+        line.textContent = said(state.run.lines[state.run.lines.length - 1] || '');
+      } else {
+        const failed = state.run.failed || { error: '', remedy: '' };
+        line.textContent = t('Not changed:') + ' ' + said(failed.error);
+      }
+      return;
+    }
+  }
+
+  async function saveRules(scope) {
+    const line = $('st-del-said');
+    line.textContent = '';
+    const form = ruleForm();
+    form.scope = scope;
+    if (scope === 'all' && !window.confirm(t('Every machine of the account follows these rules, and loses its own. Go on?'))) { return; }
+    if (scope !== 'all' && deletionRules && form.mode !== deletionRules.here.mode &&
+        !window.confirm(t('Change what a delete does on this machine?'))) { return; }
+    let reply;
+    try { reply = await api('POST', '/api/deletion', form); } catch (e) { line.textContent = e.message; return; }
+    if (reply.started) {
+      line.textContent = t('A window asks who you are.');
+      await followJob(line);
+      await loadRules();
+      return;
+    }
+    showRules(reply);
+    line.textContent = t('Saved.');
+  }
+
+  function chosenPaths() {
+    return Array.prototype.slice.call(document.querySelectorAll('#st-trash input[type="checkbox"]:checked'))
+      .map(function (box) { return box.value; });
+  }
+
+  async function trash(action, paths) {
     const line = $('st-trash-said');
     const list = $('st-trash');
     line.textContent = '';
+    const confirmFirst = !deletionRules || deletionRules.here.confirm;
+    if (action === 'delete' && confirmFirst &&
+        !window.confirm(t('It disappears from every machine of the account. There is no undo.') + '\n' + paths.join('\n'))) { return; }
+    if (action === 'empty' && confirmFirst &&
+        !window.confirm(t('Every file in the trash disappears from every machine of the account. There is no undo.'))) { return; }
     let reply;
     try {
       reply = action
-        ? await api('POST', '/api/trash', { action: action, path: path || '', days: $('st-trash-days').value })
+        ? await api('POST', '/api/trash', { action: action, paths: (paths || []).join('\n') })
         : await api('GET', '/api/trash');
     } catch (e) { line.textContent = e.message; return; }
-    $('st-trash-days').value = reply.days;
+    if (reply.started) {
+      line.textContent = t('A window asks who you are.');
+      await followJob(line);
+      return trash(null, []);
+    }
     list.textContent = '';
+    $('st-trash-delete').hidden = !reply.trashed.length;
+    $('st-trash-empty').hidden = !reply.trashed.length;
     if (!reply.trashed.length) {
       const empty = document.createElement('li');
       empty.textContent = t('The trash is empty.');
       list.appendChild(empty);
     }
+    const kinds = {
+      shared: t('in the account\'s trash'),
+      here: t('in this machine\'s trash'),
+      waiting: t('waits for you to confirm'),
+      protected: t('kept here after another machine deleted it'),
+    };
     reply.trashed.forEach(function (row) {
       const item = document.createElement('li');
-      const label = document.createElement('span');
-      label.textContent = row.path + ' \u00b7 ' + t('days before it is really deleted:') + ' ' + row.days;
+      const label = document.createElement('label');
+      label.className = 'choice';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = row.path;
+      label.appendChild(box);
+      const days = Math.max(0, Math.ceil((row.due - reply.now) / 86400));
+      label.appendChild(document.createTextNode(' ' + row.path + ' \u00b7 ' + (kinds[row.kind] || row.kind) +
+        (row.kind === 'waiting' ? '' : ' \u00b7 ' + t('days before it is really deleted:') + ' ' + days)));
       item.appendChild(label);
       const restore = document.createElement('button');
       restore.type = 'button';
       restore.textContent = t('Restore');
-      restore.addEventListener('click', function () { trash('restore', row.path); });
+      restore.addEventListener('click', function () { trash('restore', [row.path]); });
       item.appendChild(restore);
-      const now = document.createElement('button');
-      now.type = 'button';
-      now.textContent = t('Delete from the network');
-      now.addEventListener('click', function () {
-        if (window.confirm(t('It disappears from every machine of the account. There is no undo.') + '\n' + row.path)) {
-          trash('delete', row.path);
-        }
-      });
-      item.appendChild(now);
       list.appendChild(item);
     });
-    line.textContent = said(reply.said);
+    line.textContent = said(reply.said || '');
   }
 
   // ------------------------------------------------- files on this machine
@@ -1323,6 +1435,7 @@
     usbScan();
     if (section === 'key') {
       const card = $('st-usb');
+      reveal(card);
       card.classList.add('highlight');
       card.scrollIntoView({ block: 'start' });
       $('st-h-usb').focus({ preventScroll: true });
@@ -1356,8 +1469,16 @@
     $('st-delete-go').addEventListener('click', deleteGo);
     $('st-devices-show').addEventListener('click', function () { showDevices($('st-devices'), $('st-devices-said')); });
     $('st-peers-show').addEventListener('click', function () { peers(null, ''); });
-    $('st-trash-show').addEventListener('click', function () { trash(null, ''); });
-    $('st-trash-save').addEventListener('click', function () { trash('days', ''); });
+    $('st-trash-show').addEventListener('click', function () { trash(null, []); });
+    $('st-trash-delete').addEventListener('click', function () {
+      const paths = chosenPaths();
+      if (paths.length) { trash('delete', paths); } else { $('st-trash-said').textContent = t('Tick the files to delete first.'); }
+    });
+    $('st-trash-empty').addEventListener('click', function () { trash('empty', []); });
+    $('st-del-save').addEventListener('click', function () { saveRules('here'); });
+    $('st-del-all').addEventListener('click', function () { saveRules('all'); });
+    $('st-del-follow').addEventListener('click', function () { saveRules('follow'); });
+    $('st-g-trash').addEventListener('toggle', function () { if ($('st-g-trash').open) { loadRules(); } });
     $('st-files-show').addEventListener('click', function () { files(null, ''); });
     // In the page only: the list is already here, so a long one is narrowed
     // without pausing the machine again.

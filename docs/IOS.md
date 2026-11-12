@@ -46,11 +46,12 @@ which ones are enrolled (the system's `evaluatedPolicyDomainState`), and then
 only the passphrase opens, until the lock is turned off and on again
 (`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`).
 
-**A delete waits in a trash**, 30 days on this phone, as on Android: swipe a
-file; the trash button restores it or deletes it from every machine
-(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The days
-are set by the button of the trash screen, one at least
-(`testTrashDaysAreKeptAndNeverBelowOne`), and apply to files deleted from then on.
+**A delete follows this phone's rules**, as on every machine: by default the
+file goes to the account's trash for 30 days; the trash screen restores it or
+deletes it from every machine, asking who is there first (Face ID, Touch ID or
+the passcode, the passphrase without them), once for its Empty button too
+(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The rules and
+the days are set in Settings, Trash (HANDOVER §8 13).
 
 **Settings hides what an iPhone does not do**: lending space, the mobile-data
 choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses
@@ -162,11 +163,10 @@ number and OK or KO, with a screenshot for a KO.
 2. **A file from a computer.** Put a small file in the synced folder of a
    computer of the account, then press Sync on the phone: it is listed, and
    opens.
-3. **The trash.** In the trash, press the days button, type `1`, Keep: the
-   button shows 1. Swipe a file, Delete: it leaves the list and the trash
+3. **The trash.** Swipe a file, Delete: it leaves the list and the trash
    shows it with its days left. Restore it: it is back in the list. Delete it
-   again, then "Delete now" in the trash: after a round it is gone from the
-   computer too.
+   again, then Delete in the trash: the phone asks who you are, and after a
+   round it is gone from the computer too.
 4. **Touch ID.** Settings, Security, turn on the fingerprint. Leave the app
    for the home screen, come back: a finger is asked. A finger that is not
    enrolled: the passphrase field stays, and the passphrase opens. The right
