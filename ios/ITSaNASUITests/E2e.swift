@@ -121,10 +121,43 @@ class E2eCase: XCTestCase {
     /// Scroll the page until `element` can be touched, then touch it.
     func tapOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
-        for _ in 0..<15 {
-            if scrollToward(element) == .tapped { return }
+        for direction in [true, false] {
+            var swipes = 0
+            while !element.isHittable && swipes < 15 {
+                if direction { app.webViews.firstMatch.swipeUp() } else { app.webViews.firstMatch.swipeDown() }
+                swipes += 1
+            }
         }
-        try fail("\(what) cannot be reached on the page")
+        guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
+        element.tap()
+    }
+
+    /// Where `element` stands, once it stands still inside the window: two
+    /// snapshots a moment apart agree. A screen sliding in or out (the unlock
+    /// field was seen at x = -96) is not touched; `isHittable` said yes to it
+    /// and the touch then found nothing. Snapshots throw where `isHittable`
+    /// and `tap` fail the test.
+    func settledCentre(_ element: XCUIElement) -> CGPoint? {
+        guard let first = try? element.snapshot().frame else { return nil }
+        Thread.sleep(forTimeInterval: 0.3)
+        guard let second = try? element.snapshot().frame, second == first, !second.isEmpty else { return nil }
+        let centre = CGPoint(x: second.midX, y: second.midY)
+        return app.windows.firstMatch.frame.contains(centre) ? centre : nil
+    }
+
+    func tapAt(_ point: CGPoint) {
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+    }
+
+    /// The native passphrase field, once it stands still: typed into, then Open.
+    /// Whether it was there.
+    @discardableResult
+    func typePassphraseIfAsked() -> Bool {
+        guard let centre = settledCentre(app.secureTextFields["unlock-pass"]) else { return false }
+        tapAt(centre)
+        app.typeText(passphrase)
+        if let open = settledCentre(app.buttons["unlock-open"]) { tapAt(open) }
+        return true
     }
 
     enum Reach { case tapped, scrolled, absent }
@@ -140,7 +173,11 @@ class E2eCase: XCTestCase {
         let page = app.webViews.firstMatch
         guard let shot = try? element.snapshot(), let view = try? page.snapshot() else { return .absent }
         let frame = shot.frame
-        let visible = view.frame.intersection(app.windows.firstMatch.frame)
+        var visible = view.frame.intersection(app.windows.firstMatch.frame)
+        // The keyboard covers the bottom of the page and takes a touch meant for it.
+        if let keys = try? app.keyboards.firstMatch.snapshot().frame, !keys.isEmpty {
+            visible.size.height = max(0, min(visible.maxY, keys.minY) - visible.minY)
+        }
         guard !frame.isEmpty, !visible.isEmpty else { return .absent }
         let centre = CGPoint(x: frame.midX, y: frame.midY)
         if visible.insetBy(dx: 0, dy: 8).contains(centre) {
@@ -198,13 +235,7 @@ class E2eCase: XCTestCase {
         try waitFor("the file list never opened after logging in, so the account is unusable", seconds: 240) {
             if files.exists { return true }
             if answerAlert() { return false }
-            let field = app.secureTextFields["unlock-pass"]
-            if field.exists && field.isHittable {
-                field.tap()
-                field.typeText(passphrase)
-                app.buttons["unlock-open"].tap()
-                return false
-            }
+            if typePassphraseIfAsked() { return false }
             guard Date().timeIntervalSince(lastTap) > 3 else { return false }
             for label in ["Close", "Start setting up", "Next"] {
                 switch scrollToward(web(label, .button)) {
@@ -288,11 +319,7 @@ class E2eCase: XCTestCase {
     }
 
     func unlockWithPassphrase() throws {
-        let field = app.secureTextFields["unlock-pass"]
-        try waitFor("the passphrase field is not there to open the account") { field.exists && field.isHittable }
-        field.tap()
-        field.typeText(passphrase)
-        app.buttons["unlock-open"].tap()
+        try waitFor("the passphrase field is not there to open the account") { typePassphraseIfAsked() }
         try waitFor("the passphrase did not open the account") { app.tables["files"].exists }
     }
 }
