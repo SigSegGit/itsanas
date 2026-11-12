@@ -282,13 +282,6 @@ pub fn trash_record(home: &Path) -> Answer {
     Ok(serde_json::json!({ "now": unix_now(), "trashed": rows, "left": [] }).to_string())
 }
 
-/// Take a file out of this machine's own record: no node needed. A file of the
-/// account's trash, or one protected here, needs [`trash_restore_in`].
-pub fn trash_restore(home: &Path, path: &str) -> Answer {
-    trash::take_out(home, path).map_err(|error| trash_failed(&error))?;
-    Ok("{}".to_owned())
-}
-
 /// Bring a file back, wherever it waits: the account's trash (back on every
 /// machine), protected here (published again from here), or this machine's
 /// own record.
