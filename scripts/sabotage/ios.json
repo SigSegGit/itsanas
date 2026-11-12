@@ -76,6 +76,16 @@
       "file": "crates/itsanas-ios/src/keychain.rs",
       "live": "        Some(kept) => kept == state.as_bytes(),\n",
       "dead": "        Some(_) => true,\n"
+    },
+    "release: the iPhone shim says debug": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "use_coordinator(&TEST_NETWORK, &address?, &device?, cfg!(debug_assertions))",
+      "dead": "use_coordinator(&TEST_NETWORK, &address?, &device?, true)"
+    },
+    "pin: open goes to the official network directly": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &network()?,",
+      "dead": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &Network::official(),"
     }
   }
 }

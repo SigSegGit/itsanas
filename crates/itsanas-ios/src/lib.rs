@@ -36,8 +36,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
-    trash_list, trash_put, trash_restore,
+    get_file, list_at, network_in, open_into, passphrase_rule, put_file, status_of, sync_node,
+    trash_delete, trash_list, trash_put, trash_restore, use_coordinator,
 };
 use itsanas_cli::shell::{
     Answer, Backends, Failure, Features, Held, Mode, Network, SecretPrompt, Server, Stop,
@@ -47,6 +47,16 @@ use zeroize::Zeroizing;
 
 /// The node this application has open, if any.
 static NODE: Mutex<Option<Arc<Node>>> = Mutex::new(None);
+
+/// Set by the UI tests (`ios/ITSaNASUITests`), and nothing else: see
+/// [`itsanas_use_coordinator_for_tests`].
+static TEST_NETWORK: Mutex<Option<Network>> = Mutex::new(None);
+
+/// The coordinator this process's nodes belong to: the official one, unless
+/// a UI test said otherwise.
+fn network() -> Result<Network, Failure> {
+    network_in(&TEST_NETWORK)
+}
 
 /// Run `body` and wrap what it answers. A panic must not cross into Swift,
 /// where it is undefined behaviour: it is caught and told as a fault.
@@ -101,6 +111,19 @@ pub extern "C" fn itsanas_passphrase_rule() -> *mut c_char {
     answer(|| Ok(passphrase_rule()))
 }
 
+/// Debug builds and the UI tests only: every node this process creates,
+/// restores or opens is pinned to this coordinator instead of the official
+/// one. A release build refuses it.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_use_coordinator_for_tests(
+    address: *const c_char,
+    device: *const c_char,
+) -> *mut c_char {
+    let address = c::text(address, "the coordinator's address");
+    let device = c::text(device, "the coordinator's device");
+    answer(move || use_coordinator(&TEST_NETWORK, &address?, &device?, cfg!(debug_assertions)))
+}
+
 /// Unlock the node at `home`.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_open(home: *const c_char, passphrase: *const c_char) -> *mut c_char {
@@ -111,7 +134,7 @@ pub extern "C" fn itsanas_open(home: *const c_char, passphrase: *const c_char) -
             &NODE,
             &home?,
             &passphrase?,
-            &Network::official(),
+            &network()?,
             itsanas_cli::phone::unix_now(),
         )
     })
@@ -137,14 +160,7 @@ fn open_and_remember(
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_open_remembered(home: *const c_char) -> *mut c_char {
     let home = home_of(home);
-    answer(move || {
-        open_remembered(
-            &NODE,
-            &home?,
-            &Network::official(),
-            itsanas_cli::phone::unix_now(),
-        )
-    })
+    answer(move || open_remembered(&NODE, &home?, &network()?, itsanas_cli::phone::unix_now()))
 }
 
 fn open_remembered(
@@ -282,7 +298,7 @@ pub extern "C" fn itsanas_background_pass(home: *const c_char, metadata_only: bo
         background_pass(
             &NODE,
             &home?,
-            &Network::official(),
+            &network()?,
             itsanas_cli::phone::unix_now(),
             metadata_only,
         )
@@ -352,7 +368,7 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
     };
     stop_page();
     host::forget_old_news();
-    let network = Network::official();
+    let network = network()?;
     let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let backends = Backends::of_a_phone(
         Box::new(move || {

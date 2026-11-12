@@ -19,6 +19,8 @@ void itsanas_free(char *answer);
 
 bool itsanas_exists(const char *home);
 char *itsanas_passphrase_rule(void);
+/* Debug builds only, for the UI tests: the coordinator every node is pinned to. */
+char *itsanas_use_coordinator_for_tests(const char *address, const char *device);
 char *itsanas_open(const char *home, const char *passphrase);
 /* {"opened":false} when the Keychain holds no passphrase. */
 char *itsanas_open_remembered(const char *home);
