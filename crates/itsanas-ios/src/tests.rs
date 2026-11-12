@@ -162,7 +162,9 @@ fn red_team_free_up_on_an_iphone_keeps_a_file_no_other_machine_holds() {
     take(itsanas_close());
     assert_eq!(answer["freed"], false, "{said}");
     assert!(
-        kept && answer["said"].as_str().is_some_and(|text| text.starts_with("Kept here")),
+        kept && answer["said"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("Kept here")),
         "the iPhone let go of the only copy anybody can prove: {said}"
     );
 }
