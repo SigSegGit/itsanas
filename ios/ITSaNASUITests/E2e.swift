@@ -121,15 +121,35 @@ class E2eCase: XCTestCase {
     /// Scroll the page until `element` can be touched, then touch it.
     func tapOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
-        for direction in [true, false] {
-            var swipes = 0
-            while !element.isHittable && swipes < 15 {
-                if direction { app.webViews.firstMatch.swipeUp() } else { app.webViews.firstMatch.swipeDown() }
-                swipes += 1
-            }
+        for _ in 0..<15 {
+            if scrollToward(element) == .tapped { return }
         }
-        guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
-        element.tap()
+        try fail("\(what) cannot be reached on the page")
+    }
+
+    enum Reach { case tapped, scrolled, absent }
+
+    /// Touch `element` if it is inside the page's visible part, or scroll the
+    /// page one swipe toward it. Read from a snapshot, which throws when the
+    /// page changed under it, never from `isHittable` or `frame`, which fail
+    /// the test instead: a step that moves on between the look and the touch
+    /// is the page working, not a fault. A phone's setup steps are longer than
+    /// its screen, so a step's Next is often below the fold.
+    @discardableResult
+    func scrollToward(_ element: XCUIElement) -> Reach {
+        let page = app.webViews.firstMatch
+        guard let shot = try? element.snapshot(), let view = try? page.snapshot() else { return .absent }
+        let frame = shot.frame
+        let visible = view.frame.intersection(app.windows.firstMatch.frame)
+        guard !frame.isEmpty, !visible.isEmpty else { return .absent }
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        if visible.insetBy(dx: 0, dy: 8).contains(centre) {
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: centre.x, dy: centre.y)).tap()
+            return .tapped
+        }
+        if centre.y > visible.midY { page.swipeUp() } else { page.swipeDown() }
+        return .scrolled
     }
 
     // -------------------------------------------------------------- answers
@@ -187,12 +207,12 @@ class E2eCase: XCTestCase {
             }
             guard Date().timeIntervalSince(lastTap) > 3 else { return false }
             for label in ["Close", "Start setting up", "Next"] {
-                let button = web(label, .button)
-                if button.exists && button.isHittable {
-                    button.tap()
-                    lastTap = Date()
-                    break
+                switch scrollToward(web(label, .button)) {
+                case .tapped: lastTap = Date()
+                case .scrolled: break
+                case .absent: continue
                 }
+                break
             }
             return false
         }
