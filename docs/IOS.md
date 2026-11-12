@@ -168,6 +168,11 @@ says it was kept, since no two machines have proved yet that they hold it. After
 a round that changed anything, that line names it ("2 new: a, b · 1 changed:
 c"), from the `new`, `changed` and `gone` of the round's answer.
 
+`FreeTest`, which runs first, and steps 1, 4 and 5 start from an empty phone; the others open the account the
+step before left on it. A login fetches the account's recovery copy, which the
+coordinator gives one username five times in 15 minutes, and a run has more
+steps than that.
+
 The fingers are the simulator's. What is left for a person is what no
 simulator does: a real iPhone, a real finger, and iOS deciding when a round
 runs. Each step says what to do and what must be seen; note the step's number
