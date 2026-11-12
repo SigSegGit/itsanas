@@ -75,7 +75,7 @@
     <string name="tree_files">%1$d fichiers · %2$s</string>
     <string name="tree_not_here">%1$d absents de ce téléphone</string>
     <string name="delete_title">Supprimer %1$s ?</string>
-    <string name="delete_body">Il va à la corbeille pour %1$d jours, puis disparaît de toutes les machines du compte. Il compte dans votre espace jusque-là.</string>
+    <string name="delete_body">Il va dans la corbeille du compte pour %1$d jours, d\'où toute machine peut le restaurer, puis quitte toutes les machines. Il compte dans votre espace jusque-là.</string>
     <string name="delete_everywhere">Mettre à la corbeille</string>
     <string name="delete_keep">Le garder</string>
 
@@ -94,7 +94,18 @@
     <string name="biometric_failed">Le déverrouillage par empreinte ou visage n\'a pas été activé.</string>
 
     <string name="trash_title">Corbeille</string>
-    <string name="trash_days">Jours avant la suppression définitive</string>
+    <string name="trash_rules_where">Ce que fait une suppression, et pour combien de jours, se règle dans Réglages, Corbeille.</string>
+    <string name="trash_empty_all">Vider la corbeille</string>
+    <string name="trash_empty_title">Supprimer %1$d fichiers définitivement ?</string>
+    <string name="trash_waiting">Attend votre confirmation, puis quitte toutes les machines</string>
+    <string name="trash_protected">Gardé ici après sa suppression par une autre machine, encore %1$d jours</string>
+    <string name="delete_body_direct">Il est supprimé de toutes les machines du compte.</string>
+    <string name="delete_body_local">Il quitte ce téléphone seulement : le compte et vos autres machines le gardent.</string>
+    <string name="delete_waiting">Il attend dans la corbeille que vous confirmiez la suppression.</string>
+    <string name="identity_title">Qui est là ?</string>
+    <string name="identity_passphrase">Votre phrase de passe</string>
+    <string name="identity_ok">Confirmer</string>
+    <string name="identity_refused">Non confirmé : rien n\'a été supprimé.</string>
     <string name="trash_empty">La corbeille est vide.</string>
     <string name="trash_left">Supprimé définitivement dans %1$d jours</string>
     <string name="trash_left_folder">Absent du dossier de ce téléphone, encore dans le compte</string>

@@ -159,40 +159,75 @@ mod tests {
         }
     }
 
-    /// The trash on a computer: `itsanas rm` and the drive delete through
-    /// `itsanas_store::trash::delete`. Sabotage: make its `wait == 0` always true.
+    /// Every way a file is deleted here goes through
+    /// `itsanas_store::trash::delete`, which follows this machine's rules
+    /// (HANDOVER §8 13). Sabotage: make it always write the tombstone.
     #[test]
-    fn red_team_a_delete_on_a_computer_waits_in_the_trash_unless_it_is_off() {
+    fn red_team_a_delete_follows_this_machines_rules_and_the_default_keeps_it() {
+        use itsanas_store::{
+            deletion::{self, Mode, Rules},
+            trash::Deleted,
+        };
         let dir = tempfile::tempdir().expect("tempdir");
         let home = dir.path().join("me");
         let (node, _) = itsanas_node::Node::create(&home, "a passphrase", "camille").expect("node");
-        for path in ["kept.txt", "gone.txt"] {
+        for path in ["kept.txt", "asked.txt", "here.txt", "gone.txt"] {
             node.store.write_stream(path, &b"bytes"[..]).expect("write");
         }
         node.store.flush_segment().expect("seal");
         let delete = |path: &str| {
             itsanas_store::trash::delete(&node.store, &node.vault, path, 1_000).expect("delete")
         };
+        let set = |rules: Rules| {
+            deletion::set_rules_here(&node.store, &node.vault, Some(&rules)).expect("rules");
+        };
 
-        assert!(delete("kept.txt"));
+        assert_eq!(delete("kept.txt"), Deleted::Trashed);
         assert!(
             node.store.tombstone("kept.txt").expect("read").is_none(),
-            "a delete on a computer was written at once: every machine drops the file, no undo"
+            "a delete by default was written at once: every machine drops the file, no undo"
         );
         assert!(
-            list(&home).contains_key("kept.txt"),
-            "the deleted file is not in the trash"
+            deletion::shared(&node.store, &node.vault)
+                .expect("shared")
+                .contains_key("kept.txt"),
+            "the deleted file is not in the account's trash"
         );
-        assert!(
-            !delete("never.txt"),
+        assert_eq!(
+            delete("never.txt"),
+            Deleted::Unknown,
             "a file the account never had was put in the trash"
         );
 
-        record::set_days(&record_dir(&home), 0).expect("days");
-        assert!(delete("gone.txt"));
+        set(Rules {
+            mode: Mode::Direct,
+            ..Rules::default()
+        });
+        assert_eq!(delete("asked.txt"), Deleted::Waiting);
+        assert!(
+            node.store.tombstone("asked.txt").expect("read").is_none(),
+            "a direct delete went out before anybody said who they were"
+        );
+
+        set(Rules {
+            mode: Mode::Local,
+            ..Rules::default()
+        });
+        assert_eq!(delete("here.txt"), Deleted::HereOnly);
+        assert!(
+            node.store.tombstone("here.txt").expect("read").is_none(),
+            "a local delete reached the other machines"
+        );
+
+        set(Rules {
+            mode: Mode::Direct,
+            ask_auth: false,
+            ..Rules::default()
+        });
+        assert_eq!(delete("gone.txt"), Deleted::Everywhere);
         assert!(
             node.store.tombstone("gone.txt").expect("read").is_some(),
-            "with the trash off, a delete still waits: the person asked for it at once"
+            "a direct delete with no question still waits: the person asked for it at once"
         );
     }
 

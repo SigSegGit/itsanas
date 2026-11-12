@@ -39,7 +39,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (!plan.connects) return Result.success()
         if (plan.movesContent) runCatching { PhoneFolder.sync(context) }
         if (Vault.hostTick(context).first) {
-            delay(WINDOW_MS)
+            delay(inputData.getLong(WINDOW_KEY, WINDOW_MS))
             if (!SyncService.running) runCatching { Native.hostStop() }
         } else {
             runCatching { Account.syncNow(metadataOnly = !plan.movesContent) }
@@ -50,6 +50,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         private const val NAME = "itsanas-background"
         private const val WINDOW_MS = 9 * 60 * 1000L
+
+        /** A shorter hosting window, for a test that runs the worker itself. */
+        const val WINDOW_KEY = "window_ms"
 
         fun schedule(context: Context) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(

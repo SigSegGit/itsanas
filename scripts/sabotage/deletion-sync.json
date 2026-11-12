@@ -1,0 +1,32 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-sync",
+    "--test",
+    "deletion"
+  ],
+  "defences": {
+    "sync: a trashed file never reaches the trash of the account": {
+      "file": "crates/itsanas-store/src/deletion.rs",
+      "live": "    store.write_file(&marker, b\"\")?;\n    Ok(())",
+      "dead": "    let _ = marker;\n    Ok(())"
+    },
+    "sync: a machine that protects keeps nothing": {
+      "file": "crates/itsanas-store/src/deletion.rs",
+      "live": "    let (protects, days) = protects_here(&reserved, store);",
+      "dead": "    let (protects, days) = (false, protects_here(&reserved, store).1);"
+    },
+    "sync: a file emptied from the trash is kept again": {
+      "file": "crates/itsanas-store/src/deletion.rs",
+      "live": "    if !protects || trashed {",
+      "dead": "    if !protects || (trashed && days == 0) {"
+    },
+    "sync: two rules written apart settle on the looser": {
+      "file": "crates/itsanas-store/src/deletion.rs",
+      "live": "        .max_by_key(Rules::protection)",
+      "dead": "        .min_by_key(Rules::protection)"
+    }
+  }
+}

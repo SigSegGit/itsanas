@@ -59,7 +59,7 @@ use std::time::Duration;
 
 use itsanas_cli::phone::{
     get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
-    trash_failed, trash_keep, trash_list, trash_put, trash_restore, unix_now, write_file,
+    trash_failed, trash_keep, trash_list, trash_put, write_file,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -746,16 +746,13 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRecord(
 ) -> jstring {
     let home = text(&mut env, &home, "the home");
     answer(&mut env, move || {
-        let trashed = trash::list(Path::new(&home?));
-        let rows: Vec<_> = trashed
-            .iter()
-            .map(|(path, due)| serde_json::json!({ "path": path, "due": due }))
-            .collect();
-        Ok(serde_json::json!({ "now": unix_now(), "trashed": rows, "left": [] }).to_string())
+        itsanas_cli::phone::trash_record(Path::new(&home?))
     })
 }
 
-/// Take a file out of the trash. Its record alone, like [`Java_fr_ngas_itsanas_Native_trashRecord`].
+/// Take a file out of the trash, wherever it waits: the account's trash brings
+/// it back on every machine, so the node is needed. `home` is kept for the
+/// app's call.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     mut env: JNIEnv,
@@ -763,11 +760,11 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_trashRestore(
     home: JString,
     path: JString,
 ) -> jstring {
-    let home = text(&mut env, &home, "the home");
+    let _ = text(&mut env, &home, "the home");
     let path = text(&mut env, &path, "the path");
     answer(&mut env, move || {
-        let (home, path) = (home?, path?);
-        trash_restore(Path::new(&home), &path)
+        let path = path?;
+        with_node(|node| itsanas_cli::phone::trash_restore_in(node, &path))
     })
 }
 

@@ -158,6 +158,8 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-intents:3.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-web:3.7.0")
+    // Runs SyncWorker itself, as WorkManager would with the app closed (WorkerTest).
+    androidTestImplementation("androidx.work:work-testing:2.9.1")
     // Declares the empty activity ui-test needs in the debug manifest.
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

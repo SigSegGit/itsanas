@@ -41,6 +41,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Files on this machine · `/api/files` | ✅ | ✅ | ✅ | ⬜ a phone frees a file from its Files screen, drawn by the app |
 | Start at login · `/api/autostart` | ✅ | ✅ | ✅ | ⬜ a phone's system starts the app; it has no service to switch |
 | Trash · `/api/trash` | ✅ | ✅ | ✅ | ⬜ a phone has its trash on its Files screen, drawn by the app |
+| What a delete does, per machine or for the account · `/api/deletion` | ✅ | ✅ | ✅ | ✅ |
 | Machines to sync with (Advanced) · `/api/peers` | ✅ | ✅ | ✅ | ⬜ a phone offers no Advanced section: it syncs with the machines the coordinator lists |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |

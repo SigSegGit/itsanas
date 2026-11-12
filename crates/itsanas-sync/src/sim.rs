@@ -220,12 +220,24 @@ impl SimDevice {
             }
         }
 
-        if let Some(segment) = segment {
-            self.cloud.with(|cloud| cloud.segments.push(segment));
-            return Ok(true);
+        // Every sealed segment the cloud lacks, not only the one sealed here: a
+        // caller that sealed its own (the deletion rules do) still publishes.
+        let _ = segment;
+        let mut pushed = false;
+        for segment in self.store.segments()? {
+            pushed |= self.cloud.with(|cloud| {
+                let known = cloud
+                    .segments
+                    .iter()
+                    .any(|held| held.segment_id == segment.segment_id);
+                if !known {
+                    cloud.segments.push(segment);
+                }
+                !known
+            });
         }
 
-        Ok(false)
+        Ok(pushed)
     }
 
     /// Pull every segment the cloud holds and merge it into local state.

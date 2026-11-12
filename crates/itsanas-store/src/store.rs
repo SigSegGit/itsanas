@@ -572,6 +572,40 @@ impl Store {
         self.write_stream(path, plaintext)
     }
 
+    /// Publish `kept` again under `path`, as a new version written here: a file
+    /// another machine deleted, that this one protected
+    /// ([`crate::deletion::restore_protected`]). Its chunks are the ones it had;
+    /// those not here are fetched like any file's.
+    ///
+    /// # Errors
+    ///
+    /// When the path is not valid or the index cannot be written.
+    pub fn republish(&self, path: &str, kept: &FileEntry) -> Result<FileEntry> {
+        logical_path::validate(path)?;
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+        let sequence = self.index.next_sequence()?;
+        let entry = FileEntry {
+            version: self
+                .base_version(path)?
+                .advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
+            modified_unix: now_unix(),
+            ..kept.clone()
+        };
+        self.index.put_file(path, &entry)?;
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: entry.modified_unix,
+            operation: Operation::Upsert {
+                path: path.to_owned(),
+                entry: entry.clone(),
+            },
+        })?;
+        Ok(entry)
+    }
+
     /// Delete a file, leaving a tombstone behind and in the log.
     pub fn remove_file(&self, path: &str) -> Result<bool> {
         logical_path::validate(path)?;
@@ -1123,9 +1157,12 @@ impl Store {
     pub fn collect_garbage(&self, grace: Duration) -> Result<GcReport> {
         let cutoff = now_unix().saturating_sub(grace.as_secs());
         let mut report = GcReport::default();
+        // A file another machine deleted and this one protects is not in the
+        // index, and its chunks are all that can bring it back.
+        let protected = crate::deletion::protected_chunks(&self.root);
 
         for (address, unreferenced_since) in self.index.unreferenced_chunks()? {
-            if unreferenced_since > cutoff {
+            if unreferenced_since > cutoff || protected.contains(&address) {
                 report.retained_in_grace += 1;
                 continue;
             }

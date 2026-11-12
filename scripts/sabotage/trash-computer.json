@@ -8,15 +8,15 @@
     "trash"
   ],
   "defences": {
-    "trash: a computer's delete is written at once": {
+    "trash: a delete by default is written at once": {
       "file": "crates/itsanas-store/src/trash.rs",
-      "live": "    let wait = days(store.root());\n    if wait == 0 {",
-      "dead": "    let wait = days(store.root());\n    if wait == 0 || wait > 0 {"
+      "live": "    crate::deletion::trash_shared(store, path, now, rules.days)?;\n    store.flush_segment()?;\n    Ok(Deleted::Trashed)",
+      "dead": "    crate::remove_known(store, vault, path)?;\n    store.flush_segment()?;\n    Ok(Deleted::Trashed)"
     },
     "page: the trash deletes a file nobody trashed": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
-      "live": "        (Some(\"delete\"), Some(path)) if trashed(path) => {",
-      "dead": "        (Some(\"delete\"), Some(path)) => {"
+      "file": "crates/itsanas-cli/src/deleting.rs",
+      "live": "    if let Some(stray) = paths.iter().find(|path| !inside.contains(path)) {",
+      "dead": "    if let Some(stray) = paths.iter().find(|path| path.is_empty() && !inside.contains(path)) {"
     }
   }
 }

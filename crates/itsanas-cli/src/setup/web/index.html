@@ -174,7 +174,7 @@
       </div>
     </section>
 
-    <!-- ===== Settings: one card per section, in one column ===== -->
+    <!-- ===== Settings: cards grouped in sections a person opens one at a time ===== -->
     <section data-page="settings" hidden>
       <h1 tabindex="-1">Settings</h1>
 
@@ -184,6 +184,8 @@
         <p id="st-update" class="help" hidden></p>
       </div>
 
+      <details class="group" id="st-g-machine">
+        <summary><span class="group-title">This machine</span> <span class="group-help">Syncing, the folder, start at login, files kept here, disks and colours.</span></summary>
       <section class="card" aria-labelledby="st-h-sync">
         <h2 id="st-h-sync">Syncing</h2>
         <div class="field" data-feature="sync_controls">
@@ -212,42 +214,6 @@
             <button type="button" id="interval-save">Save</button>
           </div>
         </div>
-      </section>
-
-      <section class="card" data-feature="hosting" aria-labelledby="st-h-contribute">
-        <h2 id="st-h-contribute">Contribute to the network</h2>
-        <div class="field">
-          <label class="choice"><input type="checkbox" id="st-contribute"> Offer this machine to the network</label>
-          <p class="help">Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.</p>
-        </div>
-        <fieldset id="st-contribute-fields" class="plain">
-        <div class="field">
-          <label for="st-pledge">Space offered to others, in GB</label>
-          <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
-          <p id="st-pledge-now" class="help"></p>
-          <div data-feature="metered">
-            <input id="st-pledge-slider" type="range" min="0" step="1" aria-label="Space offered to others, in GB">
-            <p class="help">At most the free space of this phone, less 10 GB.</p>
-            <p id="st-pledge-earns" class="earns" aria-live="polite"></p>
-            <button type="button" id="st-pledge-same">Same as my other machines</button>
-            <p id="st-pledge-said" class="help" aria-live="polite"></p>
-          </div>
-        </div>
-        <div class="field" data-feature="metered">
-          <label for="st-charging">Minutes between rounds while charging</label>
-          <div class="controls"><input id="st-charging" class="short" type="number" min="1" step="1" inputmode="numeric"></div>
-        </div>
-        <div class="field" data-feature="metered">
-          <label for="st-floor">Battery level at or below which it stops working in the background, in percent</label>
-          <div class="controls"><input id="st-floor" class="short" type="number" min="0" max="100" step="1" inputmode="numeric"></div>
-        </div>
-        <div class="field" data-feature="metered">
-          <label for="st-allowance">Mobile data it may use for others, in GB (0: none)</label>
-          <div class="controls"><input id="st-allowance" class="short" type="number" min="0" step="1" inputmode="numeric">
-            <select id="st-period" aria-label="Counted per"><option value="hour">per hour</option><option value="day">per day</option><option value="week">per week</option><option value="month">per month</option></select></div>
-          <p class="help">A connection the system marks as metered counts as mobile data, whatever it is.</p>
-        </div>
-        </fieldset>
       </section>
 
       <section class="card" aria-labelledby="st-h-machine">
@@ -305,6 +271,27 @@
         </div>
       </section>
 
+      <section class="card" data-feature="background_choice" aria-labelledby="st-h-autostart">
+        <h2 id="st-h-autostart">Start at login</h2>
+        <p class="help">For this account only: each account on this machine has its own.</p>
+        <div class="controls">
+          <label class="choice"><input type="checkbox" id="st-autostart" disabled> Start ITSaNAS for this account when I log in</label>
+        </div>
+        <p id="st-autostart-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card" data-feature="folder" aria-labelledby="st-h-files">
+        <h2 id="st-h-files">Files on this machine</h2>
+        <p class="help">A file freed here leaves this machine's folder and stays in the account, on its other machines. Keep it here to bring it back. Only a file already synced can be freed. Opening this list pauses ITSaNAS on this machine for a moment.</p>
+        <div class="controls">
+          <button type="button" id="st-files-show">Show the files</button>
+          <label for="st-files-filter">Only the files whose name holds</label>
+          <input id="st-files-filter" type="search" autocomplete="off">
+        </div>
+        <ul id="st-files" class="devices"></ul>
+        <p id="st-files-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
       <section class="card" data-feature="disks" aria-labelledby="st-h-disks">
         <h2 id="st-h-disks">Disks</h2>
         <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
@@ -329,6 +316,136 @@
           <p class="help">It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.</p>
         </div>
         <p id="disk-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-appearance">
+        <h2 id="st-h-appearance">Appearance</h2>
+        <div class="field">
+          <label for="st-theme">Colours</label>
+          <div class="controls">
+            <select id="st-theme">
+              <option value="system">Same as the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      </details>
+
+      <details class="group" id="st-g-trash">
+        <summary><span class="group-title">Trash and deletes</span> <span class="group-help">What a delete does on each machine, and what waits in the trash.</span></summary>
+      <section class="card" aria-labelledby="st-h-trash">
+        <h2 id="st-h-trash">Trash</h2>
+        <p class="help">What a delete does, machine by machine. Every machine of the account shows the rules of all of them.</p>
+        <fieldset id="st-del" class="plain">
+          <div class="field" role="radiogroup" aria-labelledby="st-del-mode-label">
+            <span class="label" id="st-del-mode-label">A file deleted on this machine</span>
+            <label class="choice"><input type="radio" name="st-del-mode" value="trash"> goes to the account's trash: any machine can restore it, or delete it for good, until its days are over</label>
+            <label class="choice"><input type="radio" name="st-del-mode" value="direct"> is deleted from every machine at once</label>
+            <label class="choice"><input type="radio" name="st-del-mode" value="local"> leaves this machine only: the account and your other machines keep it</label>
+          </div>
+          <div class="field" role="radiogroup" aria-labelledby="st-del-receive-label">
+            <span class="label" id="st-del-receive-label">A file another machine deletes at once</span>
+            <label class="choice"><input type="radio" name="st-del-receive" value="protect"> is kept here first, for the days below</label>
+            <label class="choice"><input type="radio" name="st-del-receive" value="apply"> goes from here too</label>
+          </div>
+          <div class="field">
+            <label for="st-del-days">Days a deleted file waits</label>
+            <div class="controls"><input id="st-del-days" class="short" type="number" min="1" max="9999" inputmode="numeric"></div>
+          </div>
+          <div class="field">
+            <label class="choice"><input type="checkbox" id="st-del-auth"> Ask who I am before a file is deleted for good</label>
+            <label class="choice"><input type="checkbox" id="st-del-confirm"> Ask me to confirm a delete</label>
+          </div>
+          <p class="help">Keeping less than now (a delete at once, nothing kept, fewer days, a question turned off) asks who you are first.</p>
+          <div class="controls">
+            <button type="button" id="st-del-save">Save for this machine</button>
+            <button type="button" id="st-del-all">Apply to every machine</button>
+            <button type="button" id="st-del-follow" hidden>Follow the account's rules</button>
+          </div>
+          <p id="st-del-account" class="help"></p>
+          <ul id="st-del-machines" class="devices" aria-label="Rules of each machine"></ul>
+          <p id="st-del-said" class="said" role="status" aria-live="polite"></p>
+        </fieldset>
+        <div class="field" data-feature="folder">
+          <span class="label">In the trash</span>
+          <div class="controls">
+            <button type="button" id="st-trash-show">Show the trash</button>
+            <button type="button" id="st-trash-delete" hidden>Delete the selected files for good</button>
+            <button type="button" id="st-trash-empty" hidden>Empty the trash</button>
+          </div>
+          <ul id="st-trash" class="devices"></ul>
+          <p id="st-trash-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+      </details>
+
+      <details class="group" id="st-g-contribute">
+        <summary><span class="group-title">Contribute to the network</span> <span class="group-help">The space and the resources this machine gives the network.</span></summary>
+      <section class="card" data-feature="hosting" aria-labelledby="st-h-contribute">
+        <h2 id="st-h-contribute">Contribute to the network</h2>
+        <div class="field">
+          <label class="choice"><input type="checkbox" id="st-contribute"> Offer this machine to the network</label>
+          <p class="help">Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.</p>
+        </div>
+        <fieldset id="st-contribute-fields" class="plain">
+        <div class="field">
+          <label for="st-pledge">Space offered to others, in GB</label>
+          <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
+          <p id="st-pledge-now" class="help"></p>
+          <div data-feature="metered">
+            <input id="st-pledge-slider" type="range" min="0" step="1" aria-label="Space offered to others, in GB">
+            <p class="help">At most the free space of this phone, less 10 GB.</p>
+            <p id="st-pledge-earns" class="earns" aria-live="polite"></p>
+            <button type="button" id="st-pledge-same">Same as my other machines</button>
+            <p id="st-pledge-said" class="help" aria-live="polite"></p>
+          </div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label for="st-charging">Minutes between rounds while charging</label>
+          <div class="controls"><input id="st-charging" class="short" type="number" min="1" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label for="st-floor">Battery level at or below which it stops working in the background, in percent</label>
+          <div class="controls"><input id="st-floor" class="short" type="number" min="0" max="100" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label for="st-allowance">Mobile data it may use for others, in GB (0: none)</label>
+          <div class="controls"><input id="st-allowance" class="short" type="number" min="0" step="1" inputmode="numeric">
+            <select id="st-period" aria-label="Counted per"><option value="hour">per hour</option><option value="day">per day</option><option value="week">per week</option><option value="month">per month</option></select></div>
+          <p class="help">A connection the system marks as metered counts as mobile data, whatever it is.</p>
+        </div>
+        </fieldset>
+      </section>
+      </details>
+
+      <details class="group" id="st-g-security">
+        <summary><span class="group-title">Security</span> <span class="group-help">Unlocking, the 24 recovery words, the passphrase and a copy on a USB key.</span></summary>
+      <section class="card" aria-labelledby="st-h-security">
+        <h2 id="st-h-security">Security</h2>
+        <div class="field" data-feature="biometric">
+          <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
+          <p class="help">Asked when the session opens. A machine restarted with nobody signed in waits for them.</p>
+        </div>
+        <div class="field">
+          <span class="label">My 24 recovery words</span>
+          <p class="help">A window asks for your passphrase, then shows your 24 words. They never appear in this page.</p>
+          <div class="controls"><button type="button" id="st-words">Show my 24 words</button></div>
+          <p id="st-words-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <span class="label">My passphrase</span>
+          <p class="help">A window asks for the current passphrase, then for a new one. Your keys and your files stay.</p>
+          <div class="controls"><button type="button" id="st-passphrase">Change my passphrase</button></div>
+          <p id="st-passphrase-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field" data-feature="forgot_in_settings">
+          <span class="label">I forgot my passphrase</span>
+          <p class="help">Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.</p>
+          <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>
+          <p id="st-forgot-said" class="said" role="status" aria-live="polite"></p>
+        </div>
       </section>
 
       <!-- "Copy this account to a USB key": the trays open Settings here
@@ -357,87 +474,16 @@
         <p id="st-usb-said" class="said" role="status" aria-live="polite"></p>
         <p id="st-usb-detail" class="help said"></p>
       </section>
+      </details>
 
-      <section class="card" aria-labelledby="st-h-appearance">
-        <h2 id="st-h-appearance">Appearance</h2>
-        <div class="field">
-          <label for="st-theme">Colours</label>
-          <div class="controls">
-            <select id="st-theme">
-              <option value="system">Same as the system</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      <section class="card" aria-labelledby="st-h-security">
-        <h2 id="st-h-security">Security</h2>
-        <div class="field" data-feature="biometric">
-          <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
-          <p class="help">Asked when the session opens. A machine restarted with nobody signed in waits for them.</p>
-        </div>
-        <div class="field">
-          <span class="label">My 24 recovery words</span>
-          <p class="help">A window asks for your passphrase, then shows your 24 words. They never appear in this page.</p>
-          <div class="controls"><button type="button" id="st-words">Show my 24 words</button></div>
-          <p id="st-words-said" class="said" role="status" aria-live="polite"></p>
-        </div>
-        <div class="field">
-          <span class="label">My passphrase</span>
-          <p class="help">A window asks for the current passphrase, then for a new one. Your keys and your files stay.</p>
-          <div class="controls"><button type="button" id="st-passphrase">Change my passphrase</button></div>
-          <p id="st-passphrase-said" class="said" role="status" aria-live="polite"></p>
-        </div>
-        <div class="field" data-feature="forgot_in_settings">
-          <span class="label">I forgot my passphrase</span>
-          <p class="help">Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.</p>
-          <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>
-          <p id="st-forgot-said" class="said" role="status" aria-live="polite"></p>
-        </div>
-      </section>
-
+      <details class="group" id="st-g-account">
+        <summary><span class="group-title">Account</span> <span class="group-help">The devices of this account, removing it, signing out.</span></summary>
       <section class="card" aria-labelledby="st-h-devices">
         <h2 id="st-h-devices">Devices of this account</h2>
         <p class="help">The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.</p>
         <div class="controls"><button type="button" id="st-devices-show">Show the devices</button></div>
         <ul id="st-devices" class="devices"></ul>
         <p id="st-devices-said" class="said" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="card" data-feature="background_choice" aria-labelledby="st-h-autostart">
-        <h2 id="st-h-autostart">Start at login</h2>
-        <p class="help">For this account only: each account on this machine has its own.</p>
-        <div class="controls">
-          <label class="choice"><input type="checkbox" id="st-autostart" disabled> Start ITSaNAS for this account when I log in</label>
-        </div>
-        <p id="st-autostart-said" class="said" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="card" data-feature="folder" aria-labelledby="st-h-files">
-        <h2 id="st-h-files">Files on this machine</h2>
-        <p class="help">A file freed here leaves this machine's folder and stays in the account, on its other machines. Keep it here to bring it back. Only a file already synced can be freed. Opening this list pauses ITSaNAS on this machine for a moment.</p>
-        <div class="controls">
-          <button type="button" id="st-files-show">Show the files</button>
-          <label for="st-files-filter">Only the files whose name holds</label>
-          <input id="st-files-filter" type="search" autocomplete="off">
-        </div>
-        <ul id="st-files" class="devices"></ul>
-        <p id="st-files-said" class="said" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="card" data-feature="folder" aria-labelledby="st-h-trash">
-        <h2 id="st-h-trash">Trash</h2>
-        <p class="help">A file deleted on this machine, from the folder, the drive or a terminal, waits here before it is deleted from every machine. Until then it still counts in the space. Zero days deletes at once.</p>
-        <div class="controls">
-          <label for="st-trash-days">Days before a file is really deleted</label>
-          <input id="st-trash-days" type="number" min="0" max="9999" inputmode="numeric">
-          <button type="button" id="st-trash-save">Save</button>
-          <button type="button" id="st-trash-show">Show the trash</button>
-        </div>
-        <ul id="st-trash" class="devices"></ul>
-        <p id="st-trash-said" class="said" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card" data-feature="remove_account" aria-labelledby="st-h-account">
@@ -469,6 +515,15 @@
         </div>
       </section>
 
+      <section class="card" aria-labelledby="st-h-signout">
+        <h2 id="st-h-signout">Sign out</h2>
+        <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
+        <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>
+      </section>
+      </details>
+
+      <details class="group" id="st-g-about">
+        <summary><span class="group-title">About and legal</span> <span class="group-help">The version, the licence and the legal texts.</span></summary>
       <section class="card" aria-labelledby="st-h-about">
         <h2 id="st-h-about">About and legal</h2>
         <p class="help">ITSaNAS <span id="st-version"></span></p>
@@ -483,12 +538,7 @@
         </ul>
         <p class="help">By itself, ITSaNAS asks github.com for the signed release at most once a day.</p>
       </section>
-
-      <section class="card" aria-labelledby="st-h-signout">
-        <h2 id="st-h-signout">Sign out</h2>
-        <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
-        <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>
-      </section>
+      </details>
     </section>
 
     <section data-page="closed" hidden>

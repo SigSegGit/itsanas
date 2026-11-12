@@ -14,6 +14,24 @@ use crate::{
     node::Node,
 };
 
+/// Make sure the person at this machine is the account's, before a delete that
+/// cannot be undone or a rule that keeps less (HANDOVER §8 13): the system's
+/// own check when the passphrase is sealed behind it (Windows Hello, Touch ID),
+/// the passphrase in a native window otherwise. Refused, nothing is done.
+///
+/// # Errors
+///
+/// When nobody answers, the system refuses, or the passphrase is wrong.
+pub(crate) fn prove_identity(home: &Path, prompt: &mut dyn SecretPrompt, why: &str) -> Result<()> {
+    let passphrase = if super::unlock::is_on(home) {
+        super::unlock::opened(home, super::unlock::platform_gate).map_err(CliError::Usage)?
+    } else {
+        prompt.passphrase(&sign::account_purpose(home, why))?
+    };
+    Identity::secrets(home, &passphrase)?;
+    Ok(())
+}
+
 /// Ask the passphrase, then show the account's 24 words in the prompt's window.
 pub(crate) fn show_words(home: &Path, prompt: &mut dyn SecretPrompt) -> Result<String> {
     if !Node::exists(home) {

@@ -226,6 +226,7 @@ object E2e {
 
     /** A tap on the page's own element, found by css. */
     fun tap(css: String) {
+        reveal(css)
         onWebView().withElement(findElement(Locator.CSS_SELECTOR, css)).perform(webClick())
     }
 
@@ -234,15 +235,26 @@ object E2e {
      * web view again while the dialog holds the window, and does not find it.
      */
     fun tapBehindConfirm(id: String) {
+        reveal(id)
         js("(function(){setTimeout(function(){document.getElementById('$id').click()},0);return true})()")
     }
 
+    /**
+     * Open the Settings section an element sits in: a closed one hides its
+     * controls, and a webClick on a hidden element fails.
+     */
+    fun reveal(idOrCss: String) {
+        js("(function(){return window.itsanasReveal ? window.itsanasReveal('$idOrCss') : false})()")
+    }
+
     fun tapId(id: String) {
+        reveal(id)
         onWebView().withElement(findElement(Locator.ID, id)).perform(webClick())
     }
 
     /** Type into a field of the page, key by key, after emptying it. */
     fun typeInto(id: String, text: String) {
+        reveal(id)
         onWebView().withElement(findElement(Locator.ID, id))
             .perform(clearElement())
             .perform(webKeys(text))

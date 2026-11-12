@@ -4004,6 +4004,30 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
+13. 🟨 **What a delete does, machine by machine** (asked by Nicolas, 2026-11-12). Each machine has
+    its rules, and the account a default that a new machine follows (`itsanas_store::deletion`):
+    a delete made here goes to the **account's trash** (default: a marker file under `.itsanas/trash/`
+    naming the due date, the device and the path; the file stays a file of the account, any
+    machine restores it or deletes it for good), **at once everywhere**, or **from this machine
+    only** (the `freed` record; nothing sent). A file another machine deletes at once is
+    **protected** here for the days (default: `deletion::protect`, called by the sync engine
+    before the tombstone applies; garbage collection keeps its chunks), or let go. A definitive
+    delete asks who is there first (on by default; the system's own check, else the passphrase,
+    once for a selection or the whole trash), and a delete asks to be confirmed (on by default).
+    Loosening any of these asks who is there too. The rules are empty files whose *path* says
+    them, under `.itsanas/` in the account, so a machine that downloads nothing reads them from
+    the log; listings never show `.itsanas/`. Two changes made apart settle on the one that keeps
+    more. Settings' Trash section (`/api/deletion`, `/api/trash`) sets them for this machine or
+    for every machine ("Apply to every machine"); `itsanas trash mode|receive|ask|confirm|follow`
+    from a terminal. Settings is now grouped in sections a person opens one at a time.
+    Proved by `tests/deletion.rs` (itsanas-sync), `red_team_a_delete_follows_this_machines_rules_and_the_default_keeps_it`,
+    `red_team_the_page_trash_acts_only_on_what_is_in_it`, `red_team_a_rule_that_keeps_less_waits_for_who_you_are`,
+    the folder tests and the bench's phase T (a delete on machine 1, restored and emptied from
+    machine 3). **Left:** the iPhone's trash screen changes (identity, Empty) have only been
+    compiled by CI; a machine that downloads nothing protects from its index alone, so a phone
+    may keep a protected copy of a file deleted out of the trash (it goes after its days); a
+    stolen device not yet withdrawn can still trash then empty, the same as before.
+
 12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'
     *Start at login* card (`/api/autostart`, `features.background_choice`) calls this instance's
     `ServiceControl::set_autostart` and shows `ServiceControl::autostart`, read from the system

@@ -10,18 +10,18 @@
   "defences": {
     "folder: a delete is written at once": {
       "file": "crates/itsanas-folder/src/lib.rs",
-      "live": "        let days = trash::days(store.root());\n        if days == 0 {",
-      "dead": "        let days = trash::days(store.root());\n        if days == 0 || days > 0 {"
+      "live": "            deletion::Mode::Trash | deletion::Mode::Direct => {\n                deletion::trash_shared(store, path, now, rules.days)?;",
+      "dead": "            deletion::Mode::Trash | deletion::Mode::Direct => {\n                store.remove_file(path)?;"
     },
     "folder: a file put back stays in the trash": {
       "file": "crates/itsanas-folder/src/lib.rs",
-      "live": "        trash::take_out(store.root(), path).map_err(|error| FolderError::io(path, error))?;\n        if let Some(entry)",
-      "dead": "        if let Some(entry)"
+      "live": "        deletion::restore_shared_known(store, path)?;\n        Self::put_back(store, path)?;",
+      "dead": "        Self::put_back(store, path)?;"
     },
     "folder: a renamed file's old name stays in the trash": {
       "file": "crates/itsanas-folder/src/lib.rs",
-      "live": "            for (from, _) in &report.renamed_here {\n                store.remove_file(from)?;\n                trash::take_out(store.root(), from)\n                    .map_err(|error| FolderError::io(self.root.clone(), error))?;\n            }",
-      "dead": ""
+      "live": "                deletion::restore_shared_known(store, from)?;\n                freed::take_out(store.root(), from)",
+      "dead": "                freed::take_out(store.root(), from)"
     }
   }
 }
