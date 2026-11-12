@@ -61,7 +61,7 @@ final class HandTest: E2eCase {
         app.buttons["files-trash"].tap()
         try waitFor("a file deleted again is not in the trash") { trashed.exists }
         trashed.swipeLeft()
-        if !app.alerts.firstMatch.exists { app.buttons["Delete"].tap() }
+        if !app.alerts.firstMatch.exists { app.buttons["Delete"].firstMatch.tap() }
         let sure = app.alerts.firstMatch.buttons["Delete"]
         try waitFor("deleting from every machine asked nothing") { sure.exists }
         sure.tap()
@@ -78,7 +78,10 @@ final class HandTest: E2eCase {
 
     private func deleteFromList(_ row: XCUIElement) throws {
         row.swipeLeft()
-        if row.exists && app.buttons["Delete"].exists { app.buttons["Delete"].tap() }
+        // The CI simulator showed two buttons named Delete after the swipe;
+        // naming the one alone failed the test before it deleted anything.
+        let delete = app.buttons["Delete"].firstMatch
+        if row.exists && delete.exists { delete.tap() }
         try waitFor("a deleted file is still in the list") { !row.exists }
     }
 
