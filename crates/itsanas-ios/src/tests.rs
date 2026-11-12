@@ -336,7 +336,11 @@ fn a_background_pass_deletes_what_the_trash_has_held_long_enough() {
     let c_home = std::ffi::CString::new(home.to_str().expect("utf-8")).expect("path");
     let file = c"photo";
     take(itsanas_put(file.as_ptr(), c_source.as_ptr()));
-    take(itsanas_trash_put(file.as_ptr(), 0));
+    {
+        // Trashed long ago: its days ran out before this pass.
+        let node = NODE.lock().expect("node").clone().expect("open");
+        itsanas_store::deletion::trash_shared(&node.store, "photo", 0, 1).expect("trash");
+    }
 
     let _ = background_pass(&NODE, &home, &nowhere(), NOW, true);
 

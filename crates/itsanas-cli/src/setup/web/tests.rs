@@ -2638,46 +2638,138 @@ fn red_team_a_computer_checks_for_updates_and_an_iphone_does_not() {
     );
 }
 
-/// The trash in Settings, on a computer: what it lists, restores and deletes is
-/// only what is in it. Sabotage: drop `if trashed(path)` on the delete arm.
+/// A page with a node in its slot, as a phone's or a computer's: `files` written
+/// and sealed, `prepare` run on the node first.
+fn page_with_node(
+    dir: &Path,
+    files: &[&str],
+    prepare: impl FnOnce(&itsanas_node::Node),
+) -> (Page, &'static super::Slot) {
+    let home = dir.join("node");
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    for path in files {
+        node.store.write_stream(path, &b"bytes"[..]).expect("write");
+    }
+    node.store.flush_segment().expect("seal");
+    prepare(&node);
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
+    let page = Page::start_with(&home, dir, Mode::Settings, &Seen::default(), move |b| {
+        b.features = Features::DESKTOP;
+        b.nodes = Arc::new(super::Held(slot));
+    });
+    (page, slot)
+}
+
+/// Wait for the page's job to end; its state.
+fn job_ended(page: &Page) -> String {
+    for _ in 0..200 {
+        let state = page.api("GET", "/api/state", "");
+        if !state.body.contains("\"phase\":\"running\"") {
+            return state.body;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("the job never ended");
+}
+
+/// The trash in Settings: it lists the account's trash, restores from it, and
+/// deletes for good only what is in it. Sabotage: drop the `stray` refusal in
+/// `deleting::purge`.
 #[test]
 fn red_team_the_page_trash_acts_only_on_what_is_in_it() {
+    use itsanas_store::deletion;
     let dir = tempfile::tempdir().expect("tempdir");
-    let home = dir.path().join("node");
-    std::fs::create_dir_all(&home).expect("home");
-    let record = crate::trash::record_dir(&home);
-    itsanas_store::trash::put(&record, "a.txt", itsanas_store::now_unix(), 30).expect("put");
-    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let (page, slot) = page_with_node(dir.path(), &["a.txt", "b.txt"], |node| {
+        deletion::trash_shared(&node.store, "a.txt", itsanas_store::now_unix(), 30).expect("trash");
+        node.store.flush_segment().expect("seal");
+        deletion::set_rules_here(
+            &node.store,
+            &node.vault,
+            Some(&deletion::Rules {
+                ask_auth: false,
+                ..deletion::Rules::default()
+            }),
+        )
+        .expect("rules");
+    });
+    let node = || slot.lock().expect("slot").clone().expect("node");
 
     let listed = page.api("GET", "/api/trash", "");
     assert_eq!(listed.status, 200, "{}", listed.body);
     assert!(
-        listed.body.contains("\"a.txt\""),
-        "the trash shows nothing: {}",
+        listed.body.contains("\"a.txt\"") && listed.body.contains("\"shared\""),
+        "the account's trash shows nothing: {}",
         listed.body
     );
 
-    let refused = page.api("POST", "/api/trash", "action=delete&path=b.txt");
-    assert_eq!(
-        refused.status, 400,
+    let refused = page.api("POST", "/api/trash", "action=delete&paths=b.txt");
+    assert_ne!(
+        refused.status, 200,
         "the page deleted from every machine a file nobody put in the trash: {}",
         refused.body
     );
-    assert!(!itsanas_store::trash::list(&record).contains_key("b.txt"));
-
-    let restored = page.api("POST", "/api/trash", "action=restore&path=a.txt");
-    assert_eq!(restored.status, 200, "{}", restored.body);
     assert!(
-        itsanas_store::trash::list(&record).is_empty(),
-        "Restore left the file in the trash: it is deleted when the delay runs out"
+        node().store.tombstone("b.txt").expect("read").is_none(),
+        "a file outside the trash was deleted for good"
     );
 
-    let days = page.api("POST", "/api/trash", "action=days&days=7");
-    assert_eq!(days.status, 200, "{}", days.body);
+    let restored = page.api("POST", "/api/trash", "action=restore&paths=a.txt");
+    assert_eq!(restored.status, 200, "{}", restored.body);
+    assert!(
+        deletion::shared(&node().store, &node().vault)
+            .expect("shared")
+            .is_empty(),
+        "Restore left the file in the account's trash: it is deleted when the delay runs out"
+    );
+
+    deletion::trash_shared(&node().store, "a.txt", itsanas_store::now_unix(), 30).expect("again");
+    let deleted = page.api("POST", "/api/trash", "action=delete&paths=a.txt");
+    assert_eq!(deleted.status, 200, "{}", deleted.body);
+    assert!(
+        node().store.tombstone("a.txt").expect("read").is_some(),
+        "Delete for good left the file in the account"
+    );
+}
+
+/// A rule that keeps less waits for the person to prove who they are, in the
+/// engine's own window; one that keeps more is set at once. Sabotage: make
+/// `deleting::needs_identity` answer false.
+#[test]
+fn red_team_a_rule_that_keeps_less_waits_for_who_you_are() {
+    use itsanas_store::deletion;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (page, slot) = page_with_node(dir.path(), &[], |_| {});
+    let rules = || {
+        let node = slot.lock().expect("slot").clone().expect("node");
+        deletion::rules_here(&node.store, &node.vault).expect("rules")
+    };
+
+    let more = page.api(
+        "POST",
+        "/api/deletion",
+        "scope=here&mode=trash&receive=protect&days=60&ask_auth=true&confirm=true",
+    );
+    assert_eq!(more.status, 200, "{}", more.body);
+    assert_eq!(rules().days, 60, "a longer wait was not kept");
+
+    let less = page.api(
+        "POST",
+        "/api/deletion",
+        "scope=here&mode=direct&receive=apply&days=60&ask_auth=true&confirm=true",
+    );
     assert_eq!(
-        itsanas_store::trash::days(&record),
-        7,
-        "the days typed were not kept"
+        less.status, 202,
+        "a delete at once was set with nobody asked who they are: {}",
+        less.body
+    );
+    assert!(less.body.contains("started"), "{}", less.body);
+    let ended = job_ended(&page);
+    assert!(ended.contains("\"phase\":\"done\""), "{ended}");
+    assert_eq!(
+        rules().mode,
+        deletion::Mode::Direct,
+        "the rule proved by the passphrase was not set"
     );
 }
 

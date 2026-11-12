@@ -46,11 +46,12 @@ which ones are enrolled (the system's `evaluatedPolicyDomainState`), and then
 only the passphrase opens, until the lock is turned off and on again
 (`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`).
 
-**A delete waits in a trash**, 30 days on this phone, as on Android: swipe a
-file; the trash button restores it or deletes it from every machine
-(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The days
-are set by the button of the trash screen, one at least
-(`testTrashDaysAreKeptAndNeverBelowOne`), and apply to files deleted from then on.
+**A delete follows this phone's rules**, as on every machine: by default the
+file goes to the account's trash for 30 days; the trash screen restores it or
+deletes it from every machine, asking who is there first (Face ID, Touch ID or
+the passcode, the passphrase without them), once for its Empty button too
+(`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted`). The rules and
+the days are set in Settings, Trash (HANDOVER §8 13).
 
 **Settings hides what an iPhone does not do**: lending space, the mobile-data
 choices and the update check (`Features::IPHONE`), and `/api/hosting` refuses
@@ -151,15 +152,17 @@ did by hand:
 
 1. log in to an existing account with its name and passphrase: the file list appears;
 2. a file put on the computer is listed after Sync, and opens;
-3. the trash: the days button keeps `1`, a deleted file waits in the trash with
-   its days, Restore brings it back, and "Delete" from the trash removes it from
-   the computer too after a round;
+3. the trash: a deleted file waits in the trash with its days, Restore brings
+   it back, and "Delete" from the trash asks who is there (the passphrase, on a
+   simulator without a passcode), then removes it from the computer too after a
+   round;
 4. Touch ID on in Settings: back from the home screen a finger is asked, one
    that is not enrolled leaves the passphrase field, which opens; the enrolled
    one opens;
 5. after the enrolment changes no finger opens, the passphrase does, and Touch
    ID turned off and on again opens with a finger;
-8. Settings shows no Disks, no USB key, no Advanced section, no lending of space;
+8. Settings, its sections opened, shows no Disks, no USB key, no Advanced
+   section, and no lending of space, not even an empty section for it;
 9. Sign out locks the app, and the app opened again asks for the passphrase.
 
 `FreeTest` adds one more, as Android's does: the file from the computer,

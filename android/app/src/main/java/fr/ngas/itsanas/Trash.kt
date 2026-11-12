@@ -4,11 +4,9 @@ import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,30 +20,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** The phone's trash: which files and how long is the library's (`trash.rs`). */
+/**
+ * The trash: which files, how long, and what a delete does are the library's
+ * (`deletion.rs`), set per machine in Settings, Trash (HANDOVER §8 13).
+ */
 object Trash {
-    private const val DEFAULT_DAYS = 30L
+    /** `kind`: shared (the account's trash), here, waiting (to confirm), protected. */
+    class Row(val path: String, val daysLeft: Long?, val kind: String = "here")
 
-    class Row(val path: String, val daysLeft: Long?)
+    /** This phone's rules, as the last answer said them; protective until then. */
+    class Rules(val mode: String, val days: Long, val askAuth: Boolean, val confirm: Boolean)
 
-    private fun preferences(context: Context) =
-        context.getSharedPreferences("trash", Context.MODE_PRIVATE)
+    @Volatile
+    var rules = Rules("trash", 30, askAuth = true, confirm = true)
+        private set
 
-    fun days(context: Context): Long = preferences(context).getLong("days", DEFAULT_DAYS)
-
-    fun setDays(context: Context, days: Long) {
-        preferences(context).edit().putLong("days", days).apply()
-    }
-
-    suspend fun put(context: Context, path: String) = withContext(Dispatchers.IO) {
-        Native.trashPut(path, days(context).toString())
-        Unit
+    /** Delete as this phone's rules say; the word for what it became. */
+    suspend fun put(path: String): String = withContext(Dispatchers.IO) {
+        JSONObject(Native.trashPut(path, "0")).optString("became")
     }
 
     /** At once, from the record. */
@@ -64,14 +61,26 @@ object Trash {
     /** With what left the folder too, once the node is free: a round may hold it for a while. */
     suspend fun rows(): List<Row> = withContext(Dispatchers.IO) { parse(Native.trashList()) }
 
+    /** Read this phone's rules once the node answers (the record alone has none). */
+    suspend fun readRules() = withContext(Dispatchers.IO) { parse(Native.trashList()) }
+
     private fun parse(text: String): List<Row> {
         val answer = JSONObject(text)
+        if (answer.has("mode")) {
+            rules = Rules(
+                answer.getString("mode"),
+                answer.optLong("days", 30),
+                answer.optBoolean("ask_auth", true),
+                answer.optBoolean("confirm", true),
+            )
+        }
         val now = answer.getLong("now")
         val trashed = answer.getJSONArray("trashed")
         val left = answer.getJSONArray("left")
         return List(trashed.length()) { index ->
             val row = trashed.getJSONObject(index)
-            Row(row.getString("path"), (row.getLong("due") - now) / (24 * 60 * 60))
+            val kind = row.optString("kind", "here")
+            Row(row.getString("path"), (row.getLong("due") - now) / (24 * 60 * 60), kind)
         } + List(left.length()) { index -> Row(left.getString(index), null) }
     }
 }
@@ -82,8 +91,9 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
     val scope = rememberCoroutineScope()
     // Null until read: "empty" said too soon reads as files lost.
     var rows by remember { mutableStateOf(Trash.recordedNow(context)) }
-    var days by remember { mutableStateOf(Trash.days(context).toString()) }
-    var doomed by remember { mutableStateOf<Trash.Row?>(null) }
+    // What a delete for good would delete: one row, or the whole trash.
+    var doomed by remember { mutableStateOf<List<Trash.Row>?>(null) }
+    var proving by remember { mutableStateOf<(suspend () -> Unit)?>(null) }
 
     suspend fun reload() {
         rows = Trash.recorded(context)
@@ -109,23 +119,23 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
         title = { Text(stringResource(R.string.trash_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = days,
-                    onValueChange = { typed ->
-                        days = typed.filter(Char::isDigit).take(4)
-                        days.toLongOrNull()?.takeIf { it >= 1 }?.let { Trash.setDays(context, it) }
-                    },
-                    label = { Text(stringResource(R.string.trash_days)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.testTag("trash-days"),
-                )
+                Text(stringResource(R.string.trash_rules_where), style = MaterialTheme.typography.labelSmall)
                 if (rows?.isEmpty() == true) Text(stringResource(R.string.trash_empty))
+                val forGood = rows.orEmpty().filter { it.daysLeft != null }
+                if (forGood.isNotEmpty()) {
+                    TextButton({ doomed = forGood }, Modifier.testTag("trash-empty")) {
+                        Text(stringResource(R.string.trash_empty_all))
+                    }
+                }
                 rows.orEmpty().forEach { row ->
                     Text(row.path)
                     Text(
-                        row.daysLeft?.let { stringResource(R.string.trash_left, it) }
-                            ?: stringResource(R.string.trash_left_folder),
+                        when {
+                            row.daysLeft == null -> stringResource(R.string.trash_left_folder)
+                            row.kind == "waiting" -> stringResource(R.string.trash_waiting)
+                            row.kind == "protected" -> stringResource(R.string.trash_protected, row.daysLeft)
+                            else -> stringResource(R.string.trash_left, row.daysLeft)
+                        },
                         Modifier.testTag("trash-row"),
                         style = MaterialTheme.typography.labelSmall,
                     )
@@ -170,7 +180,7 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
                                 Modifier.testTag("trash-keep"),
                             ) { Text(stringResource(R.string.trash_keep)) }
                         }
-                        TextButton({ doomed = row }, Modifier.testTag("trash-delete")) {
+                        TextButton({ doomed = listOf(row) }, Modifier.testTag("trash-delete")) {
                             Text(stringResource(R.string.trash_delete))
                         }
                     }
@@ -182,21 +192,47 @@ fun TrashDialog(onClose: () -> Unit, onChanged: suspend () -> Unit, complain: (S
         },
     )
 
-    doomed?.let { row ->
+    // Deleted for good: after "are you sure" when the rules ask it, and after the
+    // phone's own check when they ask that, once for the whole selection.
+    fun deleteForGood(chosen: List<Trash.Row>) {
+        val action: suspend () -> Unit = {
+            act { withContext(Dispatchers.IO) { chosen.forEach { Native.trashDelete(it.path) } } }
+        }
+        if (Trash.rules.askAuth) proving = action else scope.launch { action() }
+    }
+
+    doomed?.let { chosen ->
+        if (!Trash.rules.confirm) {
+            doomed = null
+            deleteForGood(chosen)
+            return@let
+        }
         AlertDialog(
             onDismissRequest = { doomed = null },
-            title = { Text(stringResource(R.string.delete_title, row.path)) },
+            title = {
+                Text(
+                    if (chosen.size == 1) stringResource(R.string.delete_title, chosen[0].path)
+                    else stringResource(R.string.trash_empty_title, chosen.size),
+                )
+            },
             text = { Text(stringResource(R.string.trash_delete_body)) },
             confirmButton = {
                 TextButton(
                     {
                         doomed = null
-                        act { withContext(Dispatchers.IO) { Native.trashDelete(row.path) } }
+                        deleteForGood(chosen)
                     },
                     Modifier.testTag("trash-delete-confirm"),
                 ) { Text(stringResource(R.string.trash_delete)) }
             },
             dismissButton = { TextButton({ doomed = null }) { Text(stringResource(R.string.delete_keep)) } },
         )
+    }
+
+    IdentityGate(proving != null) { proved ->
+        val action = proving
+        proving = null
+        if (!proved) complain(context.getString(R.string.identity_refused))
+        else if (action != null) scope.launch { action() }
     }
 }

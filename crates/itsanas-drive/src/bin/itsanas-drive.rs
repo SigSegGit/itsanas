@@ -142,13 +142,14 @@ mod windows {
             // Whether its content is here or not: the folder shows both. Into
             // the trash, as everywhere else; nothing deleted is not "kept", and
             // asking again will not change it.
-            if !itsanas_store::trash::delete(
+            if itsanas_store::trash::delete(
                 &node.store,
                 &node.vault,
                 path,
                 itsanas_store::now_unix(),
             )
             .map_err(io::Error::other)?
+                == itsanas_store::trash::Deleted::Unknown
             {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,

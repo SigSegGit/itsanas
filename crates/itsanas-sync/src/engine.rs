@@ -276,6 +276,14 @@ pub fn apply_replaying(
         for envelope in &chain {
             let body = store.open_segment(envelope)?;
             for entry in &body.entries {
+                // A file another machine deletes outright is kept here first,
+                // when this machine's rules protect (HANDOVER §8 13).
+                itsanas_store::deletion::protect(
+                    store,
+                    &device,
+                    &entry.operation,
+                    itsanas_store::now_unix(),
+                )?;
                 let outcome = apply_entry(store, device, entry, envelope.owner, source)?;
                 report.record(&outcome.applied);
                 outcomes.push(outcome);

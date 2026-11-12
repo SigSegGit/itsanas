@@ -231,6 +231,52 @@ must node m3 scan
 check "a freed file kept here again is back, byte for byte" \
     sh -c "[ \"\$(sha256sum '$WORK/folder-m3/$b_name' | cut -d' ' -f1)\" = '$b_sha' ]"
 
+say "T: a delete goes to the account's trash, is restored and emptied from another machine"
+# The account's trash across real nodes (HANDOVER §8 10h, 13): a file machine 1
+# deletes leaves machine 3's folder too without a delete being written, machine
+# 3 restores it for both, and machine 3 deletes it for good for both.
+t_name="trash-t.txt"
+printf 'held in a trash\n' >"$WORK/folder-m1/$t_name"
+t_sha="$(sha256sum "$WORK/folder-m1/$t_name" | cut -d' ' -f1)"
+must node m1 trash days 7
+must node m1 scan
+round m1 m2 "$PORT2"
+round m3 m2 "$PORT2"
+must node m3 scan
+[ -f "$WORK/folder-m3/$t_name" ] || { echo "  WRONG $t_name never reached machine 3, so T would prove nothing"; failures=$((failures + 1)); }
+rm "$WORK/folder-m1/$t_name"
+must node m1 scan
+round m1 m2 "$PORT2"
+round m3 m2 "$PORT2"
+must node m3 scan
+in_trash() { node "$1" trash list | grep -Fq "$2"; }
+check "machine 3's trash lists the file machine 1 deleted" in_trash m3 "$t_name"
+check "a file in the account's trash leaves machine 3's folder" test ! -e "$WORK/folder-m3/$t_name"
+must node m3 trash restore "$t_name"
+round m3 m2 "$PORT2"
+round m1 m2 "$PORT2"
+must node m1 scan
+must node m3 scan
+for m in m1 m3; do
+    check "restored on machine 3, the file is back on $m byte for byte" \
+        sh -c "[ \"\$(sha256sum '$WORK/folder-$m/$t_name' | cut -d' ' -f1)\" = '$t_sha' ]"
+done
+rm "$WORK/folder-m1/$t_name"
+must node m1 scan
+round m1 m2 "$PORT2"
+round m3 m2 "$PORT2"
+must node m3 scan
+must node m3 trash delete "$t_name"
+round m3 m2 "$PORT2"
+round m1 m2 "$PORT2"
+must node m1 scan
+must node m3 scan
+check "a file deleted for good on machine 3 is gone from machine 3" test ! -e "$WORK/folder-m3/$t_name"
+check "a file deleted for good on machine 3 is not written back on machine 1" test ! -e "$WORK/folder-m1/$t_name"
+check_absent() { ! in_trash "$1" "$2"; }
+check "a file deleted for good leaves machine 1's trash" check_absent m1 "$t_name"
+must node m1 trash days 0
+
 say "G: machines 1 and 3 edit the same file apart, then meet through machine 2"
 g_name="notes-g.txt"
 printf 'the original\n' >"$WORK/folder-m1/$g_name"

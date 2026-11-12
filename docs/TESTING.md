@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-12 — 1659 test functions across 43 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 614 are red-team tests.**
+**Last updated: 2026-11-12 — 1664 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 619 are red-team tests.**
 
-**1543 of the 1659 tests have an entry of their own on this page** — an *entry*,
+**1548 of the 1664 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,6 +164,7 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 4 |
 | `itsanas-net` unit | 69 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
@@ -179,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 355 |
+| `itsanas-cli` unit | 356 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 21 |
 | `itsanas-drive` unit | 21 |
@@ -220,9 +221,9 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 34 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 38 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 209 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 210 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -807,6 +808,20 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
+# `itsanas-sync` — deletes between machines with different rules (4)
+
+Two machines of one account, each with its own rules (HANDOVER §8 13): the
+account's trash, Protect, and rules every machine reads alike.
+
+| Test | What it proves |
+|---|---|
+| **`red_team_a_file_trashed_on_one_machine_is_restored_from_another`** | A file the phone puts in the account's trash is in the computer's trash list and still a file of the account; a restore on the computer takes it out of the phone's trash too. Sabotaged (no marker written): red. |
+| **`red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects`** | A file the phone deletes outright is kept by the computer, which protects by default; publishing it again brings it back on the phone. Sabotaged (nothing protected): red. |
+| **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
+| **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
+
+---
+
 # `itsanas-sync` — convergence tests (26)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
@@ -1234,7 +1249,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (355)
+# `itsanas-cli` — unit tests (356)
 
 ## `bench` — measuring this machine (4)
 
@@ -1467,7 +1482,8 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `the_space_question_is_answered_by_the_one_rule_every_platform_shares` | `/api/suggest` and the first suggestion in `/api/state` are what `pledges::suggest` says for this disk, for no other machines, for a small pledge and for one too large to fit. |
 | **`red_team_a_computer_checks_for_updates_and_an_iphone_does_not`** | Settings' Check for updates is on a computer too: the page tells the computer's shell, which runs `itsanas update` apart; an iPhone, installed by whoever signs it, is refused. Sabotaged (gate back on `metered`; no event): red. |
 | **`red_team_settings_turn_this_accounts_start_at_login_on_and_off`** | Settings' Start at login switches this account's own service (its task, unit or agent) and shows what the system then says; a malformed answer changes nothing, no service means nothing to switch (409), and a phone has no switch (403). Sabotaged (the switch always turns it on): red. |
-| **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash on a computer lists what is in the trash, refuses to delete from every machine a file nobody trashed, restores, and keeps the days typed. Sabotaged (no `trashed` guard on delete): red. |
+| **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash lists the account's trash, refuses to delete for good a file that is not in it, restores out of it, and deletes for good what is. Sabotaged (no refusal of a path outside the trash in `deleting::purge`): red. |
+| **`red_team_a_rule_that_keeps_less_waits_for_who_you_are`** | A rule that keeps more (a longer wait) is set at once; one that keeps less (a delete at once, nothing kept) starts a job that proves who is there in the engine's own window first, and is set only then. Sabotaged (`needs_identity` always false): red. |
 | **`red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page`** | The theme is in `<html data-theme>` from the first byte, kept in the node's home for the next page, told to the shell, and the dark colours follow the system unless light is chosen. Sabotaged (insertion, saving, telling, each CSS rule): red. |
 | **`red_team_the_page_links_only_the_licence_the_source_and_the_security_policy`** | The only links out of the page are the three of the legal block, each to the project, each opened in a tab of its own with `noopener noreferrer`, and no placeholder stands where a text should be. Sabotaged (a `rel` dropped): red. |
 | `forgetting_on_a_page_with_no_node_changes_nothing_and_says_so` | `POST /api/forgot` on Settings starts a job that fails with a sentence when there is no node, and the setup page has no such route. |
@@ -1639,7 +1655,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 
 | Test | What it proves |
 |---|---|
-| **`red_team_a_delete_on_a_computer_waits_in_the_trash_unless_it_is_off`** | `itsanas rm` and the drive delete through `itsanas_store::trash::delete`: the file is in the trash with no tombstone; a file the account never had is not trashed; with the trash off (0 days) the tombstone is written at once. Sabotaged (`wait == 0` always true): red. |
+| **`red_team_a_delete_follows_this_machines_rules_and_the_default_keeps_it`** | Every delete on a machine goes through `itsanas_store::trash::delete`, which follows this machine's rules: by default into the account's trash with no tombstone; a file the account never had is not trashed; Direct with identity asked waits here, Local writes nothing, Direct with nothing asked writes the tombstone at once. Sabotaged (the default writes the tombstone): red. |
 | **`red_team_an_empty_listing_does_not_make_every_file_look_gone`** | A folder that reads as empty, a lost permission or a card taken out, names no folder, so it never offers every file for deletion. Sabotage: drop the check on `folders` in `left_the_folder`. |
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
@@ -2146,10 +2162,10 @@ and a screenshot in `result.xcresult`.
 | --- | --- |
 | `test1_anExistingAccountOpensOnThePhone` | Step 1: Welcome, "I already have an account", the name, the passphrase in the native question, and the file list opens. |
 | `test2_aFileFromAComputerIsListedAndOpens` | Step 2: a file the computer holds is listed after Sync, and tapping it fetches it and opens the share sheet. |
-| `test3_theTrashKeepsItsDaysRestoresAndDeletesForGood` | Step 3: the days typed are kept, a deleted file leaves the list for the trash with its days, Restore brings it back, and a delete from every machine leaves the trash and the list after a round; the script then finds it gone from the computer, and the other file still there. |
+| `test3_theTrashRestoresAndDeletesForGoodOnceTheOwnerConfirms` | Step 3: a deleted file leaves the list for the trash with its days, Restore brings it back, and a delete from every machine asks who is there (the passphrase, or a finger) before it leaves the trash and the list after a round; the script then finds it gone from the computer, and the other file still there. |
 | **`test4_touchIDOpensForTheRightFingerOnly`** | Step 4: with the fingerprint on, coming back from the home screen asks a finger; one that is not enrolled leaves the passphrase field, which opens; the enrolled one opens. Fingers are the simulator's (`notify_post` of BiometricKit's notifications). |
 | **`test5_aFingerEnrolledLaterOpensNothingUntilTouchIDIsTurnedOnAgain`** | Step 5: once the enrolment changes, the enrolled finger opens nothing and the passphrase does; turned off and on in Settings, a finger opens again. |
-| `test8_settingsHidesWhatAnIPhoneDoesNotDo` | Step 8: Settings shows no Disks, no USB key, no Advanced, no lending of space. |
+| `test8_settingsHidesWhatAnIPhoneDoesNotDo` | Step 8: Settings, its sections opened, shows no Disks, no USB key, no Advanced, no lending of space, and no empty section where that would be. |
 | **`test9_signingOutLocksTheAppUntilThePassphrase`** | Step 9: Sign out asks, then locks the app; opened again, it asks for the passphrase. It found that the page's `window.confirm` answered "no" unseen on an iPhone (the web view had no `WKUIDelegate`), so Sign out did nothing. |
 | **`FreeTest.testFreeUpKeepsAFileNoOtherMachineHasProvedItHolds`** | Free up, as Android's `FreeTest`: the file from the computer, fetched and freed on the phone, stays, and the line above the list says it was kept, since the account has one computer and a file goes only once two machines have proved they hold it. |
 

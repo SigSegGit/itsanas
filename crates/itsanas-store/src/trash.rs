@@ -132,30 +132,59 @@ pub fn set_days(dir: &Path, days: u64) -> std::io::Result<()> {
     write_all(dir, DAYS, &days.min(MAX_DAYS).to_string())
 }
 
-/// Delete `path` as a person on this machine does: into the trash for this
-/// machine's days, or written at once when the trash is off. False when the
-/// account has no such file, so nothing was trashed.
+/// What a delete made on this machine became.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deleted {
+    /// The account has no such file: nothing was done.
+    Unknown,
+    /// Into the account's trash, restorable from any machine until it is due.
+    Trashed,
+    /// Deleted from every machine.
+    Everywhere,
+    /// Waiting here for the person to confirm a definitive delete
+    /// ([`crate::deletion::Rules::ask_auth`]); hidden on this machine only.
+    Waiting,
+    /// Gone from this machine only; the account keeps it.
+    HereOnly,
+}
+
+/// Delete `path` as a person on this machine does, by this machine's rules
+/// ([`crate::deletion::rules_here`]): into the account's trash, deleted from
+/// every machine, waiting for a confirmation, or let go here only.
 ///
 /// # Errors
 ///
 /// When the log cannot be read, or the trash or the store cannot be written.
-pub fn delete(store: &Store, vault: &Vault, path: &str, now: u64) -> crate::Result<bool> {
-    let wait = days(store.root());
-    if wait == 0 {
-        let removed = crate::remove_known(store, vault, path)?;
-        if removed {
-            store.flush_segment()?;
-        }
-        return Ok(removed);
-    }
+pub fn delete(store: &Store, vault: &Vault, path: &str, now: u64) -> crate::Result<Deleted> {
     let known = crate::catalogue(store, vault)?
         .files
         .iter()
         .any(|file| file.path == path);
-    if known {
-        put(store.root(), path, now, wait).map_err(|error| StoreError::io(path, error))?;
+    if !known || crate::deletion::is_reserved(path) {
+        return Ok(Deleted::Unknown);
     }
-    Ok(known)
+    let rules = crate::deletion::rules_here(store, vault)?;
+    // `trash days 0` before the rules existed meant "no trash": it still does.
+    let direct =
+        rules.mode == crate::deletion::Mode::Direct || rules.days == 0 || days(store.root()) == 0;
+    if direct && rules.ask_auth && days(store.root()) != 0 {
+        put(store.root(), path, now, MAX_DAYS).map_err(|error| StoreError::io(path, error))?;
+        return Ok(Deleted::Waiting);
+    }
+    if direct {
+        crate::remove_known(store, vault, path)?;
+        store.flush_segment()?;
+        return Ok(Deleted::Everywhere);
+    }
+    if rules.mode == crate::deletion::Mode::Local {
+        crate::freed::add(store.root(), path).map_err(|error| StoreError::io(path, error))?;
+        store.clear_local_state(path)?;
+        store.release(path, now)?;
+        return Ok(Deleted::HereOnly);
+    }
+    crate::deletion::trash_shared(store, path, now, rules.days)?;
+    store.flush_segment()?;
+    Ok(Deleted::Trashed)
 }
 
 #[cfg(test)]

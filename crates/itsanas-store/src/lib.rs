@@ -51,6 +51,7 @@
 pub mod blob;
 pub mod catalogue;
 pub mod chunker;
+pub mod deletion;
 pub mod error;
 pub mod freed;
 pub mod holders;

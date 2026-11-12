@@ -371,3 +371,21 @@ button.link {
 fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; }
 fieldset.plain:disabled { opacity: 0.5; }
 details.legal pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+
+/* Settings in sections: one line each until opened, so the page fits a screen. */
+details.group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 0 0 12px;
+  background: var(--panel);
+}
+details.group > summary {
+  cursor: pointer;
+  padding: 14px 20px;
+  list-style-position: inside;
+}
+details.group > summary .group-title { font-weight: 600; font-size: 1.1em; }
+details.group > summary .group-help { display: block; color: var(--muted); font-size: 0.9em; margin-top: 2px; }
+details.group[open] > summary { border-bottom: 1px solid var(--line); }
+details.group > .card { border: none; border-radius: 0; margin: 0; border-bottom: 1px solid var(--line); }
+details.group > .card:last-child { border-bottom: none; border-radius: 0 0 12px 12px; }

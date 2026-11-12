@@ -26,32 +26,20 @@ final class HandTest: E2eCase {
         if app.alerts.count > 0 { try fail("opening a file from the computer was refused") }
     }
 
-    /// 3. The trash: the days, a delete, a restore, and a delete from every
-    /// machine, which the script then checks on the computer.
-    func test3_theTrashKeepsItsDaysRestoresAndDeletesForGood() throws {
+    /// 3. The trash: a delete waits there with its days, Restore brings it
+    /// back, and a delete from every machine asks who is there first, which
+    /// the script then checks on the computer.
+    func test3_theTrashRestoresAndDeletesForGoodOnceTheOwnerConfirms() throws {
         try logIn()
         try syncUntilListed("to-trash.txt")
         let row = app.cells["file:to-trash.txt"]
         let trashed = app.cells["trash:to-trash.txt"]
 
-        app.buttons["files-trash"].tap()
-        let days = app.buttons["trash-days"]
-        try waitFor("the trash never opened") { days.exists }
-        days.tap()
-        let field = app.alerts.firstMatch.textFields.firstMatch
-        try waitFor("the days button asked nothing") { field.exists }
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6) + "1")
-        app.alerts.firstMatch.buttons["Keep"].tap()
-        try waitFor("the trash kept another number of days than the one typed") { days.label == "1 days" }
-        back()
-
         try deleteFromList(row)
         app.buttons["files-trash"].tap()
         try waitFor("a deleted file is not in the trash, so it cannot be put back") { trashed.exists }
-        XCTAssertTrue(trashed.label.contains("(1 days)"), "the trash shows other days than chosen: \(trashed.label)")
+        XCTAssertTrue(trashed.label.contains(" days)"), "the trash shows no days left: \(trashed.label)")
         trashed.swipeLeft()
-        if app.alerts.count > 0 { app.alerts.firstMatch.buttons["Back"].tap(); trashed.swipeLeft() }
         app.buttons["Restore"].tap()
         try waitFor("restoring left the file in the trash") { !trashed.exists }
         back()
@@ -61,11 +49,12 @@ final class HandTest: E2eCase {
         app.buttons["files-trash"].tap()
         try waitFor("a file deleted again is not in the trash") { trashed.exists }
         trashed.swipeLeft()
-        if !app.alerts.firstMatch.exists { app.buttons["Delete"].tap() }
+        app.tables.buttons["Delete"].tap()
         let sure = app.alerts.firstMatch.buttons["Delete"]
         try waitFor("deleting from every machine asked nothing") { sure.exists }
         sure.tap()
-        try waitFor("deleting from every machine left the file in the trash") { !trashed.exists }
+        try proveIdentity()
+        try waitFor("deleting from every machine left the file in the trash", seconds: 60) { !trashed.exists }
         back()
         // The round that tells the computer.
         app.buttons["files-sync"].tap()
@@ -74,6 +63,23 @@ final class HandTest: E2eCase {
         }
         Thread.sleep(forTimeInterval: 5)
         XCTAssertFalse(row.exists, "a file deleted for good came back after a round")
+    }
+
+    /// Who is there, as the trash asks before a delete from every machine:
+    /// the phone's own lock when it has one (a finger, on the simulator), the
+    /// account's passphrase on a phone without a passcode.
+    private func proveIdentity() throws {
+        let typed = app.alerts.firstMatch.secureTextFields["identity-pass"]
+        try waitFor("deleting from every machine never asked who is there", seconds: 15) {
+            typed.exists || springboard.buttons["Cancel"].exists || app.buttons["Cancel"].exists
+        }
+        if typed.exists {
+            typed.tap()
+            typed.typeText(passphrase)
+            app.alerts.firstMatch.buttons["Confirm"].tap()
+        } else {
+            touch(matching: true)
+        }
     }
 
     private func deleteFromList(_ row: XCUIElement) throws {
@@ -138,6 +144,10 @@ final class HandTest: E2eCase {
         try logIn()
         try openSettings()
         Thread.sleep(forTimeInterval: 2)
+        // A closed section hides its cards from this test as well as from a
+        // person: open the ones that would hold what an iPhone cannot do.
+        try openSection("This machine", for: web("Appearance"))
+        try openSection("Security", for: webContaining("Unlock with my fingerprint or face"))
         for heading in ["Disks", "Copy this account to a USB key", "Contribute to the network", "Advanced"] {
             XCTAssertFalse(
                 web(heading).exists,
@@ -150,6 +160,7 @@ final class HandTest: E2eCase {
     func test9_signingOutLocksTheAppUntilThePassphrase() throws {
         try logIn()
         try openSettings()
+        try openSection("Account", for: web("Sign out", .button))
         try tapOnPage(web("Sign out", .button), "Sign out")
         let ok = app.alerts.firstMatch.buttons["OK"]
         try waitFor("Sign out asked nothing, and did nothing") { ok.exists }

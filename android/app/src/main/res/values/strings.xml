@@ -77,7 +77,7 @@
     <string name="tree_files">%1$d files · %2$s</string>
     <string name="tree_not_here">%1$d not on this phone</string>
     <string name="delete_title">Delete %1$s?</string>
-    <string name="delete_body">It goes to the trash for %1$d days, then leaves every machine of the account. It still counts in your space until then.</string>
+    <string name="delete_body">It goes to the account\'s trash for %1$d days, where any machine can restore it, then leaves every machine. It still counts in your space until then.</string>
     <string name="delete_everywhere">Move to trash</string>
     <string name="delete_keep">Keep it</string>
 
@@ -95,7 +95,18 @@
     <string name="biometric_not_now">Not now</string>
     <string name="biometric_failed">Fingerprint or face unlock was not turned on.</string>
     <string name="trash_title">Trash</string>
-    <string name="trash_days">Days before a file is really deleted</string>
+    <string name="trash_rules_where">What a delete does, and for how many days, is set in Settings, Trash.</string>
+    <string name="trash_empty_all">Empty the trash</string>
+    <string name="trash_empty_title">Delete %1$d files for good?</string>
+    <string name="trash_waiting">Waits for you to confirm, then leaves every machine</string>
+    <string name="trash_protected">Kept here after another machine deleted it, %1$d days left</string>
+    <string name="delete_body_direct">It is deleted from every machine of the account.</string>
+    <string name="delete_body_local">It leaves this phone only: the account and your other machines keep it.</string>
+    <string name="delete_waiting">It waits in the trash for you to confirm the delete.</string>
+    <string name="identity_title">Who is there?</string>
+    <string name="identity_passphrase">Your passphrase</string>
+    <string name="identity_ok">Confirm</string>
+    <string name="identity_refused">Not confirmed: nothing was deleted.</string>
     <string name="trash_empty">The trash is empty.</string>
     <string name="trash_left">Deleted for good in %1$d days</string>
     <string name="trash_left_folder">Gone from the folder on this phone, still in the account</string>

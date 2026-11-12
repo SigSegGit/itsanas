@@ -95,6 +95,7 @@ SURFACES = [
         'itsanas-net/tests/two_nodes.rs',
         'itsanas-node/src/keeping.rs',
         'itsanas-sync/tests/convergence.rs',
+        'itsanas-sync/tests/deletion.rs',
         'itsanas-store/src/oplog.rs',
     ]),
     ('local-store', 'the index, packs, folders, the virtual drive, crash', [
