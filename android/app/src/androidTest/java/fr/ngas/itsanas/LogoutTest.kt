@@ -77,7 +77,7 @@ class LogoutTest {
         E2e.waitFor("the words were not accepted by the screen that checks them") {
             Flows.enabled(compose, "secret-continue")
         }
-        Flows.click(compose, "secret-continue")
+        Flows.continueAfterWords(compose)
         Flows.waitTag(compose, "new-pass", "no new passphrase was asked after the words")
         Flows.typePassphrase(compose, Flows.OTHER_PASSPHRASE)
         Flows.click(compose, "secret-continue")
