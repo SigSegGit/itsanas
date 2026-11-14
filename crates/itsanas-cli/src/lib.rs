@@ -830,7 +830,6 @@ fn leave_quietly_when_the_pipe_closes() {
 }
 
 /// The whole program: what `itsanas` does when it is started, as an exit code.
-#[must_use]
 pub fn run() -> ExitCode {
     leave_quietly_when_the_pipe_closes();
 

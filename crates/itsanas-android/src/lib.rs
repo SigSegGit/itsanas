@@ -1327,7 +1327,7 @@ mod tests {
 
     /// A photo deleted, then added again under the same name, stayed hidden by the
     /// trash and was deleted for good when the delay ran out. Sabotage: drop the
-    /// `take_out` in `write_file`.
+    /// `restore_shared` in `write_file`.
     #[test]
     fn red_team_a_file_put_back_under_a_trashed_path_leaves_the_trash() {
         let dir = tempfile::tempdir().unwrap();
@@ -1339,7 +1339,8 @@ mod tests {
         std::fs::write(&source, b"the photo again").unwrap();
         put_file(&node, "a.jpg", source.to_str().unwrap()).unwrap();
         assert!(
-            trash::list(&node.home).is_empty(),
+            trash::list(&node.home).is_empty()
+                && itsanas_cli::phone::purged_trash(&node).unwrap().is_empty(),
             "a file added again stays hidden, and is deleted for good when the old delay runs out"
         );
     }

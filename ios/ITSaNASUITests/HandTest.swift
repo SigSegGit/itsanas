@@ -38,7 +38,10 @@ final class HandTest: E2eCase {
         try deleteFromList(row)
         app.buttons["files-trash"].tap()
         try waitFor("a deleted file is not in the trash, so it cannot be put back") { trashed.exists }
-        XCTAssertTrue(trashed.label.contains(" days)"), "the trash shows no days left: \(trashed.label)")
+        // A cell's own label is empty once it carries an identifier: its text is
+        // on the static text inside.
+        let shown = trashed.staticTexts.firstMatch.label
+        XCTAssertTrue(shown.contains(" days)"), "the trash shows no days left: \(shown)")
         trashed.swipeLeft()
         app.buttons["Restore"].tap()
         try waitFor("restoring left the file in the trash") { !trashed.exists }

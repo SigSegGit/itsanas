@@ -210,6 +210,9 @@ pub fn write_file(
     node.store.check_room(path, incoming)?;
     let entry = node.store.write_stream(path, file)?;
     trash::take_out(&node.home, path).map_err(|error| trash_failed(&error))?;
+    // The account's trash too: a delete now lands there by default, and a file
+    // added again would stay hidden and leave every machine when it came due.
+    itsanas_store::deletion::restore_shared(&node.store, &node.vault, path)?;
     Ok(entry)
 }
 
