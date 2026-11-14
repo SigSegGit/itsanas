@@ -1,3 +1,4 @@
+import CryptoKit
 import LocalAuthentication
 import UIKit
 
@@ -20,9 +21,12 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
         field.delegate = self
         message.numberOfLines = 0
         message.textColor = .systemRed
+        field.accessibilityIdentifier = "unlock-pass"
+        message.accessibilityIdentifier = "unlock-message"
         let button = UIButton(type: .system)
         button.setTitle(NSLocalizedString("Unlock", comment: ""), for: .normal)
         button.addTarget(self, action: #selector(unlock), for: .touchUpInside)
+        button.accessibilityIdentifier = "unlock-open"
         let stack = UIStackView(arrangedSubviews: [field, button, message])
         stack.axis = .vertical
         stack.spacing = 16
@@ -62,7 +66,16 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
             // A finger enrolled since the lock was turned on changes this
             // state: then only the passphrase opens.
             let state = context.evaluatedPolicyDomainState?.base64EncodedString() ?? ""
-            guard granted, Core.fingerMatches(state) else { return }
+            let same = granted && Core.fingerMatches(state)
+            // What the hand test reads from the PC (scripts/iphone-watch.sh):
+            // the answers, and six hex digits of a hash of the fingers' state,
+            // enough to see whether iOS changed it when a finger was added
+            // (step 5 opened with a new finger on iOS 15.8, 2026-11-11).
+            let mark = SHA256.hash(data: Data(state.utf8)).prefix(3).map { String(format: "%02x", $0) }.joined()
+            NSLog(
+                "ITSaNAS finger: granted %@, fingers %@, same fingers %@",
+                granted ? "yes" : "no", state.isEmpty ? "unread" : mark, same ? "yes" : "no")
+            guard same else { return }
             DispatchQueue.main.async { self.openRemembered() }
         }
     }

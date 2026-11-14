@@ -58,8 +58,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
-    trash_failed, trash_keep, trash_list, trash_put, write_file,
+    get_file, list_at, network_in, open_into, passphrase_rule, put_file, status_of, sync_node,
+    trash_delete, trash_failed, trash_keep, trash_list, trash_put, use_coordinator, write_file,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -321,41 +321,7 @@ static TEST_NETWORK: Mutex<Option<Network>> = Mutex::new(None);
 /// The coordinator this process's nodes belong to: the official one, unless an
 /// instrumented test said otherwise.
 fn network() -> Result<Network, Failure> {
-    let test = TEST_NETWORK
-        .lock()
-        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
-    Ok(test.clone().unwrap_or_else(Network::official))
-}
-
-/// [`Java_fr_ngas_itsanas_Native_useCoordinatorForTests`] without the JNI, with
-/// the slot and the kind of build given.
-///
-/// Only a debug build takes it: the reason a phone cannot name its coordinator
-/// (see [`Network::pin`]) is exactly what a call that could reach a release
-/// build would undo, whoever made it.
-fn use_coordinator(
-    slot: &Mutex<Option<Network>>,
-    address: &str,
-    device: &str,
-    debug_build: bool,
-) -> Answer {
-    if !debug_build {
-        return Err(Failure::Usage(
-            "this build joins the official coordinator and no other".to_owned(),
-        ));
-    }
-    let device = (!device.is_empty()).then(|| device.to_owned());
-    if let Some(device) = &device {
-        itsanas_node::coordinator::parse_device(device)?;
-    }
-    let mut slot = slot
-        .lock()
-        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
-    *slot = Some(Network {
-        address: address.to_owned(),
-        device,
-    });
-    Ok(serde_json::json!({ "address": address }).to_string())
+    network_in(&TEST_NETWORK)
 }
 
 // -------------------------------------------------------------------- page

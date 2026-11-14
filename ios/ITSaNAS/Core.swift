@@ -45,6 +45,12 @@ enum Core {
     }
 
     static func exists() -> Bool { itsanas_exists(home) }
+
+    /// Debug builds only, for the UI tests: every node is pinned to their
+    /// coordinator. A release build refuses it.
+    static func useCoordinatorForTests(_ address: String, device: String) throws {
+        _ = try take(itsanas_use_coordinator_for_tests(address, device))
+    }
     static func open(passphrase: String) throws { _ = try take(itsanas_open(home, passphrase)) }
     /// Whether the Keychain's passphrase opened the account.
     static func openRemembered() throws -> Bool {

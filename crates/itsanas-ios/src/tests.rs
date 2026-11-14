@@ -354,3 +354,39 @@ fn the_header_declares_exactly_what_the_crate_exports() {
         "include/itsanas.h and src/lib.rs disagree on what Swift can call"
     );
 }
+
+/// The UI tests pin the app to a coordinator of their own, and that call is
+/// exactly what the official network forbids a phone (`Network::pin`). So the
+/// shim tells it what kind of build it is, a release build is refused, and no
+/// node of this crate is made or opened anywhere but on [`network`]. Sabotage:
+/// the shim says debug; `open` goes back to the official network directly.
+#[test]
+fn red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator() {
+    let source = include_str!("lib.rs");
+    assert!(
+        source.contains(concat!("&device?, cfg!", "(debug_assertions))")),
+        "the C shim no longer tells use_coordinator what kind of build it is"
+    );
+    assert!(
+        !source.contains(concat!("Network::", "official()")),
+        "a node is made or opened on the official coordinator while a UI test pinned another"
+    );
+    assert_eq!(
+        network().expect("the slot"),
+        Network::official(),
+        "a phone nobody pinned is not on the official coordinator"
+    );
+    let refused = take(itsanas_use_coordinator_for_tests(
+        c"localhost:9".as_ptr(),
+        c"not hex".as_ptr(),
+    ));
+    assert!(
+        refused["error"].is_string(),
+        "a device that is no device was taken for a pin: {refused}"
+    );
+    assert_eq!(
+        network().expect("the slot"),
+        Network::official(),
+        "a refused pin still moved the phone off the official coordinator"
+    );
+}

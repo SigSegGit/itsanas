@@ -1587,6 +1587,13 @@
     document.querySelectorAll('[data-feature]').forEach(function (el) {
       if (!features[el.dataset.feature]) { el.setAttribute('data-off', ''); }
     });
+    // A section whose every card is off would show its title over nothing:
+    // an iPhone showed "Contribute to the network", empty.
+    document.querySelectorAll('details.group').forEach(function (group) {
+      const cards = group.querySelectorAll(':scope > section.card');
+      const off = Array.prototype.every.call(cards, function (card) { return card.hasAttribute('data-off'); });
+      if (cards.length > 0 && off) { group.setAttribute('data-off', ''); }
+    });
     // Only a phone goes without the advanced settings (features.rs).
     onPhone = !features.advanced;
     hostingOffered = features.hosting;

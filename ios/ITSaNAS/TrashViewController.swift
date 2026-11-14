@@ -56,6 +56,7 @@ final class TrashViewController: UITableViewController {
         let days = max(0, Int(((due - now) / 86_400).rounded(.up)))
         let format = NSLocalizedString("%@ (%d days)", comment: "")
         cell.textLabel?.text = String(format: format, path(indexPath), days)
+        cell.accessibilityIdentifier = "trash:" + path(indexPath)
         return cell
     }
 

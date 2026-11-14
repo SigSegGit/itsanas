@@ -52,6 +52,11 @@ targets:
         "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": $(SRCROOT)/../target/aarch64-apple-ios/release
         "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/../target/aarch64-apple-ios-sim/release
         OTHER_LDFLAGS: -litsanas_ios
+      configs:
+        # The tests' simulator build links the debug core: only it takes the
+        # UI tests' coordinator (itsanas_use_coordinator_for_tests).
+        Debug:
+          "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": $(SRCROOT)/../target/aarch64-apple-ios-sim/debug
     dependencies:
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
@@ -67,12 +72,27 @@ targets:
       base:
         HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/itsanas-ios/include
         GENERATE_INFOPLIST_FILE: YES
+  # The hand test of docs/IOS.md, driven on a simulator against a coordinator
+  # and a computer scripts/iphone-e2e.sh starts on the Mac.
+  ITSaNASUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ITSaNASUITests
+    dependencies:
+      - target: ITSaNAS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: ITSaNASUITests/Bridging.h
 schemes:
   ITSaNAS:
     build:
       targets:
         ITSaNAS: all
         ITSaNASTests: [test]
+        ITSaNASUITests: [test]
     test:
       targets:
         - ITSaNASTests
+        - ITSaNASUITests

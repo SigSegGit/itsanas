@@ -19,18 +19,28 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         super.viewDidLoad()
         title = folder.isEmpty ? "ITSaNAS" : (folder as NSString).lastPathComponent
         navigationItem.rightBarButtonItems = [
-            UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(add)),
-            UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(sync)),
+            named(UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(add)), "files-add"),
+            named(UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(sync)), "files-sync"),
         ]
         if folder.isEmpty {
             navigationItem.leftBarButtonItems = [
-                UIBarButtonItem(
+                named(UIBarButtonItem(
                     title: NSLocalizedString("Settings", comment: ""), style: .plain,
-                    target: self, action: #selector(settings)),
-                UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(trash)),
+                    target: self, action: #selector(settings)), "files-settings"),
+                named(UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(trash)), "files-trash"),
             ]
+            // The system's trash icon reads "Delete" to VoiceOver: this one
+            // opens the trash, and a swiped row's Delete is another button.
+            navigationItem.leftBarButtonItems?.last?.accessibilityLabel = NSLocalizedString("Trash", comment: "")
         }
+        tableView.accessibilityIdentifier = "files"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
+    }
+
+    /// What the UI tests (ios/ITSaNASUITests) tap.
+    private func named(_ item: UIBarButtonItem, _ identifier: String) -> UIBarButtonItem {
+        item.accessibilityIdentifier = identifier
+        return item
     }
 
     private func reload() {
@@ -91,12 +101,15 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "entry", for: indexPath)
         if indexPath.row < folders.count {
-            cell.textLabel?.text = "📁 " + (folders[indexPath.row]["name"] as? String ?? "")
+            let name = folders[indexPath.row]["name"] as? String ?? ""
+            cell.textLabel?.text = "📁 " + name
+            cell.accessibilityIdentifier = "folder:" + name
         } else {
             let file = files[indexPath.row - folders.count]
             let name = ((file["path"] as? String ?? "") as NSString).lastPathComponent
             let here = file["here"] as? Bool ?? false
             cell.textLabel?.text = here ? name : name + " ☁︎"
+            cell.accessibilityIdentifier = "file:" + name
         }
         return cell
     }

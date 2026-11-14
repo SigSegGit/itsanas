@@ -239,9 +239,9 @@ def decide(event, labels, files, packages, mentions_mac=()):
             "neither itsanas-android, the Kotlin side nor the APK scripts are affected",
         ),
         "ios-app": job(
-            "itsanas-ios" in affected or touched("scripts/build-ios"),
+            "itsanas-ios" in affected or touched("scripts/build-ios") or touched("scripts/iphone-e2e"),
             "the iPhone app's code or its build is affected",
-            "neither itsanas-ios, the Swift side nor scripts/build-ios.sh is affected",
+            "neither itsanas-ios, the Swift side nor the iPhone scripts are affected",
         ),
         "minimum-rust-version": job(rust, "affected crates", nothing),
         # Coverage of a subset is a misleading number, and it gates nothing.
