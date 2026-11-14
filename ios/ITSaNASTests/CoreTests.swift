@@ -10,6 +10,19 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try Core.unwrap(#"{"ok":"{}"}"#), "{}")
     }
 
+    func testARoundNamesWhatItBroughtAndSaysNothingWhenNothingChanged() {
+        let none: [String: Any] = ["count": 0, "names": [String]()]
+        XCTAssertNil(
+            Core.changesLine(["new": none, "changed": none, "gone": none, "reached": 1]),
+            "a round that changed nothing claimed it did")
+        let said = Core.changesLine([
+            "new": ["count": 7, "names": ["photos/a.jpg", "b.txt"]],
+            "changed": ["count": 1, "names": ["notes/c.txt"]],
+            "gone": none,
+        ])
+        XCTAssertEqual(said, "7 new: a.jpg, b.txt, … · 1 changed: c.txt")
+    }
+
     func testThePassphraseRuleComesFromTheCore() throws {
         let rule = try Core.passphraseRule()
         XCTAssertNotNil(rule["min"] as? Int, "the app would state no minimum: \(rule)")

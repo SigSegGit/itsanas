@@ -3,7 +3,9 @@
 # simulator, then the Xcode project from ios/project.yml.
 #
 #   sh scripts/build-ios.sh          core and project; open ios/ITSaNAS.xcodeproj
-#   sh scripts/build-ios.sh test     and run the Swift tests on a simulator
+#   sh scripts/build-ios.sh test     and run the Swift tests on a simulator: the
+#                                    unit tests, then the hand test's UI tests
+#                                    (scripts/iphone-e2e.sh)
 #   sh scripts/build-ios.sh ipa      and package target/ITSaNAS-unsigned.ipa
 #   sh scripts/build-ios.sh ci       test, then ipa
 #
@@ -20,17 +22,30 @@ export IPHONESIMULATOR_DEPLOYMENT_TARGET=14.0
 
 cargo build --release --locked -p itsanas-ios --target aarch64-apple-ios
 cargo build --release --locked -p itsanas-ios --target aarch64-apple-ios-sim
+# The simulator's Debug build links this one (ios/project.yml): only a debug
+# core takes the UI tests' coordinator.
+cargo build --locked -p itsanas-ios --target aarch64-apple-ios-sim
 (cd ios && xcodegen generate)
 
 what="${1:-}"
 
 if [ "$what" = test ] || [ "$what" = ci ]; then
-    simulator=$(xcrun simctl list devices available |
-        sed -n 's/^ *\(iPhone [^(]*[^ (]\) *(.*/\1/p' | head -n 1)
-    [ -n "$simulator" ] || { echo "no iPhone simulator is installed" >&2; exit 1; }
+    # An iPhone SE first: Touch ID, as the hand test's phone, and iOS's floor.
+    # Chosen by its id, on the runtime of this Xcode's SDK: a name such as
+    # "iPhone SE (3rd generation)" is on several runtimes, and cut at its
+    # parenthesis it named no device at all (run 42961293278).
+    sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
+    phones=$(xcrun simctl list devices available |
+        awk -v runtime="-- iOS $sdk --" '/^-- /{ on = ($0 == runtime) } on && /^ +iPhone /')
+    phone=$(printf '%s\n' "$phones" | grep 'iPhone SE' | head -n 1 || true)
+    [ -n "$phone" ] || phone=$(printf '%s\n' "$phones" | head -n 1)
+    simulator=$(printf '%s\n' "$phone" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -n 1)
+    [ -n "$simulator" ] || { echo "no iPhone simulator is installed for iOS $sdk" >&2; exit 1; }
+    echo "simulator: $phone"
     xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
-        -destination "platform=iOS Simulator,name=$simulator" \
-        -derivedDataPath target/ios-test test
+        -destination "platform=iOS Simulator,id=$simulator" \
+        -derivedDataPath target/ios-test -only-testing:ITSaNASTests test
+    bash scripts/iphone-e2e.sh "$simulator"
 fi
 
 if [ "$what" = ipa ] || [ "$what" = ci ]; then

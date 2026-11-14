@@ -9,7 +9,7 @@
 #
 #   bash scripts/iphone-watch.sh            # until Ctrl-C, then the verdict
 #   bash scripts/iphone-watch.sh 900        # fifteen minutes, then the verdict
-#   IPHONE_RECEIPT="hand test 0-10, iPhone SE" bash scripts/iphone-watch.sh
+#   IPHONE_RECEIPT="hand test 0, 6, 7, 10, iPhone SE" bash scripts/iphone-watch.sh
 #                                           # and, on PASS, a receipt for this
 #                                           # commit (scripts/device-receipt.sh)
 #

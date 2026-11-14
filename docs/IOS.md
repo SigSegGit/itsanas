@@ -10,7 +10,7 @@ for Settings. It runs on iOS 14 and later, which includes the first iPhone SE
 | Piece | Where |
 | --- | --- |
 | The core | unchanged, built as a static library for `aarch64-apple-ios` |
-| What both phones ask the core (open, list, fetch, add, round, status) | `crates/itsanas-cli/src/phone.rs`, called by Android through JNI and by the iPhone through C |
+| What both phones ask the core (open, list, fetch, add, free up, round, status) | `crates/itsanas-cli/src/phone.rs`, called by Android through JNI and by the iPhone through C |
 | The C boundary | `crates/itsanas-ios`, its header in `crates/itsanas-ios/include/itsanas.h` |
 | The setup engine and Settings, as a page | `crates/itsanas-cli`, served on 127.0.0.1 and shown in a `WKWebView`, as on Android |
 | The application | `ios/`, Swift and UIKit, described by `ios/project.yml` (XcodeGen) |
@@ -144,9 +144,42 @@ not the same as the App Store or TestFlight.
 
 ## The hand test
 
-What no test above can do: a real iPhone, a real finger, iOS deciding when a
-round runs. Each step says what to do and what must be seen; note the step's
-number and OK or KO, with a screenshot for a KO.
+Steps 1 to 5, 8 and 9 run by themselves now, on a simulator, in the Mac job
+of every run that touches the iPhone app: `scripts/iphone-e2e.sh` (called by
+`sh scripts/build-ios.sh test`) starts a coordinator and a computer of the
+account on the Mac, and the UI tests in `ios/ITSaNASUITests` do what a person
+did by hand:
+
+1. log in to an existing account with its name and passphrase: the file list appears;
+2. a file put on the computer is listed after Sync, and opens;
+3. the trash: a deleted file waits in the trash with its days, Restore brings
+   it back, and "Delete" from the trash asks who is there (the passphrase, on a
+   simulator without a passcode), then removes it from the computer too after a
+   round;
+4. Touch ID on in Settings: back from the home screen a finger is asked, one
+   that is not enrolled leaves the passphrase field, which opens; the enrolled
+   one opens;
+5. after the enrolment changes no finger opens, the passphrase does, and Touch
+   ID turned off and on again opens with a finger;
+8. Settings, its sections opened, shows no Disks, no USB key, no Advanced
+   section, and no lending of space, not even an empty section for it;
+9. Sign out locks the app, and the app opened again asks for the passphrase.
+
+`FreeTest` adds one more, as Android's does: the file from the computer,
+fetched to the phone, swiped and freed up, stays, and the line above the list
+says it was kept, since no two machines have proved yet that they hold it. After
+a round that changed anything, that line names it ("2 new: a, b · 1 changed:
+c"), from the `new`, `changed` and `gone` of the round's answer.
+
+`FreeTest`, which runs first, and steps 1, 4 and 5 start from an empty phone; the others open the account the
+step before left on it. A login fetches the account's recovery copy, which the
+coordinator gives one username five times in 15 minutes, and a run has more
+steps than that.
+
+The fingers are the simulator's. What is left for a person is what no
+simulator does: a real iPhone, a real finger, and iOS deciding when a round
+runs. Each step says what to do and what must be seen; note the step's number
+and OK or KO, with a screenshot for a KO.
 
 0. **Get the build** from the last green run of `main` (or of the release's tag), then sign and install
    it with your Apple ID in Sideloadly or AltStore:
@@ -157,23 +190,8 @@ number and OK or KO, with a screenshot for a KO.
 
    Keep `bash scripts/iphone-watch.sh` running on the PC, with the phone on
    USB, from the start: it keeps the app's log lines, collects its crash reports
-   and ends with a verdict (background rounds seen, no crash, no panic).
-1. **Open the account.** Log in with an existing account (or create one). The
-   file list appears.
-2. **A file from a computer.** Put a small file in the synced folder of a
-   computer of the account, then press Sync on the phone: it is listed, and
-   opens.
-3. **The trash.** Swipe a file, Delete: it leaves the list and the trash
-   shows it with its days left. Restore it: it is back in the list. Delete it
-   again, then Delete in the trash: the phone asks who you are, and after a
-   round it is gone from the computer too.
-4. **Touch ID.** Settings, Security, turn on the fingerprint. Leave the app
-   for the home screen, come back: a finger is asked. A finger that is not
-   enrolled: the passphrase field stays, and the passphrase opens. The right
-   finger: the file list.
-5. **A finger enrolled later.** In the iPhone's settings, add a fingerprint.
-   Back in ITSaNAS, any finger leaves the passphrase field; the passphrase
-   opens. Turn the fingerprint off and on in Settings: a finger opens again.
+   and ends with a verdict (background rounds seen, no crash, no panic). Open the
+   account on the phone (log in, or create one).
 6. **A round in the background.** First check that iOS's Settings, General,
    Background App Refresh lists ITSaNAS, switched on: if it is missing, the
    free signing dropped the background modes, and say so. Then put a new file
@@ -181,12 +199,8 @@ number and OK or KO, with a screenshot for a KO.
    its charger on Wi-Fi for an hour or more. The PC's log shows a line
    `ITSaNAS background` when iOS grants a round; open the app without pressing
    Sync: the new file is listed.
-7. **The same with Touch ID on**, as step 6: the round still runs, and the app
-   still asks for a finger when opened.
-8. **Settings hides what an iPhone does not do**: no Disks, no USB key, no
-   Advanced section, no lending of space.
-9. **Sign out**, from Settings: back on the first screen; opening the app
-   again asks to log in.
+7. **The same with Touch ID on** (Settings, Security, the fingerprint), as
+   step 6: the round still runs, and the app still asks for a finger when opened.
 
 And on Windows, for the passphrase sealed behind Windows Hello:
 
