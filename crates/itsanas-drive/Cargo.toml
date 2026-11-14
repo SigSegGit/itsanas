@@ -12,7 +12,6 @@ description = "The account as a folder: everything listed, downloaded when opene
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-folder = { version = "0.1.0", path = "../itsanas-folder" }
 itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
-itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 
 # The generated header and nothing else. MIT, and -- the reason this is not the
@@ -21,6 +20,8 @@ itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 # is RUSTSEC-2022-0040: unsound, unmaintained, no fix. The wrapper it provided
 # is written in `src/projfs.rs` instead.
 [target.'cfg(windows)'.dependencies]
+# The drive itself, which only Windows has: elsewhere nothing opens a node.
+itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 projfs-sys = "0.1.2"
 getrandom = "0.4.3"
 
