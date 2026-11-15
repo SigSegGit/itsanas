@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-12 — 1664 test functions across 44 binaries, 20 of them
+**Last updated: 2026-11-12 — 1665 test functions across 44 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 618 are red-team tests.**
 
-**1548 of the 1664 tests have an entry of their own on this page** — an *entry*,
+**1549 of the 1665 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 358 |
+| `itsanas-cli` unit | 359 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -1251,7 +1251,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (358)
+# `itsanas-cli` — unit tests (359)
 
 ## `bench` — measuring this machine (4)
 
@@ -1647,11 +1647,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 |---|---|
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
 
-## `freeing` — files that need not stay on this machine (1)
+## `freeing` — files that need not stay on this machine (2)
 
 | Test | What it proves |
 |---|---|
 | `a_file_freed_with_no_proved_copy_elsewhere_keeps_its_sealed_copy` | `itsanas free` and Settings' Free up take the file off the folder, and its sealed copy stays on this machine while no other machine has proved it holds one; the page lists it freed, and Keep here brings it back into the folder. |
+| `a_file_absent_here_goes_to_the_accounts_trash_from_here` | Settings' Delete everywhere, on a file this machine does not hold: it goes to the account's trash, where any machine can restore it, and leaves this machine's freed list; a path the account never had is refused. |
 
 ## `trash` — the trash from a machine's home: a computer's delete, and what left a phone's folder (4)
 

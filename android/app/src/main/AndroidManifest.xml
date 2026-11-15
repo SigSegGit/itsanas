@@ -8,6 +8,8 @@
          machines, encrypted. The page the application shows is served on
          127.0.0.1 by its own engine (network_security_config.xml). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Battery.kt: asks the person to let the app off the battery limits. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Whether the connection is metered is the single most important input to
