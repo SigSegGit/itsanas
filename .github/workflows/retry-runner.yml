@@ -1,11 +1,12 @@
-name: Retry a platform job once
+name: Retry a platform job, patiently
 
 # The macOS and ARM jobs fail now and then for the runner, not the code: no Mac
 # free for half an hour, a lost runner, a simulator that never booted. Each one
-# used to cost a session reading a log and pressing re-run. This workflow re-runs
-# the failed jobs of a CI run once, by itself, when a failed or cancelled job is
-# one of those; a second failure is left for a person, since by then it is
-# likely the code.
+# used to cost a session reading a log, pushing a guess and paying for a whole
+# new run. This workflow re-runs only the failed jobs of a CI run, up to twice,
+# ten minutes after the failure so a busy pool of Macs has freed up, and never
+# for a commit that a newer push has already replaced. A job still red after
+# three attempts is likely the code, and is left for a person.
 
 on:
   workflow_run:
@@ -14,28 +15,37 @@ on:
 
 permissions:
   actions: write
+  contents: read
 
 jobs:
   retry:
     name: Re-run a macOS or ARM job that failed
     if: >-
       github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.run_attempt == 1
+      github.event.workflow_run.run_attempt < 3
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Re-run the failed jobs when a platform job is among them
+      - name: Wait, then re-run the failed jobs when a platform job is among them
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
           REPO: ${{ github.repository }}
         run: |
           failed="$(gh api "repos/$REPO/actions/runs/$RUN/jobs?per_page=100" \
             --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name')"
           printf 'failed jobs:\n%s\n' "$failed"
-          if printf '%s\n' "$failed" | grep -qE 'iPhone|macos|ARM'; then
-            gh run rerun "$RUN" --repo "$REPO" --failed
-            echo "re-ran the failed jobs once"
-          else
+          if ! printf '%s\n' "$failed" | grep -qE 'iPhone|macos|ARM'; then
             echo "no macOS or ARM job failed: nothing to re-run"
+            exit 0
           fi
+          sleep 600
+          head="$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha 2>/dev/null || true)"
+          if [ -n "$head" ] && [ "$head" != "$SHA" ]; then
+            echo "a newer push replaced $SHA: its own run decides"
+            exit 0
+          fi
+          gh run rerun "$RUN" --repo "$REPO" --failed
+          echo "re-ran the failed jobs"
