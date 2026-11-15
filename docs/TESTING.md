@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-12 — 1662 test functions across 44 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 617 are red-team tests.**
+**Last updated: 2026-11-12 — 1664 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 618 are red-team tests.**
 
-**1546 of the 1662 tests have an entry of their own on this page** — an *entry*,
+**1548 of the 1664 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 356 |
+| `itsanas-cli` unit | 358 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -223,7 +223,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 38 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 208 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 209 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1069,6 +1069,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_sealed_passphrase_opens_for_the_person_and_leaves_no_clear_copy`** | Sealed behind the system's unlock: the clear copy is gone, another key opens nothing, and switching off puts the passphrase back. |
 | **`red_team_a_seal_that_cannot_be_opened_never_replaces_the_passphrase`** | A refusal, or a system answering differently twice, leaves the passphrase where it was. |
 | **`red_team_a_passphrase_changed_while_sealed_is_the_one_the_seal_gives`** | A passphrase changed while sealed is sealed again; a refusal or another key changes neither the keystore nor the seal. |
+| **`red_team_three_accounts_at_sign_in_ask_the_system_once`** | Three accounts whose services start at sign-in ask Windows Hello or Touch ID once, the key then kept under the sign-in's own protection; a kept key that no longer opens the seal is dropped and asked again; a refusal opens nothing. Sabotaged (what is kept ignored): red. |
+| `a_key_protected_for_this_user_comes_back_and_is_not_kept_in_clear` | Windows only: the key kept for the next start goes through DPAPI for this user and comes back the same, and the protected bytes do not hold it. |
 | `the_legal_texts_are_served_and_linked_from_both_screens` | The three texts are in the program, and on the first screen and in Settings. |
 | **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
 | **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
@@ -1249,7 +1251,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (356)
+# `itsanas-cli` — unit tests (358)
 
 ## `bench` — measuring this machine (4)
 

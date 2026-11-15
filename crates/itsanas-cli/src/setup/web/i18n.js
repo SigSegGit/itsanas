@@ -510,8 +510,8 @@ window.I18N = {
     'Legal notice': 'Mentions légales',
     'Privacy policy': 'Politique de confidentialité',
     'Terms of use': 'Conditions d’utilisation',
-    'Asked when the session opens. A machine restarted with nobody signed in waits for them.':
-      'Demandé à l’ouverture de session. Une machine redémarrée sans personne de connecté les attend.',
+    'Signing in to this machine unlocks every account on it: the system asks again only when that is not enough, and before a delete for good. A machine restarted with nobody signed in waits for them.':
+      'Se connecter à cette machine déverrouille tous ses comptes : le système redemande seulement si cela ne suffit pas, et avant une suppression définitive. Une machine redémarrée sans personne de connecté les attend.',
     'Offer this machine to the network': 'Offrir cette machine au réseau',
     'Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.':
       'Éteint, cette machine ne reçoit plus rien et ne déclare aucun espace, et vos valeurs ci-dessous sont conservées. Ce qu’elle garde déjà pour d’autres reste, et elle continue d’en répondre.',

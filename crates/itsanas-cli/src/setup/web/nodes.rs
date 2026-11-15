@@ -127,8 +127,12 @@ impl Nodes for Opened {
         let sealed = || {
             crate::setup::unlock::is_on(&self.home)
                 .then(|| {
-                    crate::setup::unlock::opened(&self.home, crate::setup::unlock::platform_gate)
-                        .ok()
+                    crate::setup::unlock::opened_at_start(
+                        &self.home,
+                        &crate::setup::unlock::SignIn,
+                        crate::setup::unlock::platform_gate,
+                    )
+                    .ok()
                 })
                 .flatten()
         };

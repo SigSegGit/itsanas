@@ -4375,7 +4375,7 @@ fn start_daemon(
     let passphrase = if std::env::var(PASSPHRASE_ENV).map_or(true, |value| value.trim().is_empty())
         && setup::unlock::is_on(home)
     {
-        setup::unlock::opened(home, setup::unlock::platform_gate)
+        setup::unlock::opened_at_start(home, &setup::unlock::SignIn, setup::unlock::platform_gate)
             .map_err(|why| CliError::Usage(format!("the passphrase stays sealed: {why}")))?
             .to_string()
     } else {
