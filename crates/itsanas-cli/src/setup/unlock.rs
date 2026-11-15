@@ -1,8 +1,18 @@
 //! The passphrase of a computer's service, sealed behind Windows Hello or Touch
-//! ID instead of lying in a file. Optional and off by default. The system asks
-//! once, when the session opens; refused, the service stays stopped and the
-//! passphrase is typed. The price: a machine restarted with nobody signed in
-//! does not start by itself.
+//! ID instead of lying in a file. Optional and off by default. The price: a
+//! machine restarted with nobody signed in does not start by itself.
+//!
+//! # Once per sign-in, for every account
+//!
+//! The key the system gives is the same for every account of this person on
+//! this machine. When the services start at sign-in, the person has just
+//! proved who they are to the system: the key is kept under the system's own
+//! protection of this person's data (DPAPI on Windows, the login keychain on a
+//! Mac), which that sign-in unlocks, and the services read it there
+//! ([`opened_at_start`]). The system asks only when that copy is missing or no
+//! longer opens the seal, then keeps it. Three accounts used to ask three
+//! times on top of the sign-in itself (Nicolas, 2026-11-15). A delete for good
+//! or the 24 words still ask, every time ([`opened`] with [`platform_gate`]).
 
 use std::path::{Path, PathBuf};
 
@@ -96,6 +106,58 @@ pub(crate) fn opened(home: &Path, gate: Gate) -> Result<Secret, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Where the system keeps the key between two starts.
+pub(crate) trait Remembered {
+    fn load(&self) -> Option<[u8; 32]>;
+    fn save(&self, key: &[u8; 32]);
+    fn forget(&self);
+}
+
+/// The passphrase behind the seal when a service starts at sign-in: the key the
+/// sign-in already unlocked, and the system asked only when it is missing or
+/// does not open this seal, then kept for the next account and the next start.
+pub(crate) fn opened_at_start(
+    home: &Path,
+    kept: &dyn Remembered,
+    gate: Gate,
+) -> Result<Secret, String> {
+    let sealed = std::fs::read(sealed_file(home)).map_err(|e| e.to_string())?;
+    let open = |key: [u8; 32]| {
+        let plain =
+            open_random(&SymmetricKey::new(key), &context(), &sealed).map_err(|e| e.to_string())?;
+        String::from_utf8(plain)
+            .map(Secret::new)
+            .map_err(|e| e.to_string())
+    };
+    if let Some(key) = kept.load() {
+        if let Ok(passphrase) = open(key) {
+            return Ok(passphrase);
+        }
+        // Another key than this seal's: a credential made again. Asked below.
+        kept.forget();
+    }
+    let key = gate()?;
+    let passphrase = open(key)?;
+    kept.save(&key);
+    Ok(passphrase)
+}
+
+/// The system's own keeping of the key for this person, unlocked by their sign-in.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SignIn;
+
+impl Remembered for SignIn {
+    fn load(&self) -> Option<[u8; 32]> {
+        platform_keep::load()
+    }
+    fn save(&self, key: &[u8; 32]) {
+        platform_keep::save(key);
+    }
+    fn forget(&self) {
+        platform_keep::forget();
+    }
+}
+
 /// Run `change`, which puts the keystore under `new`, and keep the seal in step:
 /// the service reads only the seal, and would start next time with a passphrase
 /// that opens nothing. The system asks first, and its key must open the seal in
@@ -143,6 +205,98 @@ pub(crate) fn platform_gate() -> Result<[u8; 32], String> {
     return touch::secret();
     #[cfg(not(any(windows, target_os = "macos")))]
     Err("this system has no unlock this program can ask for".to_owned())
+}
+
+/// The key kept under DPAPI for this Windows user, in a file of their own profile:
+/// any program of theirs can read it while they are signed in, as it could read
+/// their files, and nobody can without their sign-in.
+#[cfg(windows)]
+mod platform_keep {
+    use windows::Security::Cryptography::CryptographicBuffer;
+    use windows::Security::Cryptography::DataProtection::DataProtectionProvider;
+    use windows::core::{Array, HSTRING};
+
+    fn file() -> Option<std::path::PathBuf> {
+        std::env::var_os("LOCALAPPDATA").map(|dir| {
+            std::path::PathBuf::from(dir)
+                .join("ITSaNAS")
+                .join("unlock.key")
+        })
+    }
+
+    fn unprotect(sealed: &[u8]) -> windows::core::Result<Vec<u8>> {
+        let provider = DataProtectionProvider::new()?;
+        let buffer = CryptographicBuffer::CreateFromByteArray(sealed)?;
+        let plain = provider.UnprotectAsync(&buffer)?.get()?;
+        let mut bytes = Array::<u8>::new();
+        CryptographicBuffer::CopyToByteArray(&plain, &mut bytes)?;
+        Ok(bytes.to_vec())
+    }
+
+    fn protect(key: &[u8]) -> windows::core::Result<Vec<u8>> {
+        let provider =
+            DataProtectionProvider::CreateOverloadExplicit(&HSTRING::from("LOCAL=user"))?;
+        let buffer = CryptographicBuffer::CreateFromByteArray(key)?;
+        let sealed = provider.ProtectAsync(&buffer)?.get()?;
+        let mut bytes = Array::<u8>::new();
+        CryptographicBuffer::CopyToByteArray(&sealed, &mut bytes)?;
+        Ok(bytes.to_vec())
+    }
+
+    pub(super) fn load() -> Option<[u8; 32]> {
+        let sealed = std::fs::read(file()?).ok()?;
+        unprotect(&sealed).ok()?.try_into().ok()
+    }
+
+    pub(super) fn save(key: &[u8; 32]) {
+        let (Some(file), Ok(sealed)) = (file(), protect(key)) else {
+            return;
+        };
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, sealed);
+    }
+
+    pub(super) fn forget() {
+        if let Some(file) = file() {
+            let _ = std::fs::remove_file(file);
+        }
+    }
+
+    /// The system's protection itself, without the file: what is protected
+    /// for this user comes back the same, and the protected bytes are not it.
+    #[cfg(test)]
+    #[test]
+    fn a_key_protected_for_this_user_comes_back_and_is_not_kept_in_clear() {
+        let key = [42u8; 32];
+        let sealed = protect(&key).expect("protect");
+        assert!(
+            !sealed.windows(32).any(|window| window == key),
+            "the key lies in clear in the file that keeps it"
+        );
+        assert_eq!(unprotect(&sealed).expect("unprotect"), key);
+    }
+}
+
+/// On a Mac the key is in the login keychain already (`touch`): the sign-in
+/// unlocked it, so reading it asks nothing.
+#[cfg(target_os = "macos")]
+mod platform_keep {
+    pub(super) fn load() -> Option<[u8; 32]> {
+        super::touch::kept()
+    }
+    pub(super) fn save(_: &[u8; 32]) {}
+    pub(super) fn forget() {}
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+mod platform_keep {
+    pub(super) fn load() -> Option<[u8; 32]> {
+        None
+    }
+    pub(super) fn save(_: &[u8; 32]) {}
+    pub(super) fn forget() {}
 }
 
 /// A sign-in the system verifies, turned into a key: Windows Hello signs a fixed
@@ -197,6 +351,14 @@ mod touch {
 
     const SERVICE: &str = "ITSaNAS";
     const ACCOUNT: &str = "service passphrase key";
+
+    /// The key, read from the login keychain without asking: what the sign-in
+    /// unlocked.
+    pub(super) fn kept() -> Option<[u8; 32]> {
+        get_generic_password(SERVICE, ACCOUNT)
+            .ok()
+            .map(|key| *blake3::hash(&key).as_bytes())
+    }
 
     pub(super) fn secret() -> Result<[u8; 32], String> {
         if !itsanas_touchid::ask("unlock ITSaNAS") {
@@ -324,6 +486,68 @@ mod tests {
             opened(dir.path(), the_person).expect("opens").as_str(),
             "the new one",
             "the service would start with the old passphrase, which opens nothing now"
+        );
+    }
+
+    /// The key kept between starts, in memory.
+    struct Kept(RefCell<Option<[u8; 32]>>);
+
+    impl Remembered for Kept {
+        fn load(&self) -> Option<[u8; 32]> {
+            *self.0.borrow()
+        }
+        fn save(&self, key: &[u8; 32]) {
+            *self.0.borrow_mut() = Some(*key);
+        }
+        fn forget(&self) {
+            *self.0.borrow_mut() = None;
+        }
+    }
+
+    static ASKED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    fn the_person_counted() -> std::result::Result<[u8; 32], String> {
+        ASKED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok([7; 32])
+    }
+
+    /// Three accounts on one machine, their services started at sign-in: the
+    /// system asks once, not three times on top of the sign-in, and a key kept
+    /// from another credential is dropped and asked again rather than locking
+    /// every account out. Sabotage: make `opened_at_start` ignore what is kept.
+    #[test]
+    fn red_team_three_accounts_at_sign_in_ask_the_system_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let homes: Vec<_> = (0..3)
+            .map(|n| dir.path().join(format!("account-{n}")))
+            .collect();
+        for home in &homes {
+            std::fs::create_dir_all(home).expect("home");
+            enable(home, &stand(), the_person).expect("sealed");
+        }
+        let kept = Kept(RefCell::new(None));
+        ASKED.store(0, std::sync::atomic::Ordering::SeqCst);
+        for home in &homes {
+            let passphrase = opened_at_start(home, &kept, the_person_counted).expect("opened");
+            assert_eq!(passphrase.as_str(), "kept here");
+        }
+        assert_eq!(
+            ASKED.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "every account asked the system again: three prompts on top of the sign-in"
+        );
+
+        *kept.0.borrow_mut() = Some([8; 32]);
+        let passphrase = opened_at_start(&homes[0], &kept, the_person_counted).expect("opened");
+        assert_eq!(passphrase.as_str(), "kept here");
+        assert_eq!(
+            kept.load(),
+            Some([7; 32]),
+            "a key that no longer opens the seal stayed kept: every start would fail"
+        );
+        assert!(
+            opened_at_start(&homes[0], &Kept(RefCell::new(None)), a_refusal).is_err(),
+            "a refusal opened the seal"
         );
     }
 }

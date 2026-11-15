@@ -4076,7 +4076,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
        `ServiceLimitTest` runs the limit and a refused restart; nothing tests the worker: no
        scenario runs an app closed.
     d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
-       file replaces the passphrase file; the daemon asks at start. Windows needs no `unsafe`; the
+       file replaces the passphrase file. At sign-in the services of every account reuse the
+       sign-in: the system's key is kept under DPAPI (the login keychain on a Mac) and read
+       without asking; the system asks only when that copy is missing or stale, once for all
+       accounts (`red_team_three_accounts_at_sign_in_ask_the_system_once`; Nicolas, 2026-11-15:
+       three accounts asked three times after the laptop's own unlock). A delete for good and the
+       24 words still ask every time. Windows needs no `unsafe`; the
        Mac's `LAContext` call is `itsanas-touchid`. The logic is tested with stand-in gates; neither
        system's own prompt has run. A passphrase changed while sealed is sealed again, the system
        asking first (`red_team_a_passphrase_changed_while_sealed_is_the_one_the_seal_gives`).

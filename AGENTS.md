@@ -94,6 +94,13 @@ three points of the weekly quota, against 35 for a multi-agent batch two days
 before. So: no subagent, workflow, study or Rodin unless Nicolas asks for one in
 this session, whatever the size of the job, and a session carries on to the end
 of the list. (Nicolas, 2026-11-04; this replaced "Rodin before each major step".)
+A session takes many items of the list, and a pull request carries several
+features that belong together: one step per session is gone (Nicolas,
+2026-11-15). It opens the PR with auto-merge and goes on to the next feature
+rather than watching CI. A macOS or ARM job that fails is re-run once by
+`.github/workflows/retry-runner.yml`; one still red for a platform reason
+(simulator, runner, emulator) goes to Copilot as an issue assigned to it, with
+the job's link and log, and the session carries on.
 
 **Right the first time.** Before the first push, write to what the gates enforce:
 
