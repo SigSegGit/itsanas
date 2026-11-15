@@ -97,10 +97,12 @@ of the list. (Nicolas, 2026-11-04; this replaced "Rodin before each major step".
 A session takes many items of the list, and a pull request carries several
 features that belong together: one step per session is gone (Nicolas,
 2026-11-15). It opens the PR with auto-merge and goes on to the next feature
-rather than watching CI. A macOS or ARM job that fails is re-run once by
-`.github/workflows/retry-runner.yml`; one still red for a platform reason
-(simulator, runner, emulator) goes to Copilot as an issue assigned to it, with
-the job's link and log, and the session carries on.
+rather than watching CI. Every push re-runs the whole matrix, Mac included, so
+a pull request is pushed once when it can be, a red run is read once and all its
+causes fixed in one push, and a macOS or ARM job that fails is left to
+`.github/workflows/retry-runner.yml`, which re-runs it up to twice, ten minutes
+apart, unless a newer push replaced it; its log is read only after the third
+attempt.
 
 **Right the first time.** Before the first push, write to what the gates enforce:
 
