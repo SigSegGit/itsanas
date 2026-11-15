@@ -4019,7 +4019,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     the log; listings never show `.itsanas/`. Two changes made apart settle on the one that keeps
     more. Settings' Trash section (`/api/deletion`, `/api/trash`) sets them for this machine or
     for every machine ("Apply to every machine"); `itsanas trash mode|receive|ask|confirm|follow`
-    from a terminal. Settings is now grouped in sections a person opens one at a time.
+    from a terminal. Settings is now grouped in sections a person opens one at a time. A file not
+    on this machine has Delete everywhere in Settings' Files on this machine: into the account's
+    trash (`freeing::delete_everywhere`), the list of files absent here that a machine whose
+    deletes stay here needs.
     Proved by `tests/deletion.rs` (itsanas-sync), `red_team_a_delete_follows_this_machines_rules_and_the_default_keeps_it`,
     `red_team_the_page_trash_acts_only_on_what_is_in_it`, `red_team_a_rule_that_keeps_less_waits_for_who_you_are`,
     the folder tests and the bench's phase T (a delete on machine 1, restored and emptied from

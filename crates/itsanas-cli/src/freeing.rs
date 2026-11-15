@@ -106,6 +106,32 @@ pub fn release_here(node: &Node, path: &str) -> Result<String, Failure> {
     Ok(json!({ "freed": freed, "said": said }).to_string())
 }
 
+/// Delete from every machine a file this machine does not hold (HANDOVER §8 13,
+/// a machine whose deletes stay here): into the account's trash, where any
+/// machine restores it until its days are over, and no longer freed here.
+///
+/// # Errors
+///
+/// When the account has no such file, or the store cannot be written.
+pub fn delete_everywhere(node: &Node, path: &str) -> Result<String, Failure> {
+    let known = itsanas_store::catalogue::catalogue(&node.store, &node.vault)?
+        .files
+        .iter()
+        .any(|file| file.path == path);
+    if !known {
+        return Err(Failure::Usage(format!(
+            "{path} is not a file of the account"
+        )));
+    }
+    let days = itsanas_store::deletion::rules_here(&node.store, &node.vault)?.days;
+    itsanas_store::deletion::trash_shared(&node.store, path, itsanas_store::now_unix(), days)?;
+    node.store.flush_segment()?;
+    freed::take_out(node.store.root(), path).map_err(usage)?;
+    Ok(format!(
+        "{path} is in the account's trash: it leaves every machine in {days} days, unless one restores it."
+    ))
+}
+
 /// The account's files for the page: whether each is here, and freed here.
 ///
 /// # Errors
@@ -183,6 +209,39 @@ mod tests {
                 .expect("back")
                 .as_slice(),
             b"many bytes"
+        );
+    }
+
+    /// A file freed here can be deleted from every machine from here, into the
+    /// account's trash and out of this machine's freed list; a path the
+    /// account never had is refused.
+    #[test]
+    fn a_file_absent_here_goes_to_the_accounts_trash_from_here() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (mut node, _) =
+            Node::create(&dir.path().join("me"), "a passphrase", "camille").expect("node");
+        let root = dir.path().join("folder");
+        std::fs::create_dir_all(&root).expect("folder");
+        std::fs::write(root.join("old.jpg"), b"pixels").expect("write");
+        node.config.folder = Some(root.clone());
+        let folder = itsanas_folder::Folder::open(&root).expect("open");
+        folder.reconcile(&node.store, false).expect("import");
+        free(&node, "old.jpg").expect("free");
+
+        delete_everywhere(&node, "old.jpg").expect("delete");
+        assert!(
+            itsanas_store::deletion::shared(&node.store, &node.vault)
+                .expect("shared")
+                .contains_key("old.jpg"),
+            "a file deleted from here is not in the account's trash: nobody can restore it"
+        );
+        assert!(
+            !freed::list(node.store.root()).contains("old.jpg"),
+            "the file is still listed as freed here, so Keep here would fetch a deleted file"
+        );
+        assert!(
+            delete_everywhere(&node, "never.jpg").is_err(),
+            "a path the account never had was put in its trash"
         );
     }
 }

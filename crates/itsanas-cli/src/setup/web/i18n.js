@@ -582,5 +582,12 @@ window.I18N = {
     'This machine\'s rules are set.': 'Les règles de cette machine sont enregistrées.',
     'Every machine of the account follows these rules on its next round.': 'Toutes les machines du compte suivent ces règles à leur prochain tour.',
     'This machine follows the account\'s rules.': 'Cette machine suit les règles du compte.',
+    'Delete everywhere': 'Supprimer partout',
+    'It goes to the account\'s trash and leaves every machine when its days are over.':
+      'Il va dans la corbeille du compte et quitte toutes les machines à la fin de son délai.',
+    "Work in the background without the system's battery limits":
+      'Travailler en arrière-plan sans les limites de batterie du système',
+    "Otherwise the phone runs ITSaNAS only a few times a day once the app has not been opened for a while. The system asks you to confirm; turning it off is done in the phone's own settings.":
+      'Sinon le téléphone ne lance ITSaNAS que quelques fois par jour quand l’application n’a pas été ouverte depuis un moment. Le système vous demande de confirmer ; pour le désactiver, passez par les réglages du téléphone.',
   },
 };

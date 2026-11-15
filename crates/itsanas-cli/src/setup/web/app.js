@@ -1111,6 +1111,18 @@
         button.addEventListener('click', function () { files(row.freed ? 'keep' : 'free', row.path); });
         item.appendChild(button);
       }
+      // Not on this machine: delete it from every machine, into the account's trash.
+      if (!row.here) {
+        const away = document.createElement('button');
+        away.type = 'button';
+        away.textContent = t('Delete everywhere');
+        away.addEventListener('click', function () {
+          const ask = !deletionRules || deletionRules.here.confirm;
+          if (ask && !window.confirm(t('It goes to the account\'s trash and leaves every machine when its days are over.') + '\n' + row.path)) { return; }
+          files('everywhere', row.path);
+        });
+        item.appendChild(away);
+      }
       list.appendChild(item);
     });
     if (reply.said) {
@@ -1536,7 +1548,7 @@
     $('st-contribute').addEventListener('change', function () {
       $('st-contribute-fields').disabled = !this.checked;
     });
-    [['st-biometric', 'biometric'], ['st-metered', 'metered']].forEach(function (pair) {
+    [['st-biometric', 'biometric'], ['st-metered', 'metered'], ['st-battery', 'battery']].forEach(function (pair) {
       const box = $(pair[0]);
       box.checked = state.host[pair[1]] === 'on';
       box.addEventListener('change', function () {

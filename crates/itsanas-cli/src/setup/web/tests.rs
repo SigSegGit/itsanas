@@ -2326,6 +2326,12 @@ fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
     // A computer has no fingerprint to set; a phone does, and is told.
     let phone = page.api("POST", "/api/host", "name=biometric&value=on");
     assert_eq!(phone.status, 200, "{}", phone.body);
+    let battery = page.api("POST", "/api/host", "name=battery&value=on");
+    assert_eq!(
+        battery.status, 200,
+        "a phone could not ask to work in the background without battery limits: {}",
+        battery.body
+    );
     let space = page.api("POST", "/api/space-default", "");
     assert_eq!(
         space.status, 200,
@@ -2344,6 +2350,12 @@ fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
         desktop.status, 403,
         "a computer was told to set a fingerprint it does not have: {}",
         desktop.body
+    );
+    let unlimited = other.api("POST", "/api/host", "name=battery&value=on");
+    assert_eq!(
+        unlimited.status, 403,
+        "a computer was told to lift battery limits it does not have: {}",
+        unlimited.body
     );
 }
 
