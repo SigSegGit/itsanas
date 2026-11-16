@@ -220,10 +220,20 @@ pub fn note_phone_contact(home: &std::path::Path, reached: bool, now: u64) {
 
 /// How long this phone has reached no other machine, once a day has gone by.
 /// `None` while nothing has started the wait: a phone's status starts it.
+/// A phone that hosts runs the daemon's loop, which stamps its contacts on the
+/// snapshot, not here: the later of the two counts.
 #[must_use]
 pub fn phone_silence(home: &std::path::Path, now: u64) -> Option<u64> {
     let words = std::fs::read_to_string(home.join(PHONE_CONTACT)).ok()?;
-    isolated_for(&words, now, PHONE_EVERY)
+    let hosted = std::fs::read_to_string(home.join(crate::node::SNAPSHOT))
+        .ok()
+        .and_then(|text| text.lines().next().and_then(last_reached));
+    match hosted {
+        Some(at) if last_reached(&words).is_none_or(|own| at > own) => {
+            isolated_for(&format!(" reached {at}"), now, PHONE_EVERY)
+        }
+        _ => isolated_for(&words, now, PHONE_EVERY),
+    }
 }
 
 /// The number that follows `word` on a header.
@@ -287,6 +297,39 @@ mod tests {
         Copies, GRACE_INTERVALS, ISOLATED_AFTER, alert_words, failing_machines, isolated_for,
         low_disk, note_phone_contact, phone_silence, reached_words, silence_words,
     };
+
+    /// A phone that hosts runs the daemon's loop, whose contacts go to the
+    /// snapshot, not to the phone's own file: a phone on its charger for two
+    /// days, reaching the account every round, said nothing had synced for two
+    /// days (Nicolas's S25, 2026-11-16). Sabotage: read the phone's file alone.
+    #[test]
+    fn red_team_a_phone_that_hosts_is_not_said_silent() {
+        const DAY: u64 = 86_400;
+        let home = tempfile::tempdir().expect("temp dir");
+        let start = 1_792_000_000;
+        note_phone_contact(home.path(), false, start);
+        let snapshot = home.path().join(crate::node::SNAPSHOT);
+        std::fs::write(
+            &snapshot,
+            format!(
+                "{} 0.1.19 reached {}
+",
+                start + 2 * DAY,
+                start + 2 * DAY
+            ),
+        )
+        .expect("snapshot");
+        assert_eq!(
+            phone_silence(home.path(), start + 2 * DAY + 60),
+            None,
+            "a phone whose hosting rounds reach the account says nothing has synced"
+        );
+        assert_eq!(
+            phone_silence(home.path(), start + 4 * DAY),
+            Some(2 * DAY),
+            "a phone that stopped hosting is silent from its last hosted contact"
+        );
+    }
 
     /// A phone has no snapshot, so its silence lives in a file of its own, and
     /// must age across restarts of the app. Sabotage: forget the previous words,

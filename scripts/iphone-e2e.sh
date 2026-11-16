@@ -106,6 +106,9 @@ xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
 # fingers' state at each unlock): a failed UI test shows the screen, not why.
 if [ "$status" != 0 ]; then
     echo "== the app's own lines"
+    # xcodebuild may leave the simulator shut down; its log outlives that,
+    # but `simctl spawn` needs it booted ("device is not booted", #409).
+    xcrun simctl boot "$simulator" 2>/dev/null || true
     xcrun simctl spawn "$simulator" log show --last 60m --style compact --predicate 'process == "ITSaNAS" AND eventMessage BEGINSWITH "ITSaNAS "' 2>&1 | tail -n 80 || true
     echo "== the computer's last lines"
     tail -n 40 "$out/computer.log" 2>/dev/null || true

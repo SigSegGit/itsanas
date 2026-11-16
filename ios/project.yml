@@ -44,6 +44,13 @@ targets:
         # Files the app saves can be seen in the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Any file another app shares or opens in ITSaNAS ("Open in", the
+        # share sheet) comes into the account. Alternate: never the default
+        # app for a kind of file.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Any file
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.item, public.content, public.data]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.ngas.itsanas

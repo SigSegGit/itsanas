@@ -35,6 +35,9 @@ final class TrashViewController: UITableViewController {
                 switch outcome {
                 case .success(let list):
                     self.rows = list["trashed"] as? [[String: Any]] ?? []
+                    // Which entry a row is (shared, here, protected): a restore
+                    // that leaves a row says which record it did not clear.
+                    NSLog("ITSaNAS trash rows: %@", self.rows.map { "\($0["path"] ?? "")=\($0["kind"] ?? "")" }.joined(separator: ", "))
                     self.now = (list["now"] as? NSNumber)?.doubleValue ?? 0
                     self.askAuth = list["ask_auth"] as? Bool ?? true
                     self.confirm = list["confirm"] as? Bool ?? true
