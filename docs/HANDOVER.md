@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
+TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
 WRITTEN-AT: 2026-11-11
 BASE: f92a81d
 -->
@@ -264,17 +264,15 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-0a. **Release 0.1.19, everywhere, then the iPhone hand test** (§8 0c). 0.1.19 carries what
-   0.1.18 lacks on a PC: a passphrase changed while sealed is sealed again (#395), and an
-   open waiting out a lock probe no longer falls in step with it (#394); step 10 of the hand
-   test needs the first. Release `main` (after the version PR has merged), then the laptop,
-   then the Pi and the VM (the fleet run's row U rebuilds their containers on the latest
-   release, and row V fails if one is not on it; run `scripts/fleet/setup.sh` on each first,
-   since the agent changed for the trash), then the Android phone (Settings, Check
-   for updates). By hand on the laptop, per account: Start at login off on one account
-   only and a Windows sign-out shows it alone stays down; Files on this machine, Free up
-   then Keep here; the trash from the folder; on the phone, below 15 % and closed, a file
-   added on the PC is listed within two hours:
+0a. **Release 0.1.20, everywhere, then the hand test with Mandarine's Mac** (§8 0c). 0.1.20
+   carries what 0.1.19 lacks: the trash on every machine and its rules (§8 13), files freed
+   from a machine (§8 11), Start at login per account (§8 12), one system unlock for every
+   account at sign-in (§8 10d), sharing both ways on a phone, several files at once on
+   Android (§8 14), and a phone that hosts said hosting (#416). The whole run, every command
+   in order with its expected result and the report to send back, is in the owner's private
+   notes (`RECETTE-0.1.20.md`). It starts here: the release (it waits for the version PR's
+   merge), the laptop, then the fleet run, which brings the Pi and the VM to the release
+   (run `scripts/fleet/setup.sh` on each first if the agent predates the trash):
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
@@ -282,18 +280,9 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
        gh workflow run fleet.yml --repo SigSegGit/itsanas; gh run watch --repo SigSegGit/itsanas $(gh run list --repo SigSegGit/itsanas --workflow fleet.yml --limit 1 --json databaseId -q '.[0].databaseId')
 
-   Then the recipe: `docs/IOS.md`, "The hand test", steps 0 to 10, and the report is each
-   step's number, OK or KO. The iPhone's build:
+   The iPhone's steps are `docs/IOS.md`, "The hand test", 0 to 10; its build:
 
        gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
-
-0. **The one-shot acceptance run of 0.1.17**, in the owner's private notes (`RECETTE-0.1.17.md`): every
-   command in order, and the report to send back. It starts with the release, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
-   offers the update when opened, once a day, after the unlock:
-
-       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
-
-       itsanas update
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
