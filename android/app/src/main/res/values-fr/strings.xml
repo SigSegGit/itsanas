@@ -68,6 +68,10 @@
     <string name="files_chosen">%1$d sélectionné(s)</string>
     <string name="files_choose_none">Annuler la sélection</string>
     <string name="files_share_chosen">Partager la sélection</string>
+    <string name="files_free_chosen">Libérer la sélection sur ce téléphone</string>
+    <string name="files_delete_chosen">Supprimer la sélection</string>
+    <string name="files_freed">%1$d libéré(s) · %2$d gardé(s) ici tant qu’aucune autre machine ne les a</string>
+    <string name="delete_title_many">Supprimer %1$d fichiers ?</string>
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
     <string name="file_free">Libérer sur ce téléphone</string>

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_setup_puts_the_vault_on_the_disk_chosen"
+  ],
+  "defences": {
+    "setup-vault: the disk chosen is used": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "            crate::switch_empty_vault(&mut node, &wanted, true)?;\n",
+      "dead": "            let _ = &wanted;\n"
+    },
+    "setup-vault: a vault that holds data is not left": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "    if node.vault.held_bytes()? > 0 {\n        return Err(CliError::Usage(format!(\n            \"the vault at {} holds data: `itsanas vault {} --move` copies it there and switches once the copy checks out\",",
+      "dead": "    if false {\n        return Err(CliError::Usage(format!(\n            \"the vault at {} holds data: `itsanas vault {} --move` copies it there and switches once the copy checks out\","
+    }
+  }
+}

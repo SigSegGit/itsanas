@@ -395,7 +395,21 @@
     try {
       const reply = await api('POST', '/api/pick', { start: input.value.trim() });
       if (reply.path) { input.value = reply.path; }
-    } catch (e) { say(e.message); }
+      return reply;
+    } catch (e) { say(e.message); return {}; }
+  }
+
+  // Other people's copies on another disk: the space offered is that disk's.
+  async function browseVault() {
+    const reply = await browse($('vault'));
+    if (!reply.path || reply.free_bytes === null || reply.free_bytes === undefined) { return; }
+    const max = Math.max(1, Math.floor(Number(reply.free_bytes) / GIB));
+    $('pledge-slider').max = String(max);
+    $('pledge').max = String(max);
+    if (parseInt($('pledge').value, 10) > max) { $('pledge').value = String(max); }
+    $('pledge-slider').value = $('pledge').value;
+    $('space-free').textContent = t('Free on that disk:') + ' ' + max + ' GB';
+    showEarns();
   }
 
   async function folderAction(path, pin, line) {
@@ -450,7 +464,7 @@
         form.recover_from = $('coordinator').value.trim();
       }
     }
-    ['coordinator', 'invite', 'folder'].forEach(function (id) {
+    ['coordinator', 'invite', 'folder', 'vault'].forEach(function (id) {
       const value = $(id).value.trim();
       if (value) { form[id] = value; }
     });
@@ -633,6 +647,7 @@
     $('username-retry').addEventListener('click', checkName);
     $('coordinator').addEventListener('change', nameChanged);
     $('folder-browse').addEventListener('click', function () { browse($('folder')); });
+    $('vault-browse').addEventListener('click', browseVault);
     $('open-folder').addEventListener('click', function () { folderAction('', false, $('folder-said')); });
     $('pin-folder').addEventListener('click', function () { folderAction('', true, $('folder-said')); });
     const updates = document.querySelector('input[name="updates"][value="' + state.defaults.updates + '"]');

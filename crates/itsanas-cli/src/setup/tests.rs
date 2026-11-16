@@ -492,6 +492,72 @@ fn red_team_joining_from_a_coordinator_refuses_a_passphrase_the_service_file_can
 }
 
 #[test]
+fn red_team_setup_puts_the_vault_on_the_disk_chosen_and_never_strands_one_that_holds_data() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let chosen = dir.path().join("big-disk").join("for-others");
+    let (mut person, _) = Scripted::new(false);
+    let with_vault = Answers {
+        vault: Some(chosen.clone()),
+        ..answers(dir.path())
+    };
+    let (events, failed) = run(&home, with_vault, &mut person);
+    assert_eq!(
+        failed, None,
+        "setup with a vault folder failed: {events:#?}"
+    );
+    let vault_of = |home: &Path| {
+        crate::config::Config::load(&Node::config_path(home))
+            .expect("config")
+            .vault
+    };
+    assert_eq!(
+        vault_of(&home),
+        Some(chosen.clone()),
+        "the person chose a bigger disk for other people's copies and they still fill the home's"
+    );
+    assert!(
+        chosen.join(itsanas_node::node::VAULT_MARKER).exists(),
+        "the chosen vault was not marked as this node's: a later start refuses it as a stranger's"
+    );
+
+    // Someone's copy is now held there; setup run again with another place
+    // must not walk away from it.
+    let owner =
+        itsanas_crypto::UserKeys::derive(&itsanas_crypto::MasterSecret::from_bytes([9; 32]))
+            .user_id();
+    itsanas_store::Vault::open(&chosen)
+        .expect("vault")
+        .put_chunk(
+            owner,
+            &itsanas_crypto::ChunkId::from_bytes([4; 32]),
+            b"someone's sealed chunk",
+        )
+        .expect("store");
+    let elsewhere = dir.path().join("other-disk");
+    let (mut again, _) = Scripted::new(false);
+    let moved = Answers {
+        vault: Some(elsewhere.clone()),
+        ..answers(dir.path())
+    };
+    let (_, failed) = run(&home, moved, &mut again);
+    assert_eq!(
+        failed,
+        Some(Step::Pledge),
+        "setup switched away from a vault that holds someone's copy: the copy is stranded and its owner's audits fail"
+    );
+    assert_eq!(
+        vault_of(&home),
+        Some(chosen),
+        "a refused switch still rewrote the vault"
+    );
+    assert!(
+        !elsewhere.exists(),
+        "a refused switch still made the new vault"
+    );
+}
+
+#[test]
 fn the_updates_choice_is_written_and_a_later_run_without_it_keeps_it() {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("node");

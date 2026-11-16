@@ -100,7 +100,12 @@
       <label for="pledge">Space to offer, in GB</label>
       <div class="row slider"><input id="pledge-slider" type="range" min="1" step="1" aria-label="Space to offer, in GB"><input id="pledge" name="pledge" type="number" min="1" step="1" inputmode="numeric" aria-describedby="pledge-help"></div>
       <p id="pledge-earns" class="earns" aria-live="polite"></p>
-      <p id="pledge-help" class="help">You can change it later. The disk is the one that holds this machine's ITSaNAS data.</p>
+      <p id="pledge-help" class="help">You can change it later. The disk is the one that holds this machine's ITSaNAS data, unless you choose another below.</p>
+      <div data-feature="folder">
+      <label for="vault">Folder for other people's copies (optional)</label>
+      <div class="row"><input id="vault" name="vault" spellcheck="false" autocapitalize="none" aria-describedby="vault-help"><button type="button" id="vault-browse">Browse&hellip;</button></div>
+      <p id="vault-help" class="help">Empty: in this machine's ITSaNAS data. An empty folder on a bigger disk lets you offer more.</p>
+      </div>
       </div>
       <div id="keep-questions" data-feature="keep_question">
       <h2>Files kept here</h2>

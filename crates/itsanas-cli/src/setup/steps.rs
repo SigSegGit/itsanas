@@ -441,6 +441,12 @@ impl Setup<'_> {
     pub(super) fn pledge_state(&self) -> Result<State> {
         let config = Config::load(&Node::config_path(&self.home))?;
         let keep_differs = self.answers.keep.apply(config.keep_bytes) != config.keep_bytes;
+        if self
+            .wanted_vault()?
+            .is_some_and(|wanted| wanted != Node::vault_path(&self.home, &config))
+        {
+            return Ok(State::Todo);
+        }
         Ok(match self.answers.pledge {
             None if keep_differs => State::Todo,
             None if config.pledge_bytes > 0 => {
@@ -458,8 +464,31 @@ impl Setup<'_> {
         })
     }
 
+    /// The vault asked for, made absolute as the configuration keeps it.
+    fn wanted_vault(&self) -> Result<Option<std::path::PathBuf>> {
+        self.answers
+            .vault
+            .as_deref()
+            .map(|path| {
+                std::path::absolute(path).map_err(|source| CliError::Io {
+                    path: path.to_owned(),
+                    source,
+                })
+            })
+            .transpose()
+    }
+
     pub(super) fn apply_pledge(&mut self) -> Result<String> {
         let mut node = self.open_node(Step::Pledge)?;
+        // The disk first: the space offered is measured on the one that holds
+        // other people's copies. The person chose it, so the home's own disk
+        // is allowed.
+        if let Some(wanted) = self
+            .wanted_vault()?
+            .filter(|wanted| *wanted != node.vault_dir())
+        {
+            crate::switch_empty_vault(&mut node, &wanted, true)?;
+        }
         let bytes = self.answers.pledge.unwrap_or(node.config.pledge_bytes);
         // The pair goes through one check: a keep the pledge cannot earn is
         // refused and neither is written (the node is dropped unsaved). A phone
@@ -471,7 +500,7 @@ impl Setup<'_> {
             0
         };
         let warning = crate::set_pledge_counting(&mut node, bytes, others)?;
-        let free = fs4::available_space(&self.home).map_or_else(
+        let free = fs4::available_space(node.vault_dir()).map_or_else(
             |_| String::new(),
             |free| format!("; {} still free on this disk", format_size(free)),
         );

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-12 — 1666 test functions across 44 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 619 are red-team tests.**
+**Last updated: 2026-11-16 — 1668 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 620 are red-team tests.**
 
-**1550 of the 1666 tests have an entry of their own on this page** — an *entry*,
+**1552 of the 1668 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 360 |
+| `itsanas-cli` unit | 362 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -223,7 +223,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 38 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 210 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 211 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1251,7 +1251,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (360)
+# `itsanas-cli` — unit tests (362)
 
 ## `bench` — measuring this machine (4)
 
@@ -1308,7 +1308,7 @@ refused, `1m` taken.
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
 
-## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase (20)
+## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase, a vault on the disk chosen (21)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
 `setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
@@ -1329,6 +1329,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 | **`red_team_a_username_no_coordinator_would_take_is_refused_before_any_key_is_written`** | `marie_1` reads as free on a lookup; the page's check may not have answered yet when Next is pressed. The account step refuses it before a word is shown or a key written, saying what a name may be. Sabotaged (no check in `apply_account`): red. |
 | **`red_team_setup_refuses_a_new_passphrase_outside_the_rule_before_anything_is_written`** | The rule is asked first in `new_passphrase`, so the person is told the numbers, and no keys are sealed. A short answer with a line break tells the checks apart: the service file's would refuse it too, without saying how long a passphrase may be. Sabotaged (the call dropped): red. |
+| **`red_team_setup_puts_the_vault_on_the_disk_chosen_and_never_strands_one_that_holds_data`** | The setup's optional folder for other people's copies (`vault`, the page's *Browse*) becomes the node's vault, marked as its own, and the space offered is measured on that disk. Run again with another folder once the vault holds someone's copy, the step is refused and nothing moves: `itsanas vault --move` is the way, which copies and checks first. Sabotaged (the switch skipped; the held-data refusal dropped): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 | **`red_team_a_phone_that_signs_out_locks_at_once`** | Signing out on a phone forgets the passphrase, tells the app, and does not wait for the app to let go of its own store: without this the account stayed open on screen. |
 | **`red_team_a_phone_finishes_setup_with_no_daemon_to_wait_for`** | `apply_service` returns before the wait for a daemon when `Answers.phone` is set: the app opens the node itself once setup is over, so waiting failed every first run on every phone. |
@@ -1582,7 +1583,7 @@ and a stand-in coordinator. Each red-team test was sabotaged with
 | `a_request_is_taken_once_and_nonsense_is_dropped` | Reading a request removes the file, so it acts once; anything but `stop` or `restart` is dropped and asks for nothing. |
 | `a_node_that_is_not_running_is_said_so_rather_than_restarted` | With no live lock, the answer is "not running", never "restarted". |
 
-## `upnp` — the router's port, opened by itself (4)
+## `upnp` — the router's port, opened by itself, its address followed (5)
 
 `crates/itsanas-cli/src/upnp.rs`: SSDP search, the router's description, the
 SOAP mapping and its public address. No router in CI: the parsing and the
@@ -1593,6 +1594,7 @@ requests are tested on the bytes a router sends.
 | `the_router_s_answers_are_read_as_routers_write_them` | A search answer's `LOCATION` and a description's `WANIPConnection` control URL are found. |
 | **`red_team_a_router_naming_itself_by_name_is_not_followed`** | A `LOCATION` with a host name, or https, is refused: only a literal LAN address is dialled. Sabotaged (https accepted): red. |
 | **`red_team_a_private_public_address_is_never_announced`** | Private, carrier-grade NAT and unspecified addresses are not taken for a public one, so a box behind a box never makes a node announce an address nobody outside can dial. Sabotaged (CGNAT removed): red. |
+| `a_new_public_address_after_a_renewal_is_announced_and_nothing_else_is` | A UPnP renewal that finds the router at a new public address announces it, as NAT-PMP already did: a box that restarts comes back elsewhere, and peers dialled the old address until the daemon restarted. An unchanged address, a port no longer mapped or no public address keep the one announced. |
 | `the_mapping_request_says_what_a_router_expects` | The SOAP request has the control path, the `SOAPAction` and a Content-Length that matches its body. |
 
 

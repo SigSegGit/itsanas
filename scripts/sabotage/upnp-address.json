@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "a_new_public_address_after_a_renewal"
+  ],
+  "defences": {
+    "upnp-address: a changed address is announced": {
+      "file": "crates/itsanas-cli/src/upnp.rs",
+      "live": "    (address != current).then_some(address)\n",
+      "dead": "    (address != current && false).then_some(address)\n"
+    }
+  }
+}

@@ -233,18 +233,45 @@ pub(crate) fn open_port(port: u16) -> Result<(Gateway, String), String> {
     Ok((gateway, format!("{address}:{port}")))
 }
 
-/// Keep the mapping alive until `stop`: renewed at half its lease.
-pub(crate) fn renew(gateway: &Gateway, port: u16, stop: &std::sync::atomic::AtomicBool) {
+/// Keep the mapping alive until `stop`: renewed at half its lease. The
+/// announced address follows the router's: a box that restarts often comes
+/// back with a new public address, and peers dialling the old one find
+/// nobody until the daemon restarts.
+pub(crate) fn renew(
+    gateway: &Gateway,
+    port: u16,
+    mut address: String,
+    stop: &std::sync::atomic::AtomicBool,
+    announce: impl Fn(String),
+) {
     let mut last = Instant::now();
     while !stop.load(std::sync::atomic::Ordering::SeqCst) {
         std::thread::sleep(Duration::from_secs(1));
         if last.elapsed() >= LEASE / 2 {
-            if !map(gateway, port) {
+            let mapped = map(gateway, port);
+            if !mapped {
                 eprintln!("itsanas: the router stopped renewing the opened port");
+            }
+            if let Some(new) = moved(mapped, public_address(gateway), port, &address) {
+                announce(new.clone());
+                address = new;
             }
             last = Instant::now();
         }
     }
+}
+
+/// The address to announce after a renewal, when it is not `current`: only a
+/// mapping the router renewed, at a public address. A router that answers
+/// nothing, or a private address, keeps the one announced.
+pub(crate) fn moved(
+    mapped: bool,
+    public: Option<Ipv4Addr>,
+    port: u16,
+    current: &str,
+) -> Option<String> {
+    let address = format!("{}:{port}", public.filter(|_| mapped)?);
+    (address != current).then_some(address)
 }
 
 #[cfg(test)]
@@ -298,6 +325,32 @@ mod tests {
             !answered_by("192.168.1.66:1900".parse().expect("addr"), router),
             "an answer from one host sent this node to another's service: any machine on the \
              LAN could aim it at a router's admin page"
+        );
+    }
+
+    #[test]
+    fn a_new_public_address_after_a_renewal_is_announced_and_nothing_else_is() {
+        let now = "203.0.113.7:9800";
+        let new = Ipv4Addr::new(198, 51, 100, 9);
+        assert_eq!(
+            moved(true, Some(new), 9800, now),
+            Some("198.51.100.9:9800".to_owned()),
+            "the router came back with a new public address and the old one stayed announced: peers dial nobody until a restart"
+        );
+        assert_eq!(
+            moved(true, Some(Ipv4Addr::new(203, 0, 113, 7)), 9800, now),
+            None,
+            "an unchanged address was announced again at every renewal"
+        );
+        assert_eq!(
+            moved(false, Some(new), 9800, now),
+            None,
+            "an address was announced for a port the router no longer opens"
+        );
+        assert_eq!(
+            moved(true, None, 9800, now),
+            None,
+            "a router with no public address replaced a working one"
         );
     }
 

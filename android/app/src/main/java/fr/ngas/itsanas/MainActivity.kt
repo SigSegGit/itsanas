@@ -513,7 +513,8 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     var level by remember { mutableStateOf(Level("", emptyList(), emptyList())) }
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf<Known?>(null) }
+    // The files a delete asks about: one from its row, or every chosen one.
+    var confirmDelete by remember { mutableStateOf(emptyList<Known>()) }
     var trashOpen by remember { mutableStateOf(false) }
     // Files chosen by a long press, to share together. Only files of the folder on screen.
     var chosen by remember { mutableStateOf(emptySet<String>()) }
@@ -773,7 +774,27 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             }
 
             if (chosen.isNotEmpty()) {
-                ChosenBar(chosen.size, { chosen = emptySet() }) {
+                ChosenBar(
+                    chosen.size,
+                    onNone = { chosen = emptySet() },
+                    onFree = {
+                        val picked = level.files.filter { it.path in chosen && it.here }
+                        scope.launch {
+                            try {
+                                // One at a time, as the row's button: each kept while no other machine holds it.
+                                val freed = withContext(Dispatchers.IO) {
+                                    picked.count { org.json.JSONObject(Native.release(it.path)).optBoolean("freed") }
+                                }
+                                chosen = emptySet()
+                                refresh()
+                                snackbar.showSnackbar(context.getString(R.string.files_freed, freed, picked.size - freed))
+                            } catch (error: Throwable) {
+                                complain(error.message ?: "could not free them")
+                            }
+                        }
+                    },
+                    onDelete = { confirmDelete = level.files.filter { it.path in chosen } },
+                ) {
                     val picked = level.files.filter { it.path in chosen }
                     scope.launch {
                         busy = true
@@ -827,7 +848,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                                 }
                             }
                         },
-                        onDelete = { confirmDelete = file },
+                        onDelete = { confirmDelete = listOf(file) },
                         onFree = {
                             scope.launch {
                                 try {
@@ -849,11 +870,19 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         TrashDialog({ trashOpen = false }, { refresh() }, { complain(it) })
     }
 
-    confirmDelete?.let { file ->
+    confirmDelete.takeIf { it.isNotEmpty() }?.let { files ->
         val trashContext = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text(stringResource(R.string.delete_title, file.name)) },
+            onDismissRequest = { confirmDelete = emptyList() },
+            title = {
+                Text(
+                    if (files.size == 1) {
+                        stringResource(R.string.delete_title, files[0].name)
+                    } else {
+                        stringResource(R.string.delete_title_many, files.size)
+                    },
+                )
+            },
             text = {
                 val rules = Trash.rules
                 Text(
@@ -866,12 +895,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             },
             confirmButton = {
                 TextButton(modifier = Modifier.testTag("delete-confirm"), onClick = {
-                    val doomed = file
-                    confirmDelete = null
+                    val doomed = files
+                    confirmDelete = emptyList()
                     scope.launch {
                         try {
-                            val became = Trash.put(doomed.path)
-                            if (became == "waiting") complain(trashContext.getString(R.string.delete_waiting))
+                            // Every file goes, then one word if any waits.
+                            val became = doomed.map { Trash.put(it.path) }
+                            chosen = chosen - doomed.map { it.path }.toSet()
+                            if ("waiting" in became) complain(trashContext.getString(R.string.delete_waiting))
                             refresh()
                         } catch (error: Throwable) {
                             complain(error.message ?: "could not delete it")
@@ -879,7 +910,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     }
                 }) { Text(stringResource(R.string.delete_everywhere)) }
             },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text(stringResource(R.string.delete_keep)) } },
+            dismissButton = { TextButton({ confirmDelete = emptyList() }) { Text(stringResource(R.string.delete_keep)) } },
         )
     }
 
@@ -997,9 +1028,15 @@ private fun FileRow(
     }
 }
 
-/** The bar over the list while files are chosen: how many, drop them all, share them all. */
+/** The bar over the list while files are chosen: how many, drop them all, then what to do with them. */
 @Composable
-private fun ChosenBar(count: Int, onNone: () -> Unit, onShare: () -> Unit) {
+private fun ChosenBar(
+    count: Int,
+    onNone: () -> Unit,
+    onFree: () -> Unit,
+    onDelete: () -> Unit,
+    onShare: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1014,6 +1051,12 @@ private fun ChosenBar(count: Int, onNone: () -> Unit, onShare: () -> Unit) {
         )
         IconButton(onShare, Modifier.testTag("files-share-chosen")) {
             Icon(Icons.Default.Share, stringResource(R.string.files_share_chosen))
+        }
+        IconButton(onFree, Modifier.testTag("files-free-chosen")) {
+            Icon(Icons.Default.CloudUpload, stringResource(R.string.files_free_chosen))
+        }
+        IconButton(onDelete, Modifier.testTag("files-delete-chosen")) {
+            Icon(Icons.Default.Delete, stringResource(R.string.files_delete_chosen))
         }
     }
 }
