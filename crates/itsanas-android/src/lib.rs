@@ -1372,6 +1372,14 @@ mod tests {
         itsanas_cli::phone::trash_put(&node, "a.jpg", 30).unwrap();
         std::fs::write(&source, b"the photo again").unwrap();
         put_file(&node, "a.jpg", source.to_str().unwrap()).unwrap();
+        // At once, not at the next round, which also takes out a file edited
+        // since it was trashed: until then every machine hides it.
+        assert!(
+            itsanas_store::deletion::shared(&node.store, &node.vault)
+                .unwrap()
+                .is_empty(),
+            "a file added again stays in the account's trash, hidden on every machine, until the next round"
+        );
         assert!(
             trash::list(&node.home).is_empty()
                 && itsanas_cli::phone::purged_trash(&node).unwrap().is_empty(),

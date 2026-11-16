@@ -341,6 +341,8 @@ pub fn purged_trash(node: &Node) -> Result<BTreeMap<String, u64>, Failure> {
     for path in trash::due(&node.home, now) {
         delete_for_good(node, &path)?;
     }
+    // Before the purge: a file edited elsewhere since it was trashed is wanted.
+    deletion::untrash_edited(&node.store, &node.vault)?;
     for path in deletion::due_shared(&node.store, &node.vault, now)? {
         deletion::purge(&node.store, &node.vault, &path)?;
     }
@@ -554,6 +556,54 @@ pub fn list_at(node: &Node, folder: &str) -> Answer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// HANDOVER §8 3f, end to end over sockets: the laptop meets only the Pi,
+    /// the VM meets only the Pi, and the VM still applies the laptop's file:
+    /// its armed roster waits on a chain from a device it never met until the
+    /// Pi hands it the laptop's claim. Sabotage: the Pi answers no claims.
+    #[test]
+    fn red_team_a_machine_learns_a_sibling_it_never_met_through_a_third() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (pi, phrase) =
+                crate::testing::phone(&dir.path().join("pi"), coordinator, "camille", None);
+            let (mut laptop, _) = crate::testing::phone(
+                &dir.path().join("laptop"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (mut vm, _) = crate::testing::phone(
+                &dir.path().join("vm"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"written on the laptop").expect("source");
+            put_file(
+                &laptop,
+                "from-the-laptop.txt",
+                source.to_str().expect("utf-8"),
+            )
+            .expect("put");
+
+            crate::testing::serving(&pi, |at| {
+                laptop.config.peers.push(at.to_string());
+                sync_node(&laptop, false, unix_now()).expect("the laptop's round");
+                vm.config.peers.push(at.to_string());
+                // The first round learns the claim, the next applies what waited.
+                for _ in 0..2 {
+                    sync_node(&vm, false, unix_now()).expect("the VM's round");
+                }
+            });
+            let applied = vm.store.list().expect("the VM's index");
+            assert!(
+                applied.iter().any(|path| path == "from-the-laptop.txt"),
+                "the VM never applied a file from the laptop it reaches only through the Pi: an account's machines that never meet never converge ({applied:?})"
+            );
+        });
+    }
 
     /// A round's report names what arrived, what changed and what left, and
     /// counts past the few it names. Sabotage: compare paths only, so an edit

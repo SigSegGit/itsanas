@@ -246,8 +246,21 @@ impl<'a> Updater<'a> {
     /// Fetch `dir`'s manifest and its signature, unchecked: the caller hands
     /// both to `itsanas-release`, which checks before it parses.
     fn fetch_manifest(&self, dir: &str) -> Result<(Vec<u8>, String)> {
-        let scratch = self.scratch();
-        std::fs::create_dir_all(&scratch).map_err(io_error(&scratch))?;
+        let beside = self.scratch();
+        // A program under a prefix this account cannot write (`/usr/local`)
+        // failed even the daily check, every day. A manifest is small and
+        // signed, and needs no rename onto the program's disk: a private
+        // directory with a fresh random name does, never a fixed name in a
+        // shared one, which another user could plant a link at.
+        let (scratch, _private) = if std::fs::create_dir_all(&beside).is_ok() {
+            (beside, None)
+        } else {
+            let private = tempfile::Builder::new()
+                .prefix("itsanas-manifest-")
+                .tempdir()
+                .map_err(io_error(&beside))?;
+            (private.path().to_owned(), Some(private))
+        };
         let manifest_path = scratch.join(MANIFEST);
         let signature_path = scratch.join(SIGNATURE);
         let fetched = self

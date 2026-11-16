@@ -111,8 +111,9 @@ into the folder, emptied, days set.
 **The fleet's F row** (`docs/FLEET-CI.md`) deletes in the folder and expects it gone everywhere a round
 later: the agents (`agent.sh`, `agent.ps1`) now write `0` into the `test` home's `store/trash-days` before
 `F delete`, so F keeps testing propagation; an agent installed before this needs `setup.sh` again, or F goes
-red. Not run on the fleet. The local bench turns the trash off too (`acceptance-local.sh`). Left: an edit made elsewhere to a file trashed here is deleted when the
-delay runs out (the record keeps no version), and a phone's days are its app's setting, not `trash-days`.
+red. Not run on the fleet. The local bench turns the trash off too (`acceptance-local.sh`). Since: an edit made elsewhere takes a file out of the account's trash (its marker keeps the version
+deleted, `red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash`, 2026-11-16), and a
+phone's days are the account's rules (`Trash.readRules`), as every machine's.
 
 **2026-11-10: the phone's leftovers before a release.** A phone folder's files go in by batches of 64
 files or 256 MB, one segment each (`folder_import`, `write_file`), not one segment per photo: the folder
@@ -2046,8 +2047,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the page and the phone, and `status` says the silence and which machine
       failed (ROADMAP M7, ARCHITECTURE §7). A phone says a day of silence from
       its own `last-contact` file. The online-node floor reads `exposed` on the
-      next write, which a test now names. **Left:** the phone's `unwritable`,
-      and the desktop notifications seen by Nicolas at the next hand test.
+      next write, which a test now names. The phone's `unwritable` is there too
+      (`vaultRefuses` in `status_of`, shown on the Files screen). **Left:** the
+      desktop notifications seen by Nicolas at the next hand test.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes
@@ -2288,7 +2290,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187; the 2099-clock gap and the v5 test closed 2026-09-30). The decisions of `dial_listed` have tests of their own since 2026-10-30, without two full nodes: they are `dial_book` over a `DialSite` trait, as `park_loop` is over `ParkSite`, behaviour unchanged. Nine tests in `daemon.rs`, each sabotaged red: a `relay:` address whose relay the book does not hold is never dialled; a machine parked on a relay is dialled through it (at the book's address for a relay of the account, at the carried one for a host of another account); a machine a sibling relays is dialled the next round and a row that fails its signatures never is, and the sibling is asked for presences (`ask_presences` is decided in `dial_book`); a machine that missed waits before it is dialled again; an address that answered is dialled first the next round, and a private one that answered is dialled off probe rounds; answering is not trust (only `earned_trust` confirms in the neighbourhood); a machine reached at its first address is not dialled at its second; a pause stops the book dials after the machine under way. **Left:** the `Dialling` adapter itself is read, not run: that `sync_once` is pinned on the expected device and is handed the relay and `ask_presences` it is given, and that its `halted` reads the shutdown flag and the pause on disk; phase 3 only if the fleet shows 1 and 2 fall short.
+   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187; the 2099-clock gap and the v5 test closed 2026-09-30). The decisions of `dial_listed` have tests of their own since 2026-10-30, without two full nodes: they are `dial_book` over a `DialSite` trait, as `park_loop` is over `ParkSite`, behaviour unchanged. Nine tests in `daemon.rs`, each sabotaged red: a `relay:` address whose relay the book does not hold is never dialled; a machine parked on a relay is dialled through it (at the book's address for a relay of the account, at the carried one for a host of another account); a machine a sibling relays is dialled the next round and a row that fails its signatures never is, and the sibling is asked for presences (`ask_presences` is decided in `dial_book`); a machine that missed waits before it is dialled again; an address that answered is dialled first the next round, and a private one that answered is dialled off probe rounds; answering is not trust (only `earned_trust` confirms in the neighbourhood); a machine reached at its first address is not dialled at its second; a pause stops the book dials after the machine under way. The `Dialling` adapter itself runs in `red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause` (2026-11-16): pinned on the device expected, halted by a pause on disk or a shutdown. **Left:** that it hands the relay and `ask_presences` on is still read, not run; phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a
@@ -3898,9 +3900,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       sessions, hosts' claims and `Request::Claims`; a chain whose device is
       not on it waits; reads are answered only to a device whose claim names
       the account (`Owners::may_read`). This line said "not yet planned"
-      until 2026-10-24, five days after it shipped. Left: an end-to-end
-      socket test of a VM learning a laptop through a Pi, and a withdrawn
-      device on a network with no coordinator (§9).
+      until 2026-10-24, five days after it shipped. The end-to-end socket test
+      of a VM learning a laptop through a Pi is
+      `red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`
+      (2026-11-16). Left: a withdrawn device on a network with no coordinator
+      (§9).
 4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
    under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
 
@@ -4184,10 +4188,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   ISP.
 - **The self-update's scratch directory is beside the program**
   (`update.rs`, `SCRATCH`), so the final rename stays on one disk. With a
-  `--prefix` the daemon's account cannot write (`/usr/local`), even
-  `updates = notify` fails its daily check, logged each day. Manifests
-  could go to the node's home instead; not to a shared temp directory,
-  where a fixed name is a symlink target.
+  `--prefix` the daemon's account cannot write (`/usr/local`), the install
+  fails there; the daily check no longer does (2026-11-16: its manifests
+  fall back to a private directory with a random name,
+  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`).
 - ✅ **Fixed 2026-10-13: a source build is no longer told of an update it will refuse** (`check` runs `installed_from_release` when a newer release exists). Was: **A source build is told of an update it will refuse.** Since the key is
   pinned, a binary built from source outside `target/` (every machine
   installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,
@@ -4196,9 +4200,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   release"). Harmless and misleading. The fix is for `check` to run
   `installed_from_release` before it answers `Available`, at the price of a
   second manifest fetch a day; it needs its own red-team test.
-- **The default coordinator is not pinned.** `setup::DEFAULT_COORDINATOR`
-  is a name; anything answering there is taken for the coordinator until
-  its device id is compiled in beside it (the coordinator prints it). A
+- ✅ **Fixed (#250): the default coordinator is pinned** (`DEFAULT_COORDINATOR_DEVICE`,
+  `red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`). Was:
+  `setup::DEFAULT_COORDINATOR` is a name; anything answering there is taken
+  for the coordinator until its device id is compiled in beside it. A
   coordinator is a notice board that cannot admit anyone and whose lists
   are signed by the members' own keys, so a fake one can refuse service and
   learn who asks, not read or forge.
