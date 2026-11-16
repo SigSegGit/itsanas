@@ -564,6 +564,13 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             shared.forEach { uri ->
                 val name = nameOf(context, uri)
                 Account.add(context, uri, name, folder = "")
+                // A note made from shared words is this app's own copy: in the
+                // account now, it leaves the cache. Only there: a file:// from
+                // another app could name any of this app's files.
+                val notes = java.io.File(context.cacheDir, "shared-text")
+                uri.path?.let { java.io.File(it) }
+                    ?.takeIf { uri.scheme == "file" && it.parentFile == notes }
+                    ?.delete()
             }
             if (shared.isNotEmpty()) {
                 refresh()

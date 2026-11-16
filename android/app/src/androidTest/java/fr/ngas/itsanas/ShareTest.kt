@@ -80,5 +80,9 @@ class ShareTest {
         val out = java.io.File(E2e.context.cacheDir, "e2e-note-back.txt")
         Native.get(note!!, out.absolutePath)
         assertEquals("the note does not hold the words shared", link, out.readText())
+        val notes = java.io.File(E2e.context.cacheDir, "shared-text")
+        E2e.waitFor("the note stays in the phone's cache once in the account: every link shared is kept twice", 10) {
+            notes.listFiles().isNullOrEmpty()
+        }
     }
 }
