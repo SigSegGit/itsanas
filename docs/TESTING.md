@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1668 test functions across 44 binaries, 20 of them
+**Last updated: 2026-11-16 — 1670 test functions across 44 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 620 are red-team tests.**
 
-**1552 of the 1668 tests have an entry of their own on this page** — an *entry*,
+**1554 of the 1670 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 362 |
+| `itsanas-cli` unit | 364 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -1251,7 +1251,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (362)
+# `itsanas-cli` — unit tests (364)
 
 ## `bench` — measuring this machine (4)
 
@@ -1378,7 +1378,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | `an_answers_file_says_everything_but_the_secrets` | Every non-secret key of an answers file is parsed into Answers, and none of them is a secret. |
 | `a_mistyped_answer_is_refused_not_ignored` | An unknown or mistyped key in the answers file is refused, never silently ignored (a typo must not leave a machine offering nothing). |
 
-## `secrets` — the 24 words and the passphrase, never in argv, env or a web page (7)
+## `secrets` — the 24 words and the passphrase, never in argv, env or a web page, copied and saved on a Mac and under zenity (9)
 
 The native window per platform (WinForms through PowerShell on stdin, osascript,
 zenity, kdialog) or the terminal. Only the built command and the parsing are
@@ -1387,6 +1387,8 @@ tested: no window was opened by a test.
 | Test | What it proves |
 | --- | --- |
 | **`red_team_no_secret_window_carries_a_secret_in_argv_or_env`** | For every backend (PowerShell, osascript, zenity, kdialog) and every ask, the built Command's argv and env hold no recovery word and no passphrase; Sabotaged (phrase put in argv): red. |
+| `the_mac_words_window_offers_copy_and_save_and_empties_the_clipboard_it_filled` | The Mac's words window has Copy, Save to a file... and I have written them down, as the Windows one; the words reach the clipboard and the file from AppleScript itself, never a shell; the clipboard is emptied when the check ends if it still holds them. |
+| `the_linux_words_window_offers_copy_and_save_on_the_desktops_clipboard` | zenity's words window has Copy and Save to a file... as extra buttons, shown again after each; the clipboard is the desktop's own tool (`wl-copy` under Wayland, else `xclip` or `xsel`), the words on its standard input, emptied when the check ends if it still holds them. |
 | **`red_team_typed_back_words_are_checked_not_waved_through`** | Words_match accepts the right words at the asked positions (case and spaces tolerated) and refuses wrong, missing or swapped ones; Sabotaged (any non-empty word accepted): red. |
 | **`red_team_the_passphrase_window_states_the_rule_the_core_enforces`** | `secret-window.ps1` refuses a new passphrase with itself still open, so its numbers must be `MIN_PASSPHRASE_CHARS` and `MAX_PASSPHRASE_CHARS`; it counts characters as the core does, not .NET's UTF-16 units; the rule reaches only a passphrase being chosen, never one being asked for; and a Show box exists. Reads the script: no window is opened by a test (the closures were driven for real once, by hand, with a timer clicking OK: 5 characters, three emoji, 129 characters and a mismatch each kept the window open with the right sentence, and a 3-character existing passphrase passed). Sabotaged five ways (either number; the `$Twice` guard; `.Length`; Show on the first box): red. |
 | `the_installers_state_the_rule_the_core_enforces` | `provision.sh` and `provision.ps1` say the rule before their build, in the core's numbers, and only for an account about to be made: a machine provisioned again keeps the passphrase it has. |

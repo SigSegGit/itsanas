@@ -331,6 +331,40 @@ fn hidden_question(title: &str, prompt: &str) -> String {
     )
 }
 
+/// What the Mac's words window says after Copy, and after Save.
+const MAC_COPIED: &str = "Copied. Paste it into your password manager now: the clipboard is emptied when this check ends, and any program running as you can read it until then.";
+const MAC_SAVED: &str = "Saved. Move it to a USB stick or a password manager: on this disk, anyone who takes the machine has your files.";
+
+/// The clipboard emptied once the check ends, if it still holds the words:
+/// something copied since is the person's own and stays.
+const MAC_CLIPBOARD_EMPTIED: &str = "if copied then\ntry\nif (the clipboard as text) is phrase24 then set the clipboard to \"\"\nend try\nend if";
+
+/// The Mac's words window, with Copy and Save as on Windows (Nicolas,
+/// 2026-10-07: forced paper loses more data than it protects). It loops until
+/// "I have written them down"; the words stay in the script, which is read
+/// from standard input, and are written by `AppleScript` itself, never through
+/// a shell, whose command line every program of this user can read.
+fn mac_words_window(phrase: &str) -> String {
+    let title = "\"ITSaNAS - your recovery words\"";
+    format!(
+        "set phrase24 to {}\nset copied to false\nrepeat\n\
+         set choice to button returned of (display dialog {} with title {title} with icon caution \
+         buttons {{\"Copy\", \"Save to a file...\", \"I have written them down\"}} default button 3)\n\
+         if choice is \"Copy\" then\nset the clipboard to phrase24\nset copied to true\n\
+         display dialog {} with title {title} buttons {{\"OK\"}} default button 1\n\
+         else if choice is \"Save to a file...\" then\ntry\n\
+         set target to choose file name with prompt \"Where to save your recovery words\" default name \"ITSaNAS recovery words.txt\"\n\
+         set f to open for access target with write permission\nset eof f to 0\n\
+         write phrase24 to f as \u{ab}class utf8\u{bb}\nclose access f\n\
+         display dialog {} with title {title} buttons {{\"OK\"}} default button 1\n\
+         end try\nelse\nexit repeat\nend if\nend repeat",
+        applescript_string(phrase),
+        applescript_string(&format!("{WORDS_INSTRUCTION}\n\n{}", grid(phrase))),
+        applescript_string(MAC_COPIED),
+        applescript_string(MAC_SAVED),
+    )
+}
+
 fn applescript(ask: Ask<'_>) -> Prepared {
     // The script goes on standard input (`osascript -`), so the words in it
     // never reach an argv. AppleScript has no channel for data apart from its
@@ -349,13 +383,12 @@ fn applescript(ask: Ask<'_>) -> Prepared {
                 })
                 .collect();
             format!(
-                "display dialog {} with title \"ITSaNAS - your recovery words\" with icon caution \
-                 buttons {{\"Cancel\", \"I have written them down\"}} default button 2\n\
-                 set a to {}\nset b to {}\nset c to {}\nreturn a & linefeed & b & linefeed & c",
-                applescript_string(&format!("{WORDS_INSTRUCTION}\n\n{}", grid(phrase))),
+                "{}\nset a to {}\nset b to {}\nset c to {}\n{}\nreturn a & linefeed & b & linefeed & c",
+                mac_words_window(phrase),
                 asks[0],
                 asks[1],
-                asks[2]
+                asks[2],
+                MAC_CLIPBOARD_EMPTIED
             )
         }
         Ask::NewPassphrase => {
@@ -390,6 +423,130 @@ fn applescript(ask: Ask<'_>) -> Prepared {
     Prepared::new("osascript", &["-"], format!("activate\n{body}\n"))
 }
 
+/// zenity's extra buttons on the words window; a click exits non-zero and
+/// prints the label, which [`Native`] reads to copy or save and show again.
+const ZENITY_COPY: &str = "Copy";
+const ZENITY_SAVE: &str = "Save to a file...";
+
+/// A Linux desktop's clipboard, as commands: one that takes the text on its
+/// standard input, never in its argv, and one that prints it back.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Clipboard {
+    copy: &'static [&'static str],
+    paste: &'static [&'static str],
+}
+
+/// The clipboard tool of this desktop: `wl-copy` under Wayland, else `xclip`
+/// or `xsel`; `None` when none is installed.
+fn linux_clipboard(wayland: bool, found: &dyn Fn(&str) -> bool) -> Option<Clipboard> {
+    if wayland && found("wl-copy") {
+        return Some(Clipboard {
+            copy: &["wl-copy"],
+            paste: &["wl-paste", "-n"],
+        });
+    }
+    if found("xclip") {
+        return Some(Clipboard {
+            copy: &["xclip", "-selection", "clipboard"],
+            paste: &["xclip", "-selection", "clipboard", "-o"],
+        });
+    }
+    found("xsel").then_some(Clipboard {
+        copy: &["xsel", "--clipboard", "--input"],
+        paste: &["xsel", "--clipboard", "--output"],
+    })
+}
+
+/// Run `argv` with `input` on its standard input; its output, if it ran.
+fn piped(command: &[&str], input: &str) -> Option<Secret> {
+    let (program, args) = command.split_first()?;
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input.as_bytes());
+    }
+    let output = child.wait_with_output().ok()?;
+    let text = Zeroizing::new(String::from_utf8_lossy(&output.stdout).into_owned());
+    output.status.success().then_some(text)
+}
+
+/// A message in a zenity window, waited for.
+fn zenity_says(text: &str) {
+    let _ = Command::new("zenity")
+        .args([
+            "--info",
+            "--title",
+            "ITSaNAS - your recovery words",
+            "--text",
+            text,
+        ])
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn this_clipboard() -> Option<Clipboard> {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty());
+    linux_clipboard(wayland, &|program| on_path(program))
+}
+
+/// Copy the words for a password manager, as the Windows window does.
+fn linux_copy(phrase: &str) -> bool {
+    let copied = this_clipboard()
+        .and_then(|tool| piped(tool.copy, phrase))
+        .is_some();
+    zenity_says(if copied {
+        "Copied. Paste it into your password manager now: the clipboard is emptied when this check ends, and any program running as you can read it until then."
+    } else {
+        "Nothing was copied: install wl-clipboard, xclip or xsel, or save the words to a file."
+    });
+    copied
+}
+
+/// Save the words where the person says, readable by them alone.
+fn linux_save(phrase: &str) {
+    let Some(path) = piped(
+        &[
+            "zenity",
+            "--file-selection",
+            "--save",
+            "--confirm-overwrite",
+            "--filename",
+            "ITSaNAS recovery words.txt",
+        ],
+        "",
+    ) else {
+        return;
+    };
+    let path = PathBuf::from(path.trim());
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let saved = options
+        .open(&path)
+        .and_then(|mut file| file.write_all(phrase.as_bytes()));
+    zenity_says(if saved.is_ok() {
+        "Saved. Move it to a USB stick or a password manager: on this disk, anyone who takes the machine has your files."
+    } else {
+        "The file could not be written; choose another place."
+    });
+}
+
+/// Once the check ends: the clipboard emptied if it still holds the words;
+/// something copied since is the person's own and stays.
+fn linux_clipboard_emptied(phrase: &str) {
+    if let Some(tool) = this_clipboard()
+        && piped(tool.paste, "").is_some_and(|held| held.trim() == phrase.trim())
+    {
+        let _ = piped(tool.copy, "");
+    }
+}
+
 fn zenity(ask: Ask<'_>) -> Vec<Prepared> {
     let hidden = |title: &str, text: &str| {
         Prepared::new(
@@ -412,6 +569,10 @@ fn zenity(ask: Ask<'_>) -> Vec<Prepared> {
                     "420",
                     "--ok-label",
                     "I have written them down",
+                    "--extra-button",
+                    ZENITY_COPY,
+                    "--extra-button",
+                    ZENITY_SAVE,
                 ],
                 format!("{WORDS_INSTRUCTION}\n\n{}", grid(phrase)),
             )];
@@ -551,6 +712,50 @@ impl Native {
     fn run(&self, ask: Ask<'_>) -> Result<Vec<Secret>> {
         let mut replies = Vec::new();
         for mut step in plan(self.backend, ask) {
+            let (answered, text) = self.run_one(&mut step)?;
+            if !answered {
+                return Err(closed());
+            }
+            replies.push(text);
+        }
+        Ok(replies)
+    }
+
+    /// zenity's words window, shown again after each Copy or Save, then the
+    /// three words asked back; whether the words were copied.
+    fn zenity_show_and_confirm(
+        &self,
+        phrase: &str,
+        positions: [usize; CONFIRM_WORDS],
+    ) -> Result<(Vec<Secret>, bool)> {
+        let mut steps = plan(self.backend, Ask::ShowAndConfirm { phrase, positions }).into_iter();
+        let mut words = steps.next().ok_or_else(closed)?;
+        let mut copied = false;
+        loop {
+            let (answered, said) = self.run_one(&mut words)?;
+            if answered {
+                break;
+            }
+            match said.trim() {
+                ZENITY_COPY => copied |= linux_copy(phrase),
+                ZENITY_SAVE => linux_save(phrase),
+                _ => return Err(closed()),
+            }
+        }
+        let mut replies = Vec::new();
+        for mut step in steps {
+            let (answered, text) = self.run_one(&mut step)?;
+            if !answered {
+                return Err(closed());
+            }
+            replies.push(text);
+        }
+        Ok((replies, copied))
+    }
+
+    /// Run one program; whether it answered, and what it wrote.
+    fn run_one(&self, step: &mut Prepared) -> Result<(bool, Secret)> {
+        {
             let mut child = step
                 .command
                 .stdin(Stdio::piped())
@@ -577,17 +782,9 @@ impl Native {
                 source: error,
             })?;
             let stdout = Zeroizing::new(output.stdout);
-            if !output.status.success() {
-                return Err(CliError::Usage(
-                    "the window was closed or cancelled; nothing was saved. Run setup again \
-                     when you are ready"
-                        .to_owned(),
-                ));
-            }
             let text = Zeroizing::new(String::from_utf8_lossy(&stdout).into_owned());
-            replies.push(text);
+            Ok((output.status.success(), text))
         }
-        Ok(replies)
     }
 
     /// The lines one reply holds, decoded where the backend encodes them.
@@ -626,6 +823,13 @@ impl Native {
     }
 }
 
+fn closed() -> CliError {
+    CliError::Usage(
+        "the window was closed or cancelled; nothing was saved. Run setup again when you are ready"
+            .to_owned(),
+    )
+}
+
 fn not_empty(secret: Secret, what: &str) -> Result<Secret> {
     if secret.trim().is_empty() {
         return Err(CliError::Usage(format!("an empty {what} protects nothing")));
@@ -651,7 +855,15 @@ impl SecretPrompt for Native {
         if self.backend == Backend::Terminal {
             return terminal_show_and_confirm(phrase, positions).map(Some);
         }
-        let replies = self.run(Ask::ShowAndConfirm { phrase, positions })?;
+        let replies = if self.backend == Backend::Zenity {
+            let (replies, copied) = self.zenity_show_and_confirm(phrase, positions)?;
+            if copied {
+                linux_clipboard_emptied(phrase);
+            }
+            replies
+        } else {
+            self.run(Ask::ShowAndConfirm { phrase, positions })?
+        };
         let mut typed = Vec::new();
         for reply in &replies {
             typed.extend(self.lines(reply)?);
@@ -888,6 +1100,90 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// zenity's words window offers Copy and Save, and the clipboard is the
+    /// desktop's own tool, the words on its standard input.
+    #[test]
+    fn the_linux_words_window_offers_copy_and_save_on_the_desktops_clipboard() {
+        let step = plan(
+            Backend::Zenity,
+            Ask::ShowAndConfirm {
+                phrase: PHRASE,
+                positions: [1, 2, 3],
+            },
+        )
+        .remove(0);
+        let args: Vec<String> = step
+            .command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        for label in [ZENITY_COPY, ZENITY_SAVE] {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "--extra-button" && pair[1] == label),
+                "zenity's words window has no {label} button: the words go on paper or nowhere"
+            );
+        }
+        let all = |_: &str| true;
+        assert_eq!(
+            linux_clipboard(true, &all).map(|tool| tool.copy[0]),
+            Some("wl-copy")
+        );
+        assert_eq!(
+            linux_clipboard(false, &all).map(|tool| tool.copy[0]),
+            Some("xclip"),
+            "an X desktop was handed a Wayland tool, which copies nothing there"
+        );
+        assert_eq!(
+            linux_clipboard(true, &|program| program == "xsel").map(|tool| tool.copy[0]),
+            Some("xsel")
+        );
+        assert_eq!(linux_clipboard(true, &|_| false), None);
+    }
+
+    /// The Mac's words window offers Copy and Save as the Windows one does, and
+    /// empties the clipboard it filled once the check ends, only if it still
+    /// holds the words. Sabotage: drop the emptying.
+    #[test]
+    fn the_mac_words_window_offers_copy_and_save_and_empties_the_clipboard_it_filled() {
+        let step = plan(
+            Backend::AppleScript,
+            Ask::ShowAndConfirm {
+                phrase: PHRASE,
+                positions: [1, 2, 3],
+            },
+        )
+        .remove(0);
+        let script = step.stdin.as_str();
+        for button in [
+            "\"Copy\"",
+            "\"Save to a file...\"",
+            "\"I have written them down\"",
+        ] {
+            assert!(
+                script.contains(button),
+                "the Mac's words window has no {button} button: the words go on paper or nowhere"
+            );
+        }
+        assert!(
+            script.contains("set the clipboard to phrase24")
+                && script.contains("write phrase24 to f"),
+            "Copy or Save does not hand over the words themselves"
+        );
+        let emptied = script
+            .find("if (the clipboard as text) is phrase24 then set the clipboard to \"\"")
+            .expect("the words copied stay on the clipboard for any program to read, for good");
+        let checked = script.find("return a & linefeed").expect("the check");
+        assert!(
+            emptied < checked,
+            "the clipboard is emptied after the script has returned, which is never"
+        );
+        assert!(
+            !script.contains("do shell script"),
+            "the words go through a shell, whose command line every program of this user can read"
+        );
     }
 
     /// The Windows window refuses a new passphrase with itself still open, so its

@@ -2982,8 +2982,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
          "Advanced"; it was not pinned here, and is since #250
          (`DEFAULT_COORDINATOR_DEVICE`, `pinned_for`); (9)
-         Copy / Save in the Windows window only; macOS (`osascript`) and
-         Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
+         Copy / Save in the Windows window and, since 2026-11-16, the Mac's
+         (`mac_words_window`: AppleScript writes the clipboard and the file,
+         the clipboard emptied when the check ends if it still holds the
+         words), and zenity's (extra buttons, the window shown again after
+         each; `wl-copy`, `xclip` or `xsel` fed on standard input; a file
+         saved readable by its owner alone). kdialog's text box has no extra
+         buttons: on KDE without zenity the words are only shown. None of the
+         three windows has been clicked by a person yet;
          (5a) `upnp.rs`, IGD only here (NAT-PMP, `natpmp.rs`, came with #265; still
          no PCP), the public address read again at each renewal and a new one announced
          (`a_new_public_address_after_a_renewal_is_announced_and_nothing_else_is`, 2026-11-16),
