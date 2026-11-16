@@ -31,6 +31,22 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
             ]
         }
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
+        if folder.isEmpty {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(takeShared), name: Shared.arrived, object: nil)
+        }
+    }
+
+    /// What another app shared goes in at the top of the account, as on Android.
+    @objc private func takeShared() {
+        guard folder.isEmpty else { return }
+        let waiting = Shared.waiting
+        Shared.waiting = []
+        for url in waiting {
+            work({ try Core.put(url.lastPathComponent, from: url.path) }, then: {
+                try? FileManager.default.removeItem(at: url)
+            })
+        }
     }
 
     private func reload() {
@@ -69,6 +85,7 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         reload()
+        takeShared()
     }
 
     @objc private func add() {

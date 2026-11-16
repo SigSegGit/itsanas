@@ -4004,6 +4004,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
+14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
+    link to thousands, but send a file to someone, and take in what any app shares). Android: each
+    file of the Files screen has Share (`file-share`), the system's share sheet with the file
+    (`ACTION_SEND`, read grant, one person or app at a time); what another app shares goes in at the
+    top of the account (`ACTION_SEND`, `ACTION_SEND_MULTIPLE`, already there), and words with no
+    file, a link from the browser, are kept as `Note <date>.txt` (`sharedText`). Proved by
+    `ShareTest` (both ways) and by hand on the S25 (My Files, Share, ITSaNAS). iPhone: a tapped file
+    already opened the share sheet; ITSaNAS is now an "Open in" and share-sheet target for any file
+    (`CFBundleDocumentTypes`, `application(_:open:options:)`, put in by the Files screen once the
+    account is open). A computer has its synced folder, with the file manager's own Share and drop.
+    **Left:** the iPhone's share target is compiled by CI only, run by no test; a phone shares one
+    file at a time.
+
 13. 🟨 **What a delete does, machine by machine** (asked by Nicolas, 2026-11-12). Each machine has
     its rules, and the account a default that a new machine follows (`itsanas_store::deletion`):
     a delete made here goes to the **account's trash** (default: a marker file under `.itsanas/trash/`
