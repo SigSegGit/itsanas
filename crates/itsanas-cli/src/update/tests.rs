@@ -354,6 +354,23 @@ fn red_team_a_network_drop_never_calls_a_release_install_a_source_build() {
 }
 
 #[test]
+fn red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release() {
+    // A prefix the daemon's account cannot write: here a file where the
+    // scratch directory would go, which fails the same way on every system.
+    // The check must still answer; only the install needs the program's disk.
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    let blocked = world.exe.parent().expect("bin").join(super::SCRATCH);
+    std::fs::write(&blocked, b"not a directory").expect("block");
+    match world.updater().check() {
+        Ok(Found::Available(manifest)) => assert_eq!(manifest.version, version("0.2.0")),
+        other => panic!(
+            "a program installed where its account cannot write never hears of an update, and logs the failure every day: {other:?}"
+        ),
+    }
+}
+
+#[test]
 fn without_a_pinned_key_nothing_is_fetched() {
     let world = World::new();
     world.publish("0.2.0", NEW_PROGRAM);

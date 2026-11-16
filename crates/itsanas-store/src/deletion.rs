@@ -325,17 +325,32 @@ pub struct Trashed {
     pub due: u64,
     /// The device that deleted it, as hex.
     pub by: String,
+    /// The version deleted, as `date.size`; `None` in a marker
+    /// written before it was kept.
+    pub version: Option<String>,
+}
+
+/// A version as a marker keeps it: its date and size, which the log carries
+/// for every file, on a machine that downloads nothing too. An edit changes
+/// one or the other.
+fn version_tag(modified_unix: u64, size: u64) -> String {
+    format!("{modified_unix}.{size}")
 }
 
 fn parse_marker(marker: &str) -> Option<Trashed> {
     let rest = marker.strip_prefix(SHARED)?;
     let (due, rest) = rest.split_once('/')?;
     let (by, path) = rest.split_once('/')?;
+    // `device@version`; a device id is hex, so the `@` is unambiguous.
+    let (by, version) = by
+        .split_once('@')
+        .map_or((by, None), |(by, version)| (by, Some(version.to_owned())));
     let due = due.parse().ok()?;
     (!path.is_empty() && !is_reserved(path)).then(|| Trashed {
         path: path.to_owned(),
         due,
         by: by.to_owned(),
+        version,
     })
 }
 
@@ -377,7 +392,15 @@ pub fn trash_shared(store: &Store, path: &str, now: u64, days: u64) -> crate::Re
         ));
     }
     let due = now.saturating_add(days.clamp(1, trash::MAX_DAYS).saturating_mul(trash::DAY));
-    let marker = format!("{SHARED}{due}/{}/{path}", store.device_id().to_hex());
+    // The version deleted goes with it: an edit made elsewhere before the
+    // delay runs out is a newer file, not the one deleted.
+    let version = store.stat(path)?.map_or_else(String::new, |entry| {
+        format!("@{}", version_tag(entry.modified_unix, entry.size))
+    });
+    let marker = format!(
+        "{SHARED}{due}/{}{version}/{path}",
+        store.device_id().to_hex()
+    );
     store.write_file(&marker, b"")?;
     Ok(())
 }
@@ -404,6 +427,73 @@ pub fn restore_shared(store: &Store, vault: &Vault, path: &str) -> crate::Result
         store.flush_segment()?;
     }
     Ok(removed)
+}
+
+/// The trash's markers whose file changed since it was deleted, given what
+/// each path's version is now: an edit made on another machine before the
+/// delay ran out. Purging them would delete that edit.
+fn edited(
+    markers: Vec<(String, Trashed)>,
+    now_version: impl Fn(&str) -> Option<String>,
+) -> Vec<(String, String)> {
+    markers
+        .into_iter()
+        .filter(|(_, trashed)| {
+            trashed.version.as_ref().is_some_and(|deleted| {
+                now_version(&trashed.path).is_some_and(|now| now != *deleted)
+            })
+        })
+        .map(|(marker, trashed)| (marker, trashed.path))
+        .collect()
+}
+
+/// Take out of the account's trash every file edited since it was deleted: it
+/// shows again everywhere, as a file put back by hand does. Called before the
+/// due files are purged. The paths taken out, once each.
+///
+/// # Errors
+///
+/// When the store or the vault cannot be read or written.
+pub fn untrash_edited(store: &Store, vault: &Vault) -> crate::Result<Vec<String>> {
+    let versions: BTreeMap<String, String> = crate::catalogue(store, vault)?
+        .files
+        .into_iter()
+        .map(|known| (known.path, version_tag(known.modified_unix, known.size)))
+        .collect();
+    let mut out = BTreeSet::new();
+    for (marker, path) in edited(markers(store, vault)?, |path| versions.get(path).cloned()) {
+        crate::remove_known(store, vault, &marker)?;
+        out.insert(path);
+    }
+    if !out.is_empty() {
+        store.flush_segment()?;
+    }
+    Ok(out.into_iter().collect())
+}
+
+/// [`untrash_edited`], from the index alone; the caller seals the segment.
+///
+/// # Errors
+///
+/// When the store cannot be read or written.
+pub fn untrash_edited_known(store: &Store) -> crate::Result<Vec<String>> {
+    let markers = known_here(store)?
+        .into_iter()
+        .filter_map(|marker| parse_marker(&marker).map(|trashed| (marker, trashed)))
+        .collect();
+    let now_version = |path: &str| {
+        store
+            .stat(path)
+            .ok()
+            .flatten()
+            .map(|entry| version_tag(entry.modified_unix, entry.size))
+    };
+    let mut out = BTreeSet::new();
+    for (marker, path) in edited(markers, now_version) {
+        store.remove_file(&marker)?;
+        out.insert(path);
+    }
+    Ok(out.into_iter().collect())
 }
 
 /// Delete `path` from every machine for good: the file's tombstone first, the

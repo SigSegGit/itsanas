@@ -3053,6 +3053,62 @@ fn install_signal_handler() -> Result<()> {
 mod tests {
     use super::*;
 
+    /// The adapter `dial_book` is tested through, run for real: a round with
+    /// the machine expected at an address happens, one with another device
+    /// expected there does not, and a pause on disk or a shutdown halts it.
+    /// Sabotage: `sync_once` handed `None` for the device expected.
+    #[test]
+    fn red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (host, phrase) =
+                crate::testing::phone(&dir.path().join("host"), coordinator, "camille", None);
+            let (me, _) = crate::testing::phone(
+                &dir.path().join("me"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let shutdown = AtomicBool::new(false);
+            let site = Dialling {
+                node: &me,
+                shutdown: &shutdown,
+                scope: PolicyScope::Everything,
+            };
+            crate::testing::serving(&host, |at| {
+                let at = at.to_string();
+                assert!(
+                    site.sync(&at, None, host.store.device_id(), false)
+                        .is_some(),
+                    "the machine expected at its address was not synced with"
+                );
+                assert!(
+                    site.sync(&at, None, me.store.device_id(), false).is_none(),
+                    "a round ran with whatever answered at an address that names another device: whoever holds the address takes the round"
+                );
+            });
+            assert!(
+                !site.halted(),
+                "a machine neither paused nor stopping halted its dials"
+            );
+            crate::control::Control {
+                paused_since: Some(itsanas_discover::now_unix()),
+                ..crate::control::Control::default()
+            }
+            .write(&me.home)
+            .expect("pause");
+            assert!(
+                site.halted(),
+                "a pause written on disk did not halt the dials under way"
+            );
+            crate::control::Control::default()
+                .write(&me.home)
+                .expect("resume");
+            shutdown.store(true, Ordering::Relaxed);
+            assert!(site.halted(), "a shutdown did not halt the dials under way");
+        });
+    }
+
     /// The drain says a refused set once per half hour, and a new one at once.
     ///
     /// The forged segment stays in the vault and every loop drains it again,

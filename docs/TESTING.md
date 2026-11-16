@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1668 test functions across 44 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 620 are red-team tests.**
+**Last updated: 2026-11-16 — 1672 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 624 are red-team tests.**
 
-**1552 of the 1668 tests have an entry of their own on this page** — an *entry*,
+**1556 of the 1672 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,7 +164,7 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 4 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
 | `itsanas-net` unit | 69 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 362 |
+| `itsanas-cli` unit | 365 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -221,9 +221,9 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 38 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 211 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 214 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -808,7 +808,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — deletes between machines with different rules (4)
+# `itsanas-sync` — deletes between machines with different rules (5)
 
 Two machines of one account, each with its own rules (HANDOVER §8 13): the
 account's trash, Protect, and rules every machine reads alike.
@@ -816,6 +816,7 @@ account's trash, Protect, and rules every machine reads alike.
 | Test | What it proves |
 |---|---|
 | **`red_team_a_file_trashed_on_one_machine_is_restored_from_another`** | A file the phone puts in the account's trash is in the computer's trash list and still a file of the account; a restore on the computer takes it out of the phone's trash too. Sabotaged (no marker written): red. |
+| **`red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash`** | The account trash's marker keeps the version deleted (`device@date.size`); a file edited on another machine before the delay ran out is a newer file, taken out of the trash each round before the purge (`deletion::untrash_edited`), and a file nobody touched stays in. Before, the purge deleted the edit. Sabotaged (no edit found): red. |
 | **`red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects`** | A file the phone deletes outright is kept by the computer, which protects by default; publishing it again brings it back on the phone. Sabotaged (nothing protected): red. |
 | **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
@@ -1251,7 +1252,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (362)
+# `itsanas-cli` — unit tests (365)
 
 ## `bench` — measuring this machine (4)
 
@@ -1342,7 +1343,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_refused_passphrase_is_asked_again_with_the_reason_and_three_refusals_stop_the_run`** | A new passphrase that breaks the rule is asked again, with the reason in an event that never holds what was typed, instead of ending a long setup; three refusals stop it with nothing written. Sabotaged (one attempt; the reason not said): red. |
 | **`red_team_forgetting_the_passphrase_replaces_the_keys_only_for_the_account_s_own_words`** | `forgot` leaves the node byte for byte as it was, and the service unstopped, for the words of another account, words that do not parse and a passphrase refused three times; the account's own words give the same account and a new device under the new passphrase, keep what was set up, store the passphrase for the service and start it. Sabotaged (owner comparison, store, stop, attempts): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it (16)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it, checked where the program cannot write (17)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1365,6 +1366,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
 | **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. The same test also holds `check()` to the same answer: a source build is told `NotFromRelease`, not "update available" it will then refuse every day, while a release install still hears `Available` (sabotaged: `Available` on error, red). |
 | **`red_team_a_network_drop_never_calls_a_release_install_a_source_build`** | `check` fetches the manifest twice: the newest, then the running version's own, to learn whether this program is that release. When the second fetch fails for want of a network, the check fails "could not check for an update", to be retried; it used to answer `NotFromRelease`, telling a release install it never updates itself. Only a 404 (the server answering that there is no such release) means not-from-release. Sabotaged by treating every fetch error as missing: red. |
+| **`red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`** | The daily check writes its two small signed files beside the program, where the install will need them; a program under a prefix its account cannot write failed the check every day. It now falls back to a private directory with a fresh random name (never a fixed name in a shared one). Sabotaged (the fallback made beside the program): red. |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
@@ -1644,11 +1646,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `phone` — what a phone's round says it changed (1)
+## `phone` — what a phone's round says it changed, a sibling learnt through a third (2)
 
 | Test | What it proves |
 |---|---|
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
+| **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
 
 ## `freeing` — files that need not stay on this machine (2)
 
@@ -1666,10 +1669,11 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (38)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause`** | The adapter `dial_book` is tested through, run against a real serving machine: a round with the device expected at the address runs, one expecting another device there does not; a pause written on disk and a shutdown halt it. Sabotaged (no device pinned; the pause not read): red. |
 | `the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window` | `drain_refusal_due`: the first refusal at the drain is said, the same refused set five minutes later is not (the forged segment stays in the vault and every loop drains it again), the same set after `OUTAGE_QUIET` is, and a different device, or one more chain past the names, is said at once. Keyed on one fixed label, a second forged chain pushed five minutes after the first went unsaid for the rest of the half hour; the drain's slot is now its own, apart from the peer labels of `REFUSALS_REPORTED`. Sabotaged (the devices not compared; the count not compared): red both times. |
 | **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
 | **`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`** | Through `write_snapshot`: a header left by an earlier run with `reached T` a day old keeps T while this process has reached nobody yet, so a restart neither forgets a day of silence nor starts it again; a round that reached a machine stamps now, and the next one that reached nobody keeps it. Sabotaged (now stamped every round; only this process's own contact): red, both. It builds `Seen` by hand: that `sync_loop` stamps it is `red_team_a_round_that_reaches_the_account_stamps_the_contact` (steering). |

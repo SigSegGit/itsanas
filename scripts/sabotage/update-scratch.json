@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_a_program_beside_which_nothing_can_be_written"
+  ],
+  "defences": {
+    "update-scratch: a private directory when the program's is closed": {
+      "file": "crates/itsanas-cli/src/update.rs",
+      "live": "                .tempdir()\n",
+      "dead": "                .tempdir_in(&beside)\n"
+    }
+  }
+}

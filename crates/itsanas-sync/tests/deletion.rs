@@ -52,6 +52,57 @@ fn red_team_a_file_trashed_on_one_machine_is_restored_from_another() {
     );
 }
 
+/// A file edited on another machine after it was trashed is that machine's
+/// newer file: it leaves the trash rather than being purged with it, and an
+/// untouched trashed file stays in. Sabotage: `deletion::edited` keeps nothing.
+#[test]
+fn red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash() {
+    let swarm = swarm();
+    swarm
+        .device(PHONE)
+        .write("notes.txt", b"first draft")
+        .unwrap();
+    swarm
+        .device(PHONE)
+        .write("old.txt", b"nobody wants this")
+        .unwrap();
+    swarm.settle_and_check().unwrap();
+
+    let phone = swarm.device(PHONE).store();
+    deletion::trash_shared(phone, "notes.txt", now(), 30).unwrap();
+    deletion::trash_shared(phone, "old.txt", now(), 30).unwrap();
+    phone.flush_segment().unwrap();
+    // The computer, not yet told, edits the note; then both learn of each other.
+    swarm
+        .device(PC)
+        .write("notes.txt", b"second draft, much longer")
+        .unwrap();
+    swarm.settle_and_check().unwrap();
+
+    let taken = deletion::untrash_edited_known(phone).unwrap();
+    phone.flush_segment().unwrap();
+    swarm.settle_and_check().unwrap();
+    assert_eq!(
+        taken,
+        ["notes.txt"],
+        "an edit made on the computer stayed in the phone's trash: the purge would delete it"
+    );
+    let left = deletion::shared_known_here(swarm.device(PC).store()).unwrap();
+    assert!(
+        !left.contains_key("notes.txt"),
+        "the edited note is still in the account's trash on the computer"
+    );
+    assert!(
+        left.contains_key("old.txt"),
+        "a file nobody touched left the trash: deleting it did nothing"
+    );
+    assert_eq!(
+        swarm.device(PHONE).read("notes.txt").unwrap().as_deref(),
+        Some(&b"second draft, much longer"[..]),
+        "the edit is not the file the account keeps"
+    );
+}
+
 /// A machine that protects keeps, for its days, what another deleted outright,
 /// and publishing it again brings it back on both. Sabotage: return early in
 /// `deletion::protect`.

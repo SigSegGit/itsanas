@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-sync",
+    "--test",
+    "deletion",
+    "red_team_an_edit_made_elsewhere"
+  ],
+  "defences": {
+    "trash-edited: an edit since the delete is found": {
+      "file": "crates/itsanas-store/src/deletion.rs",
+      "live": "                now_version(&trashed.path).is_some_and(|now| now != *deleted)\n",
+      "dead": "                now_version(&trashed.path).is_some_and(|now| now != *deleted && false)\n"
+    }
+  }
+}
