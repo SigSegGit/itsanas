@@ -512,8 +512,11 @@ fn open_router<'scope>(
     scope.spawn(move || match crate::upnp::open_port(port) {
         Ok((gateway, address)) => {
             println!("itsanas: the router opened port {port} (UPnP); reachable at {address}");
-            coordinator::set_found_address(Some(address));
-            crate::upnp::renew(&gateway, port, shutdown);
+            coordinator::set_found_address(Some(address.clone()));
+            crate::upnp::renew(&gateway, port, address, shutdown, |address| {
+                println!("itsanas: the router's address changed; now reachable at {address}");
+                coordinator::set_found_address(Some(address));
+            });
         }
         // A router that speaks no UPnP may speak NAT-PMP (HANDOVER §8 0u).
         Err(why) => match crate::natpmp::open_port(port) {

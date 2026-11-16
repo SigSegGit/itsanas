@@ -2983,17 +2983,21 @@ Detail and measurements are in ROADMAP.md; this is the map.
          **Built 2026-10-07 (one PR, batch mode by Nicolas's request: his
          weekly limit was near), what is left:** (2, 6) the folder has a
          native *Browse* (`/api/pick`), the space a slider tied to the field
-         and "you get about X" from `Split::DEFAULT`, but the disk hosted for
-         others is still the home's: choosing another disk means moving the
-         node's home, which the service step refuses today
-         (`refuse_a_home_the_service_would_not_run`); (4) default
+         and "you get about X" from `Split::DEFAULT`; the disk hosted for
+         others is chosen too (2026-11-16): an optional folder for other
+         people's copies (`vault` in the answers and on the page, its *Browse*
+         sets the slider to that disk's free room) becomes the node's vault
+         before the pledge is measured on it, and one already holding a copy
+         is never left (`red_team_setup_puts_the_vault_on_the_disk_chosen_and_never_strands_one_that_holds_data`;
+         `itsanas vault --move` moves one that does); (4) default
          `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
          "Advanced"; it was not pinned here, and is since #250
          (`DEFAULT_COORDINATOR_DEVICE`, `pinned_for`); (9)
          Copy / Save in the Windows window only; macOS (`osascript`) and
          Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
          (5a) `upnp.rs`, IGD only here (NAT-PMP, `natpmp.rs`, came with #265; still
-         no PCP), the public address read once at start (a new public IP is announced only after a restart),
+         no PCP), the public address read again at each renewal and a new one announced
+         (`a_new_public_address_after_a_renewal_is_announced_and_nothing_else_is`, 2026-11-16),
          never seen against a real router; (1) `install/windows/itsanas.iss`
          + `release.yml` job `setup-exe`, never built (first run: the v0.1.1
          tag); its uninstaller only signs out. Also built: the coordinator's
@@ -4018,6 +4022,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
     Share sends them in one `ACTION_SEND_MULTIPLE`, the read grant on each through the clip
     (`ShareTest`, its third case). **Left:** the iPhone's share
     target is compiled by CI only, run by no test; the iPhone shares one file at a time.
+    The same bar frees the chosen files from the phone (each kept while no other machine holds
+    it) and deletes them on one answer (`TrashTest`, its chosen-files case).
 
 13. 🟨 **What a delete does, machine by machine** (asked by Nicolas, 2026-11-12). Each machine has
     its rules, and the account a default that a new machine follows (`itsanas_store::deletion`):

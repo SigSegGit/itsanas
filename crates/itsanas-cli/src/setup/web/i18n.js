@@ -81,8 +81,12 @@ window.I18N = {
     'Choose how much of this disk other members may use for their copies. It is what earns room for your own files on theirs.':
       'Choisissez combien de ce disque les autres membres peuvent utiliser pour leurs copies. C’est ce qui vous donne de la place pour vos fichiers chez eux.',
     'Space to offer, in GB': 'Espace à offrir, en Go',
-    "You can change it later. The disk is the one that holds this machine's ITSaNAS data.":
-      'Vous pourrez le changer plus tard. Le disque est celui qui contient les données ITSaNAS de cette machine.',
+    "You can change it later. The disk is the one that holds this machine's ITSaNAS data, unless you choose another below.":
+      'Vous pourrez le changer plus tard. Le disque est celui qui contient les données ITSaNAS de cette machine, sauf si vous en choisissez un autre ci-dessous.',
+    "Folder for other people's copies (optional)": 'Dossier pour les copies des autres (facultatif)',
+    "Empty: in this machine's ITSaNAS data. An empty folder on a bigger disk lets you offer more.":
+      'Vide : dans les données ITSaNAS de cette machine. Un dossier vide sur un disque plus grand permet d’offrir plus.',
+    'Free on that disk:': 'Libre sur ce disque :',
     'Updates': 'Mises à jour',
     'New versions of ITSaNAS are signed by its author. This machine installs only a version with that signature.':
       'Les nouvelles versions d’ITSaNAS sont signées par son auteur. Cette machine n’installe qu’une version portant cette signature.',
