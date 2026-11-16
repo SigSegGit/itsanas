@@ -17,7 +17,8 @@
 # app and its account, which they never touch. The core is built for the phone's
 # own processor; the phone reaches this machine's coordinator through
 # `adb reverse`; and the animation and error-dialog settings the run changes
-# are put back as they were. The phone must stay unlocked during the run.
+# are put back as they were, and so is its dark or light mode, which the theme
+# tests switch. The phone must stay unlocked during the run.
 #
 # The tests never see the official coordinator: they are given this one's
 # address, and a run without it fails saying so.
@@ -76,6 +77,8 @@ if [ -n "$real" ]; then
     for name in "${settings[@]}"; do
         before[$name]="$(shell settings get global "$name")"
     done
+    # "Night mode: yes", "no" or "auto": the theme tests leave it on "no".
+    night="$(shell cmd uimode night | sed -n 's/^Night mode: \(yes\|no\|auto\)$/\1/p')"
 fi
 
 state="$(mktemp -d)"
@@ -94,6 +97,7 @@ cleanup() {
                 "$adb" shell settings put global "$name" "${before[$name]}" >/dev/null 2>&1 || true
             fi
         done
+        [ -z "${night:-}" ] || "$adb" shell cmd uimode night "$night" >/dev/null 2>&1 || true
     fi
     rm -rf "$state"
 }
