@@ -66,6 +66,10 @@
     <string name="files_add">Add a file</string>
     <string name="file_open">Open</string>
     <string name="file_share">Share</string>
+    <string name="file_chosen">Selected</string>
+    <string name="files_chosen">%1$d selected</string>
+    <string name="files_choose_none">Clear the selection</string>
+    <string name="files_share_chosen">Share the selected files</string>
     <string name="file_fetch">Fetch and open</string>
     <string name="file_delete">Delete</string>
     <string name="file_free">Free up on this phone</string>
