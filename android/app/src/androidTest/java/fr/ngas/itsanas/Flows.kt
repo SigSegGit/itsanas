@@ -214,6 +214,22 @@ object Flows {
         type(compose, "recovery-words", phrase)
     }
 
+    /**
+     * Continue on the words screen until the screen is gone: on the emulator a
+     * tap right after the words were checked was lost now and then, and the test
+     * waited for a passphrase screen that nothing had asked for.
+     */
+    fun continueAfterWords(compose: ComposeTestRule) {
+        repeat(3) {
+            click(compose, "secret-continue")
+            val end = System.nanoTime() + 10_000_000_000L
+            while (System.nanoTime() < end) {
+                if (Host.current !is Ask.Recovery) return
+                E2e.pause(200)
+            }
+        }
+    }
+
     /** The 24 words on a words screen, in order. */
     fun wordsShown(compose: ComposeTestRule): List<String> =
         (1..24).map { textOf(compose, "word-$it").substringAfter(". ") }

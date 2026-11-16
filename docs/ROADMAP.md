@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1664 test functions, 20 of them `#[ignore]`d into the slow job, and 619 of
+**1667 test functions, 20 of them `#[ignore]`d into the slow job, and 620 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2539,9 +2539,14 @@ who collude. The second is cheap and partial, the first is expensive and sound.
 ### The `dataSync` budget and Doze, measured rather than remembered
 
 `docs/PORTING.md` says Android 14 caps foreground data-sync at about six hours a
-day. That was written from memory and has never been checked. The
-twenty-four-hour cost measurement now running on the three desktops is the first
-honest number this project will have about idle cost; the phone needs its own.
+day. Read on a Galaxy S25, Android 17, 2026-11-12: `data_sync_fgs_timeout_duration`
+is unset there, so the platform's default applies (the six hours `ServiceLimitTest`
+cuts to seconds). What actually rations the background is the standby bucket: the
+app was ACTIVE (10) when opened at noon and RARE (40) a few hours later, not on the
+Doze allow-list, its WorkManager job pending; in RARE the fifteen-minute worker runs
+a few times a day. Settings now offers, on a phone, to work without the system's
+battery limits (`Battery.kt`, the system's own dialog); an exempt app leaves those
+buckets. The idle cost of a phone over a day is still not measured.
 
 ### M8 — Three-device bring-up
 

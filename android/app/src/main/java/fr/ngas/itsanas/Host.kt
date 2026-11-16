@@ -120,6 +120,7 @@ object Host {
             when (name) {
                 "theme" -> Appearance.follow(c, value)
                 "metered" -> Vault.setContentOnMetered(c, value == "on")
+                "battery" -> Battery.ask(c, value == "on")
             }
         }
         events.tryEmit(name to value)
@@ -132,6 +133,7 @@ object Host {
         return when (name) {
             "biometric" -> if (Biometric.enabled(c)) "on" else "off"
             "metered" -> if (Vault.contentOnMetered(c)) "on" else "off"
+            "battery" -> if (Battery.unlimited(c)) "on" else "off"
             "theme" -> Appearance.word()
             else -> null
         }

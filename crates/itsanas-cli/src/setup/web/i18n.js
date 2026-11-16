@@ -510,8 +510,8 @@ window.I18N = {
     'Legal notice': 'Mentions légales',
     'Privacy policy': 'Politique de confidentialité',
     'Terms of use': 'Conditions d’utilisation',
-    'Asked when the session opens. A machine restarted with nobody signed in waits for them.':
-      'Demandé à l’ouverture de session. Une machine redémarrée sans personne de connecté les attend.',
+    'Signing in to this machine unlocks every account on it: the system asks again only when that is not enough, and before a delete for good. A machine restarted with nobody signed in waits for them.':
+      'Se connecter à cette machine déverrouille tous ses comptes : le système redemande seulement si cela ne suffit pas, et avant une suppression définitive. Une machine redémarrée sans personne de connecté les attend.',
     'Offer this machine to the network': 'Offrir cette machine au réseau',
     'Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.':
       'Éteint, cette machine ne reçoit plus rien et ne déclare aucun espace, et vos valeurs ci-dessous sont conservées. Ce qu’elle garde déjà pour d’autres reste, et elle continue d’en répondre.',
@@ -582,5 +582,12 @@ window.I18N = {
     'This machine\'s rules are set.': 'Les règles de cette machine sont enregistrées.',
     'Every machine of the account follows these rules on its next round.': 'Toutes les machines du compte suivent ces règles à leur prochain tour.',
     'This machine follows the account\'s rules.': 'Cette machine suit les règles du compte.',
+    'Delete everywhere': 'Supprimer partout',
+    'It goes to the account\'s trash and leaves every machine when its days are over.':
+      'Il va dans la corbeille du compte et quitte toutes les machines à la fin de son délai.',
+    "Work in the background without the system's battery limits":
+      'Travailler en arrière-plan sans les limites de batterie du système',
+    "Otherwise the phone runs ITSaNAS only a few times a day once the app has not been opened for a while. The system asks you to confirm; turning it off is done in the phone's own settings.":
+      'Sinon le téléphone ne lance ITSaNAS que quelques fois par jour quand l’application n’a pas été ouverte depuis un moment. Le système vous demande de confirmer ; pour le désactiver, passez par les réglages du téléphone.',
   },
 };

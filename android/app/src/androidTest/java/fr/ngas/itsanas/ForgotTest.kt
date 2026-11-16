@@ -20,14 +20,15 @@ class ForgotTest {
 
     @After fun after() = E2e.end()
 
-    private fun forgotWith(phrase: String) {
+    private fun forgotWith(phrase: String, accepted: Boolean = false) {
         Flows.click(compose, "unlock-forgot")
         Flows.typeRecovery(compose, phrase)
         Flows.waitTag(compose, "secret-continue", "no Continue on the words screen")
         E2e.waitFor("the words were not accepted by the screen that checks them") {
             runCatching { compose.onNodeWithTag("secret-continue").assertIsEnabled(); true }.getOrDefault(false)
         }
-        Flows.click(compose, "secret-continue")
+        // Words that are refused leave the screen up on purpose: tap once.
+        if (accepted) Flows.continueAfterWords(compose) else Flows.click(compose, "secret-continue")
     }
 
     @Test
@@ -59,7 +60,7 @@ class ForgotTest {
     fun the_right_words_replace_the_keys() {
         val mine = Flows.createAccount(compose, Flows.freshName())
         Flows.lock(compose)
-        forgotWith(mine.phrase)
+        forgotWith(mine.phrase, accepted = true)
         E2e.waitFor("no new passphrase was asked after the right words") { Host.current is Ask.NewPassphrase }
         Flows.waitTag(compose, "new-pass", "the new passphrase screen is not drawn")
         Flows.typePassphrase(compose, Flows.OTHER_PASSPHRASE)

@@ -940,6 +940,10 @@ fn host_setting(ctx: &Context, request: &Request) -> Response {
             "fingerprint or face unlock",
         ),
         Some("metered") => ("metered", features.metered, "choice about mobile data"),
+        // A phone whose system rations background work (Android's standby
+        // buckets put an app not opened for hours in RARE, where its worker
+        // runs a few times a day): the shell asks the system to let it off.
+        Some("battery") => ("battery", features.metered, "choice about battery limits"),
         _ => return Response::refuse(400, "no such setting"),
     };
     if let Some(refusal) = Features::refuse(enabled, what) {
@@ -1136,6 +1140,10 @@ fn state_json(ctx: &Context) -> String {
                 (
                     "metered",
                     optional(ctx.backends.host.value("metered").as_deref()),
+                ),
+                (
+                    "battery",
+                    optional(ctx.backends.host.value("battery").as_deref()),
                 ),
             ]),
         ),
@@ -1663,18 +1671,16 @@ fn delete_account(ctx: &Context, request: &Request) -> Response {
 fn files_change(ctx: &Context, request: &Request) -> Response {
     let form = json::parse_form(&request.body).unwrap_or_default();
     let (Some(action), Some(path)) = (field(&form, "action"), field(&form, "path")) else {
-        return Response::refuse(400, "the action is free or keep, with a path");
+        return Response::refuse(400, "the action is free, keep or everywhere, with a path");
     };
-    let keep = match action {
-        "free" => false,
-        "keep" => true,
-        _ => return Response::refuse(400, "the action is free or keep"),
-    };
+    if !matches!(action, "free" | "keep" | "everywhere") {
+        return Response::refuse(400, "the action is free, keep or everywhere");
+    }
     node_call(ctx, |node| {
-        let said = if keep {
-            crate::freeing::keep(node, path)?
-        } else {
-            crate::freeing::free(node, path)?
+        let said = match action {
+            "keep" => crate::freeing::keep(node, path)?,
+            "everywhere" => crate::freeing::delete_everywhere(node, path)?,
+            _ => crate::freeing::free(node, path)?,
         };
         let mut listed: serde_json::Value = serde_json::from_str(&crate::freeing::files(node)?)
             .map_err(|error| Failure::Usage(error.to_string()))?;

@@ -27,6 +27,11 @@
       "file": "crates/itsanas-cli/src/setup/unlock.rs",
       "live": "    open_random(&key, &context(), &held)\n        .map_err(|_| \"the system did not give the key that sealed it\".to_owned())?;\n",
       "dead": "    let _ = &held;\n"
+    },
+    "unlock: every account at sign-in asks the system again": {
+      "file": "crates/itsanas-cli/src/setup/unlock.rs",
+      "live": "    if let Some(key) = kept.load() {",
+      "dead": "    if let Some(key) = kept.load().filter(|_| false) {"
     }
   }
 }
