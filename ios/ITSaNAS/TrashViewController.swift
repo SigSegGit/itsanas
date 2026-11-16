@@ -134,7 +134,12 @@ final class TrashViewController: UITableViewController {
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = Result { try body() }
             DispatchQueue.main.async {
-                if case .failure(let error) = outcome { self.show(error.localizedDescription) }
+                if case .failure(let error) = outcome {
+                    // An alert shown while a swipe action closes can be lost:
+                    // the log keeps what failed (scripts/iphone-e2e.sh prints it).
+                    NSLog("ITSaNAS trash: %@", error.localizedDescription)
+                    self.show(error.localizedDescription)
+                }
                 self.reload()
             }
         }

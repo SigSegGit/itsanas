@@ -127,6 +127,11 @@ fn a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted() {
     drop(node);
     take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));
     assert!(listed("photo"), "a restored file did not come back");
+    let trash = take(itsanas_trash_list());
+    assert!(
+        !trash["ok"].as_str().expect("ok").contains("photo"),
+        "a restored file stays in the trash, where its days would delete it: {trash}"
+    );
     take(itsanas_trash_put(file.as_ptr(), 30));
     take(itsanas_trash_delete(file.as_ptr()));
     take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));

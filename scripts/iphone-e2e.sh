@@ -102,6 +102,15 @@ xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
     -derivedDataPath target/ios-test -resultBundlePath "$out/result.xcresult" \
     -only-testing:"$tests" test || status=$?
 
+# What the app itself said (its NSLog lines: the trash's failures, the
+# fingers' state at each unlock): a failed UI test shows the screen, not why.
+if [ "$status" != 0 ]; then
+    echo "== the app's own lines"
+    xcrun simctl spawn "$simulator" log show --last 60m --style compact --predicate 'process == "ITSaNAS" AND eventMessage BEGINSWITH "ITSaNAS "' 2>&1 | tail -n 80 || true
+    echo "== the computer's last lines"
+    tail -n 40 "$out/computer.log" 2>/dev/null || true
+fi
+
 # Step 3's end, on the computer: read once its daemon has let the store go.
 if [ "$status" = 0 ] && [ -z "$only" ]; then
     echo "== what the computer holds after the phone's delete"
