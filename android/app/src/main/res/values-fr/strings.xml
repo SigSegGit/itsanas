@@ -64,6 +64,10 @@
     <string name="files_add">Ajouter un fichier</string>
     <string name="file_open">Ouvrir</string>
     <string name="file_share">Partager</string>
+    <string name="file_chosen">Sélectionné</string>
+    <string name="files_chosen">%1$d sélectionné(s)</string>
+    <string name="files_choose_none">Annuler la sélection</string>
+    <string name="files_share_chosen">Partager la sélection</string>
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
     <string name="file_free">Libérer sur ce téléphone</string>

@@ -79,6 +79,11 @@ if [ -n "$real" ]; then
     done
     # "Night mode: yes", "no" or "auto": the theme tests leave it on "no".
     night="$(shell cmd uimode night | sed -n 's/^Night mode: \(yes\|no\|auto\)$/\1/p')"
+    # WordsTest turns the screen; a phone locked upright stays locked upright.
+    declare -A rotation=()
+    for name in accelerometer_rotation user_rotation; do
+        rotation[$name]="$(shell settings get system "$name")"
+    done
 fi
 
 state="$(mktemp -d)"
@@ -98,6 +103,12 @@ cleanup() {
             fi
         done
         [ -z "${night:-}" ] || "$adb" shell cmd uimode night "$night" >/dev/null 2>&1 || true
+        for name in accelerometer_rotation user_rotation; do
+            case "${rotation[$name]:-}" in
+                "" | null) ;;
+                *) "$adb" shell settings put system "$name" "${rotation[$name]}" >/dev/null 2>&1 || true ;;
+            esac
+        done
     fi
     rm -rf "$state"
 }
