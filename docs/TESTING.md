@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-12 — 1665 test functions across 44 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 618 are red-team tests.**
+**Last updated: 2026-11-12 — 1666 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 619 are red-team tests.**
 
-**1549 of the 1665 tests have an entry of their own on this page** — an *entry*,
+**1550 of the 1666 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 359 |
+| `itsanas-cli` unit | 360 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -223,7 +223,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 38 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 209 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 210 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1251,7 +1251,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (359)
+# `itsanas-cli` — unit tests (360)
 
 ## `bench` — measuring this machine (4)
 
@@ -1605,7 +1605,7 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `safety` — whether the account's files are elsewhere yet, as the icon reads it (8)
+## `safety` — whether the account's files are elsewhere yet, as the icon reads it (9)
 
 MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`, and `status --brief` says `exposed` from it.
 
@@ -1614,6 +1614,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `the_count_reads_back_as_written_and_a_header_without_one_has_none` | `copies 0 of 2`, `copies 1 of 2 since T` and `copies 3 of 2` read back as written after the version; a header from 0.1.12 (no count) and a malformed count read as none. |
 | `the_alert_words_read_back_and_a_quiet_node_writes_none` | `failing N` and `lowdisk FREE` read back from a header; a node with nothing to say writes neither, and `failing 0` is no alert. |
 | `a_silence_is_said_in_hours_then_days` | 7 h and 47 h in hours, five days in days. |
+| **`red_team_a_phone_that_hosts_is_not_said_silent`** | A phone that hosts runs the daemon's loop, which stamps its contacts on the snapshot: `phone_silence` takes the later of that and the phone's own file, so a phone on its charger is not said silent for days while every round reaches the account, and one that stops hosting ages from its last hosted contact. Sabotaged (the phone's file alone): red. |
 | **`red_team_a_phone_remembers_its_last_contact_and_says_a_day_of_silence`** | `note_phone_contact` and `phone_silence`: nothing tried says nothing, an hour says nothing, a day of failed rounds says a day, a contact clears it, and a later failed round keeps that contact. |
 | **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
