@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_a_phone_that_hosts_is_not_said_silent"
+  ],
+  "defences": {
+    "phone silence: the hosting snapshot is read": {
+      "file": "crates/itsanas-cli/src/safety.rs",
+      "live": "        Some(at) if last_reached(&words).is_none_or(|own| at > own) => {",
+      "dead": "        Some(at) if false && last_reached(&words).is_none_or(|own| at > own) => {"
+    }
+  }
+}
