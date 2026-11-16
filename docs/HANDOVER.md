@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-11
-BASE: f92a81d
+WRITTEN-AT: 2026-11-16
+BASE: f650518
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -4003,8 +4003,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     already opened the share sheet; ITSaNAS is now an "Open in" and share-sheet target for any file
     (`CFBundleDocumentTypes`, `application(_:open:options:)`, put in by the Files screen once the
     account is open). A computer has its synced folder, with the file manager's own Share and drop.
-    **Left:** the iPhone's share target is compiled by CI only, run by no test; a phone shares one
-    file at a time.
+    Several files go out together: a long press chooses a file, a tap chooses more, and the bar's
+    Share sends them in one `ACTION_SEND_MULTIPLE`, the read grant on each through the clip
+    (`ShareTest`, its third case). **Left:** the iPhone's share
+    target is compiled by CI only, run by no test; the iPhone shares one file at a time.
 
 13. 🟨 **What a delete does, machine by machine** (asked by Nicolas, 2026-11-12). Each machine has
     its rules, and the account a default that a new machine follows (`itsanas_store::deletion`):
@@ -4078,8 +4080,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
        and hosts nothing (Nicolas, 2026-11-11; `plan`'s low row).
     c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
        on every 15 minutes, 9 of them hosting, and reopens only what the person left open.
-       `ServiceLimitTest` runs the limit and a refused restart; nothing tests the worker: no
-       scenario runs an app closed.
+       `ServiceLimitTest` runs the limit and a refused restart; `WorkerTest` runs `SyncWorker` as
+       WorkManager does, the service stopped: an account the system closed is reopened, one the
+       person closed is not. Not run: the worker scheduled by the system itself over hours.
     d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
        file replaces the passphrase file. At sign-in the services of every account reuse the
        sign-in: the system's key is kept under DPAPI (the login keychain on a Mac) and read

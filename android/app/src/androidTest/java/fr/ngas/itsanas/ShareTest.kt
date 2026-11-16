@@ -5,6 +5,11 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.percentOffset
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.intent.Intents
 import androidx.test.espresso.intent.Intents.intending
 import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
@@ -62,6 +67,51 @@ class ShareTest {
             E2e.context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
         }
         assertEquals("the file shared is not $name as the account holds it", "hello from the protocol", text)
+    }
+
+    @Test
+    fun several_chosen_files_go_out_together_through_one_share_sheet() {
+        Flows.createAccount(compose, Flows.freshName())
+        Flows.addFile(compose, "first.txt")
+        Intents.release()
+        Flows.addFile(compose, "second.txt")
+        compose.waitUntil(90_000) { compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size == 2 }
+        intending(hasAction(Intent.ACTION_CHOOSER)).respondWith(
+            Instrumentation.ActivityResult(Activity.RESULT_OK, null),
+        )
+        // On the name, left of the row's buttons.
+        val rows = compose.onAllNodesWithTag("file-row")
+        rows[0].performTouchInput { longClick(percentOffset(0.1f, 0.5f)) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-share-chosen").fetchSemanticsNodes().isNotEmpty() }
+        rows[1].performTouchInput { click(percentOffset(0.1f, 0.5f)) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-chosen").fetchSemanticsNodes().size == 2 }
+        Flows.click(compose, "files-share-chosen")
+        compose.waitUntil(30_000) { Intents.getIntents().any { it.action == Intent.ACTION_CHOOSER } }
+        val chooser = Intents.getIntents().last { it.action == Intent.ACTION_CHOOSER }
+
+        @Suppress("DEPRECATION")
+        val sent = chooser.getParcelableExtra(Intent.EXTRA_INTENT) as? Intent
+        assertEquals(
+            "two chosen files did not leave together: the person shares them one by one",
+            Intent.ACTION_SEND_MULTIPLE,
+            sent?.action,
+        )
+        assertTrue(
+            "the app receiving the files is not allowed to read them, so they arrive empty",
+            (sent?.flags ?: 0) and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0,
+        )
+        assertEquals("the grant does not cover every file sent", 2, sent?.clipData?.itemCount)
+
+        @Suppress("DEPRECATION")
+        val streams = sent?.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+        val texts = streams.map { uri ->
+            E2e.context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+        }
+        assertEquals(
+            "the files shared are not the two the person chose, as the account holds them",
+            listOf("hello from the protocol", "hello from the protocol"),
+            texts,
+        )
     }
 
     @Test
