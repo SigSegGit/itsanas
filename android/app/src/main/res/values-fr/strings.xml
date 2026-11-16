@@ -63,6 +63,7 @@
     <string name="files_settings">Réglages</string>
     <string name="files_add">Ajouter un fichier</string>
     <string name="file_open">Ouvrir</string>
+    <string name="file_share">Partager</string>
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
     <string name="file_free">Libérer sur ce téléphone</string>

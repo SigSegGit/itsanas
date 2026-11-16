@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -117,7 +118,7 @@ class MainActivity : FragmentActivity() {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-            }
+            } ?: sharedText(intent)
         )
 
         Intent.ACTION_SEND_MULTIPLE ->
@@ -128,6 +129,21 @@ class MainActivity : FragmentActivity() {
             }.orEmpty()
 
         else -> emptyList()
+    }
+
+    /**
+     * A share that carries words and no file -- a link from the browser, a
+     * passage of text -- kept as a note, as a storage app does. Without this
+     * the app opened and nothing came in, with nothing said.
+     */
+    private fun sharedText(intent: Intent): Uri? {
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }
+            ?: return null
+        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", java.util.Locale.ROOT).format(java.util.Date())
+        val dir = java.io.File(cacheDir, "shared-text").also { it.mkdirs() }
+        val note = java.io.File(dir, "Note $stamp.txt")
+        note.writeText(text)
+        return Uri.fromFile(note)
     }
 }
 
@@ -769,6 +785,19 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                                 }
                             }
                         },
+                        onShare = {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    send(context, Account.openable(context, file))
+                                    refresh()
+                                } catch (error: Throwable) {
+                                    complain(error.message ?: "could not share it")
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
                         onDelete = { confirmDelete = file },
                         onFree = {
                             scope.launch {
@@ -869,7 +898,13 @@ private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit, onFree: () -> Unit) {
+private fun FileRow(
+    file: Known,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    onFree: () -> Unit,
+) {
     Card(
         Modifier
             .fillMaxWidth()
@@ -900,6 +935,9 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit, onFre
                     if (file.here) Icons.Default.OpenInNew else Icons.Default.CloudDownload,
                     stringResource(if (file.here) R.string.file_open else R.string.file_fetch),
                 )
+            }
+            IconButton(onShare, Modifier.testTag("file-share")) {
+                Icon(Icons.Default.Share, stringResource(R.string.file_share))
             }
             if (file.here) {
                 IconButton(onFree, Modifier.testTag("file-free")) {
@@ -958,15 +996,22 @@ private fun share(context: android.content.Context, file: java.io.File) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
-    val intent = if (view.resolveActivity(context.packageManager) != null) {
-        view
-    } else {
-        Intent(Intent.ACTION_SEND).apply {
-            putExtra(Intent.EXTRA_STREAM, uri)
-            setType(type)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    }
+    val intent = if (view.resolveActivity(context.packageManager) != null) view else sending(context, file)
 
     context.startActivity(Intent.createChooser(intent, file.name))
+}
+
+/** Send a file elsewhere -- messaging, mail, Bluetooth -- as any app on the phone does. */
+private fun send(context: android.content.Context, file: java.io.File) {
+    context.startActivity(Intent.createChooser(sending(context, file), file.name))
+}
+
+/** The system's "send this file" intent: one person or app at a time, never a public link. */
+private fun sending(context: android.content.Context, file: java.io.File): Intent {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    return Intent(Intent.ACTION_SEND).apply {
+        putExtra(Intent.EXTRA_STREAM, uri)
+        setType(context.contentResolver.getType(uri) ?: "application/octet-stream")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
 }

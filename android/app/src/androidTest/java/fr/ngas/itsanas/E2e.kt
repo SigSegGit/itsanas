@@ -131,6 +131,13 @@ object E2e {
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
 
+    /** The app opened by another app's intent, the phone's data kept: a share from the gallery. */
+    fun reopenWith(intent: android.content.Intent) {
+        scenario?.close()
+        runCatching { Native.pageStop() }
+        scenario = ActivityScenario.launch(intent)
+    }
+
     /** The app closed and opened again, the phone's data kept: a person coming back later. */
     fun reopen() {
         scenario?.close()
