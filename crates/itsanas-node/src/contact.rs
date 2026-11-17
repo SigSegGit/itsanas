@@ -343,6 +343,11 @@ pub struct Contact {
     /// kept on disk: a restart dials everybody once, which is how it learns
     /// who is on.
     quiet: BTreeMap<DeviceId, Quiet>,
+    /// Hosts of other accounts the coordinator named that answered nowhere
+    /// when last dialled: their misses in a row, and the instant before which
+    /// they are not dialled ([`Self::introduced_due`]). At most
+    /// [`MAX_DEVICES`]; not kept on disk, as `quiet` is not.
+    host_quiet: BTreeMap<DeviceId, (u32, Instant)>,
 }
 
 /// How long a host found by [`Contact::hosts_reached`] stays a relay
@@ -431,6 +436,8 @@ impl Contact {
         // Reached on the LAN or as a configured peer: it is on, whatever its
         // book addresses said ([`QUIET_AFTER_MISS`]).
         self.quiet.retain(|device, _| !reached.contains(device));
+        self.host_quiet
+            .retain(|device, _| !reached.contains(device));
         let missing: BTreeSet<DeviceId> = self
             .book
             .keys()
@@ -947,6 +954,43 @@ impl Contact {
         }
         self.hosts
             .retain(|(_, _, seen)| now.saturating_duration_since(*seen) < HOST_RELAY_FOR);
+    }
+
+    /// The hosts of other accounts in `introduced` this round may dial: not
+    /// one that answered nowhere less than its wait ago ([`Self::host_missed`]).
+    /// The coordinator hands an address out for a week after its machine last
+    /// published (`PRESENCE_TTL`), and each dial to a machine that is off costs
+    /// a connect timeout, at every round until then.
+    #[must_use]
+    pub fn introduced_due(
+        &self,
+        introduced: Vec<(DeviceId, String)>,
+        now: Instant,
+    ) -> Vec<(DeviceId, String)> {
+        introduced
+            .into_iter()
+            .filter(|(device, _)| {
+                self.host_quiet
+                    .get(device)
+                    .is_none_or(|(_, until)| now >= *until)
+            })
+            .collect()
+    }
+
+    /// Record that a host of another account the coordinator named did not
+    /// answer: it waits [`QUIET_AFTER_MISS`] before its next dial, doubled at
+    /// each miss in a row up to [`QUIET_AT_MOST`], as the account's own
+    /// machines do. Any answer from it ends the wait ([`Self::round_reached`]).
+    pub fn host_missed(&mut self, device: DeviceId, now: Instant) {
+        if !self.host_quiet.contains_key(&device) && self.host_quiet.len() >= MAX_DEVICES {
+            self.host_quiet.retain(|_, (_, until)| *until > now);
+            if self.host_quiet.len() >= MAX_DEVICES {
+                return;
+            }
+        }
+        let (misses, until) = self.host_quiet.entry(device).or_insert((0, now));
+        *misses = misses.saturating_add(1);
+        *until = now + quiet_for(*misses);
     }
 
     /// The relay behind an address `relay:<device>@<address>`, and where to
@@ -1983,6 +2027,64 @@ mod tests {
                  machine's ring went untried, and a machine back on is found that much later"
             );
         }
+    }
+
+    /// A host of another account the coordinator still names after its
+    /// machine went off (it keeps the address a week, `PRESENCE_TTL`) was
+    /// dialled at every round: 2880 connect timeouts a day at 30 s rounds. It
+    /// now waits after each miss, from a minute doubling to the half hour.
+    #[test]
+    fn red_team_an_introduced_host_that_is_off_is_not_dialled_every_round() {
+        let host = device(9);
+        let named = vec![(host, "203.0.113.9:9797".to_owned())];
+        let every = Duration::from_secs(30);
+        let start = Instant::now();
+        let end = start + Duration::from_secs(24 * 3600);
+        let mut contact = Contact::new();
+        let mut dials = 0u32;
+        let mut now = start;
+        while now < end {
+            if !contact.introduced_due(named.clone(), now).is_empty() {
+                dials += 1;
+                contact.host_missed(host, now);
+            }
+            contact.round_reached(&BTreeSet::new(), now);
+            now += every;
+        }
+        assert!(
+            dials <= 60,
+            "a host that is off was dialled {dials} times in a day: a connect timeout at nearly every round"
+        );
+        assert!(
+            dials >= 48,
+            "a host that is off was dialled {dials} times in a day: less than every half hour, so one back on waits longer than QUIET_AT_MOST"
+        );
+    }
+
+    /// A host that answers is dialled again at the next round: the wait is for
+    /// a machine that is off, not one that was.
+    #[test]
+    fn an_introduced_host_that_answers_is_due_again_at_the_next_round() {
+        let host = device(9);
+        let named = vec![(host, "203.0.113.9:9797".to_owned())];
+        let start = Instant::now();
+        let minute = Duration::from_secs(60);
+        let mut contact = Contact::new();
+        for missed in 0..20 {
+            contact.host_missed(host, start + minute * missed);
+        }
+        assert!(
+            contact
+                .introduced_due(named.clone(), start + minute * 20)
+                .is_empty(),
+            "a host that missed twenty times in a row was due a minute later"
+        );
+        contact.round_reached(&BTreeSet::from([host]), start + minute * 20);
+        assert_eq!(
+            contact.introduced_due(named.clone(), start + minute * 20 + Duration::from_secs(30)),
+            named,
+            "a host that answered still waited out the half hour its misses had earned"
+        );
     }
 
     /// A machine dialled at three addresses in one round missed once, not
