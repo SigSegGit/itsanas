@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1677 test functions, 20 of them `#[ignore]`d into the slow job, and 627 of
+**1679 test functions, 20 of them `#[ignore]`d into the slow job, and 627 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2230,7 +2230,19 @@ size at which it kills a Raspberry Pi.
 **Fixed**: it pages from the index, in chunk order, bounded. That leaves the
 bandwidth, below, which is real and still unsolved.
 
-### A restore depends on chunks that garbage collection will take
+### ✅ A restore depends on chunks that garbage collection will take
+
+**Fixed 2026-11-17:** a replay applies the entries a later one supersedes last
+(`engine::superseded_upserts`), so each finds the later version or its
+tombstone in place and is passed over without a fetch. A restore downloads what
+the account holds now, not its history, and ends in one round when the old
+chunks are gone (`a_replay_applies_the_last_operation_of_each_path_and_fetches_nothing_older`).
+The network's rounds apply every chain that verified in one call
+(`apply_per_chain`), so a version another machine superseded is passed over
+too (`a_version_another_machine_superseded_is_not_fetched_by_a_replay`).
+Not covered: an old version whose later one is itself unavailable is still
+fetched and shown until the later one arrives, as before. The finding as it
+stood:
 
 Found by the paging change, which briefly narrowed the sweep to *referenced*
 chunks and made `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger`

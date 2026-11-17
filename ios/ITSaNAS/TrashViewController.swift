@@ -67,6 +67,14 @@ final class TrashViewController: UITableViewController {
         rows[indexPath.row]["path"] as? String ?? ""
     }
 
+    // A cell that leaves the table waits, hidden, to be reused, and still
+    // carries its row's name: a restored file then read as still in the trash
+    // to anything that looks for it by name (the hand test's step 3, three CI
+    // runs on 2026-11-17, the trash's rows already empty each time).
+    override func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        cell.accessibilityIdentifier = nil
+    }
+
     override func tableView(
         _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {

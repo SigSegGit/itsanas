@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1677 test functions across 44 binaries, 20 of them
+**Last updated: 2026-11-16 — 1679 test functions across 45 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
 
-**1561 of the 1677 tests have an entry of their own on this page** — an *entry*,
+**1563 of the 1679 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,6 +165,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
+| `itsanas-sync` replay from nothing (`tests/replay.rs`) | 2 |
 | `itsanas-net` unit | 69 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
@@ -820,6 +821,18 @@ account's trash, Protect, and rules every machine reads alike.
 | **`red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects`** | A file the phone deletes outright is kept by the computer, which protects by default; publishing it again brings it back on the phone. Sabotaged (nothing protected): red. |
 | **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
+
+---
+
+# `itsanas-sync` — a replay from nothing (2)
+
+A device that replays an account's log with nothing of its own: a restore, a
+new phone, a replacement disk. `tests/replay.rs`.
+
+| Test | What it proves |
+|---|---|
+| `a_replay_applies_the_last_operation_of_each_path_and_fetches_nothing_older` | A file edited twice and a file deleted, replayed after the writer collected the old chunks: the device ends on the last version and without the deleted file in one round, asks no host for a chunk only a superseded or deleted version named, and does not read as needing another round. Sabotaged (every entry applied in log order): red, two old chunks asked and deferred. |
+| `a_version_another_machine_superseded_is_not_fetched_by_a_replay` | The same across machines: a version the laptop wrote and the phone edited after it is not fetched by a third machine replaying the log, the laptop's chain read first. Sabotaged as above: red. |
 
 ---
 

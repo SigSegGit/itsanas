@@ -46,9 +46,13 @@ final class HandTest: E2eCase {
         XCTAssertTrue(shown.contains(" days)"), "the trash shows no days left: \(shown)")
         trashed.swipeLeft()
         app.buttons["Restore"].tap()
-        try waitFor("restoring left the file in the trash") { !trashed.exists }
         back()
         try waitFor("a restored file did not come back to the list") { row.exists }
+        // Read from a trash opened again: the one swiped may keep a cell drawn
+        // after its rows are empty, which is the table's, not the restore's.
+        app.buttons["files-trash"].tap()
+        try waitFor("restoring left the file in the trash") { !trashed.exists }
+        back()
 
         try deleteFromList(row)
         app.buttons["files-trash"].tap()
