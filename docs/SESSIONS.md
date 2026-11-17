@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-17 ~23:15 | ~25 min | fenêtre 5 h 41 % → 48 % ; hebdo 38 % → 39 % ; contexte ~430 k | hors §8 (§9 « A withdrawn device ») | au bout | 🟨 | un retrait d'appareil voyage entre les machines du compte sans coordinateur ; un hôte d'un autre compte ne l'apprend encore que du coordinateur ; #409 : l'iPhone demande « qui est là » une fois l'alerte précédente fermée | branche feat/withdrawals-travel |
 | 2026-11-17 ~22:05 | ~35 min | fenêtre 5 h 21 % → 30 % ; hebdo 35 % → 36 % ; contexte ~350 k | hors §8 (§9 « One process per node ») | au bout | 🟨 | `ls`, `put`, `get`, `rm`, `free` et `trash` marchent pendant que le service tourne, par le fichier de tâches ; les règles de la corbeille, `keep`, `peer`, `device` attendent encore l'arrêt du service | branche feat/commands-while-running |
 | 2026-11-17 ~20:55 | ~25 min | fenêtre 5 h 5 % → 8 % ; hebdo 33 % → 34 % ; contexte ~175 k | hors §8 (§9, PR #409) | au bout | ✅ | #426 fusionnée ; #409 remise sur main, l'étape 3 de l'iPhone lit une corbeille rouverte ; un hôte d'un autre compte éteint n'est plus appelé à chaque tour ; deux tests sabotés | branche feat/quiet-hosts |
 | 2026-11-17 ~17:00 | ~45 min | fenêtre 5 h 29 % → 40 % ; hebdo 31 % → 32 % ; contexte ~230 k | hors §8 (ROADMAP, finding ouvert) | au bout | ✅ | une relecture n'applique plus les versions dépassées ni supprimées et ne les télécharge plus, entre appareils aussi ; deux tests sabotés | branche feat/restore-last-version |

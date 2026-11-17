@@ -981,6 +981,27 @@ impl Node {
         Ok(admitted)
     }
 
+    /// Record here that `device` was withdrawn, on its revoked claim: out of
+    /// the roster for good, and the claim kept in the vault, which is what
+    /// this machine hands its siblings (`Request::Claims`). A withdrawal used
+    /// to reach the coordinator alone, so a machine of the account that does
+    /// not read it (no coordinator, or one that is down) went on admitting the
+    /// withdrawn one (HANDOVER §9, "A withdrawn device keeps its old claim").
+    ///
+    /// # Errors
+    ///
+    /// If the store or the vault cannot be written.
+    pub fn withdrawn_here(
+        &self,
+        device: itsanas_crypto::DeviceId,
+        revoked_claim: &[u8],
+    ) -> Result<()> {
+        self.store.admit_member(&device, true)?;
+        self.vault
+            .keep_claim(device, self.store.owner(), revoked_claim)?;
+        Ok(())
+    }
+
     /// Where this node's vault lives: `config.vault`, or `<home>/vault`.
     #[must_use]
     pub fn vault_path(home: &Path, config: &Config) -> PathBuf {

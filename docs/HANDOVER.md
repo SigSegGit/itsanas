@@ -15,6 +15,13 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (late): a withdrawal travels between the account's machines.** `device forget` (and
+the phone's withdraw) sent the revoked claim to the coordinator alone; a machine that reads none
+went on admitting the withdrawn device. It is now kept on the machine that signs it first
+(`Node::withdrawn_here`: roster revoked, claim in the vault), so the siblings' existing claims
+exchange carries it, and a host keeps it over the old live claim the withdrawn machine presents
+(`service.rs`, `Store::is_revoked`). Sabotage plan `withdrawals.json`, two defences.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits
@@ -4271,10 +4278,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
   removed when a device is forgotten; never on the wire or at the
   coordinator. Still, a copied store says which networks a member's hosts
   live on.
-- **A withdrawn device keeps its old claim.** Revocation reaches a node only
-  when it sees the revoked claim (a session, a host, the coordinator). On a
-  network with no coordinator a withdrawn machine that keeps its old claim is
-  still admitted where the withdrawal never arrived.
+- 🟨 **A withdrawn device keeps its old claim.** Revocation reaches a node only
+  when it sees the revoked claim (a session, a host, the coordinator). Since
+  2026-11-17 the machine that withdraws keeps the revoked claim and hands it to
+  its siblings with the others (`Node::withdrawn_here`, `Request::Claims`), and a
+  host keeps it over the old live claim the withdrawn machine still presents
+  (`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`). Left: a
+  machine of the account that meets none of its siblings after the withdrawal,
+  and no coordinator, still admits it; and a host of another account learns it
+  only from the coordinator.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 

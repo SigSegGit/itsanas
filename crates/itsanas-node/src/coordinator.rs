@@ -1721,6 +1721,14 @@ fn ask_to_forget(node: &Node, device: DeviceId, now: u64) -> Result<Response> {
         revoked: true,
     }
     .sign(&node.user);
+    // Kept here first, whatever the coordinator says or whether it answers:
+    // the account's machines learn it from each other. Not for this machine
+    // itself, whose node is erased after a logout.
+    if device != node.store.device_id()
+        && let Ok(bytes) = postcard::to_stdvec(&claim)
+    {
+        node.withdrawn_here(device, &bytes)?;
+    }
 
     let mut client = dial(node)?;
     Ok(client.ask(&Request::Claim(Box::new(claim)))?)

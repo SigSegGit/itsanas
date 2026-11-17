@@ -801,7 +801,13 @@ impl<'a> PeerService<'a> {
                                 kept_for == owner && owners.adds_nothing(&kept, claim)
                             },
                         );
-                        if !unchanged {
+                        // A machine of this account withdrawn here keeps its
+                        // revoked claim: the old live one it still presents
+                        // would replace it, and the siblings asking would be
+                        // handed the claim that admits it.
+                        let withdrawn = owner == self.store.owner()
+                            && self.store.is_revoked(&caller).unwrap_or(false);
+                        if !unchanged && !withdrawn {
                             let _ = self.vault.keep_claim(caller, owner, claim);
                         }
                         // A sibling: `present` verified this account's
