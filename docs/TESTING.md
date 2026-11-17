@@ -1,6 +1,7 @@
 # Test Catalogue
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 **Last updated: 2026-11-16 — 1681 test functions across 45 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 628 are red-team tests.**
 
@@ -11,6 +12,12 @@
 
 **1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
 >>>>>>> origin/feat/noise-once
+=======
+**Last updated: 2026-11-16 — 1680 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
+
+**1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
+>>>>>>> origin/feat/inbound-contact
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -192,7 +199,7 @@ guarantee and is not one.
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 180 |
+| `itsanas-node` unit | 181 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -226,7 +233,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 82 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 74 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
@@ -1893,7 +1900,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (203)
+# `itsanas-node` — a node on disk (204)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2026,7 +2033,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (33)
+## `owners` — what a host stores for each account (34)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -2040,6 +2047,7 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 | **`red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`** | Through the real `ClaimBook`: every read of an account is refused to a device that presented nothing and to a device of another account (a fellow host), and answered to the account's own device once it presented its claim. |
 | **`red_team_a_host_hands_an_account_its_roster_and_nobody_else`** | `Request::Claims` returns the claims a host kept for an account only to a device that presented a claim for that account; one that presented nothing, or another account's, gets an empty answer. |
 | **`red_team_a_claim_presented_again_unchanged_is_not_written_again`** | The idle bench of 2026-10-27, 84 KB a round: every connection re-signs the device's claim, and the host rewrote the copy it keeps for the account's siblings, a commit per peer per round. Through the real `PeerService` and `ClaimBook`: the same claim re-dated by five minutes is not written again; a new pledge is; one a whole `KEEP_CLAIM_STEP` (15 min) later is; an older one never replaces a newer one, whatever it says. 84 to 60 KB a round on the bench, the level of a daemon with no peer. Sabotaged (the service ignoring `Owners::adds_nothing`; the pledge ignored; no step; older claims let through): red each, with its own message. |
+| **`red_team_a_sibling_presenting_here_is_a_contact_and_a_stranger_is_not`** | A machine of the account presenting its claim to the listener is noted as a contact, so a public machine the others dial in to does not read `isolated`; another account's device presenting is not. Sabotaged (nothing noted): red. |
 | **`red_team_a_sibling_presenting_here_joins_the_roster_and_a_stranger_does_not`** | A machine only ever pushed to learns its siblings from the claims they present; another account's device presenting here joins nothing. |
 | **`red_team_a_device_that_presents_no_claim_stores_nothing`** | A rebuilt client leaves the claim out and says it is old; it is told to update. Sabotaged by admitting a caller the book does not know. |
 | **`red_team_a_claim_for_another_device_is_refused`** | A claim presented by a device other than the one it names lends nothing. Sabotaged by dropping the device check. |

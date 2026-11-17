@@ -42,10 +42,14 @@ reboots — and your data stays available and stays in sync.
 > machines through a real coordinator.
 >
 <<<<<<< HEAD
+<<<<<<< HEAD
 > 1681 tests, 628 of them red-team — a red-team test **passes when the attack
 =======
 > 1680 tests, 626 of them red-team — a red-team test **passes when the attack
 >>>>>>> origin/feat/noise-once
+=======
+> 1680 tests, 627 of them red-team — a red-team test **passes when the attack
+>>>>>>> origin/feat/inbound-contact
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >

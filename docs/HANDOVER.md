@@ -16,6 +16,7 @@ BASE: f650518
 -->
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 **2026-11-17 (night): an automatic update where the program cannot be replaced is told, not
 failed.** Under a `--prefix` the service's account cannot write, `updates = auto` failed its
 install every day, said only in a log. `daily` now asks `can_replace_itself` first and, when it
@@ -27,6 +28,13 @@ source in `AskedOnce` (`source.rs`): an address is fetched at most once per appl
 round's segments, so a host serving noise for a chunk five files share costs one download, not
 five (ROADMAP, the integrity pass's residues). Plan `replay.json`, its second defence.
 >>>>>>> origin/feat/noise-once
+=======
+**2026-11-17 (late): a machine the others dial in to is no longer `isolated`.** Only a round this
+node dialled out on counted as a contact, so the VM or the Pi, which the laptop dials, could read
+orange while synced. A live sibling presenting its claim to the listener counts now
+(`PeerService::noting_siblings`, the daemon's `SIBLING_SEEN` and `last_contact`); a stranger's
+claim, or another account's, does not. Plan `inbound_contact.json`.
+>>>>>>> origin/feat/inbound-contact
 
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
@@ -4202,9 +4210,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    c. 🟨 **Small residues.** Done 2026-11-03: a device list cut at `MAX_PEERS_RETURNED` is not
       called complete, and the phone says when its vault takes no write. **Left, on purpose:**
       the desktop `show_words` debt needs a native window per platform, which nothing here can
-      test before a release; `isolated` on a public machine others only dial in to needs an
-      inbound contact a stranger cannot earn (`note_seen_if_known_at` is not that, since a dial
-      makes any peer known).
+      test before a release. ✅ 2026-11-17: `isolated` on a public machine others only dial in
+      to: a sibling presenting its claim, signed with the account's key, is the inbound contact a
+      stranger cannot earn (`PeerService::noting_siblings`,
+      `red_team_a_sibling_presenting_here_is_a_contact_and_a_stranger_is_not`).
 
 8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
    (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`

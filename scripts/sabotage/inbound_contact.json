@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-node",
+    "--lib",
+    "red_team_a_sibling_presenting_here_is_a_contact"
+  ],
+  "defences": {
+    "isolated: a sibling dialling in is no contact": {
+      "file": "crates/itsanas-net/src/service.rs",
+      "live": "                                seen.fetch_max(\n",
+      "dead": "                                seen.fetch_min(\n"
+    }
+  }
+}

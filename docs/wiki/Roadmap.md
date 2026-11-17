@@ -8,10 +8,14 @@ page behind. To change a status, change it there.
 
 <!-- GENERATED:stats -->
 <<<<<<< HEAD
+<<<<<<< HEAD
 **1681 tests, 628 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
 =======
 **1680 tests, 626 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
 >>>>>>> origin/feat/noise-once
+=======
+**1680 tests, 627 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
+>>>>>>> origin/feat/inbound-contact
 <!-- /GENERATED:stats -->
 
 ## Progress
