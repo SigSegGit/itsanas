@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1679 test functions, 20 of them `#[ignore]`d into the slow job, and 626 of
+**1681 test functions, 20 of them `#[ignore]`d into the slow job, and 628 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1209,8 +1209,10 @@ Still to build:
   (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`). Left: the
   phone does not say `unwritable` (its store is app-private, and nothing probes
   it); nothing fills a real disk to prove the daemon's call to `low_on_disk`.
-- While the daemon runs, most commands that open the store still refuse to
-  start. Pausing, resuming, asking for a round and changing the interval do not
+- ✅ While the daemon runs, no command refuses any more (2026-11-17): the file
+  commands, `trash` and `convert-packs` are handed to it, and any other command
+  that opens the store stops it for its length and starts its service again
+  (`red_team_a_command_that_opens_the_store_stops_the_daemon_first`). Pausing, resuming, asking for a round and changing the interval do not
   need the store and work while it runs (`itsanas pause|resume|sync-now|interval`,
   through a file the daemon reads), and since 2026-11-17 `ls`, `put`, `get`,
   `rm`, `free` and `trash` (list, restore, delete, empty) are handed to the daemon, which does them on the node it holds

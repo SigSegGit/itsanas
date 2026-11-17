@@ -415,11 +415,23 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
         | Kind::Put
         | Kind::Get
         | Kind::Remove { .. }
-        | Kind::TrashList
-        | Kind::TrashRestore
-        | Kind::TrashDelete
-        | Kind::TrashEmpty
+        | Kind::Trash
         | Kind::Free { .. } => crate::file_job(node, &job),
+        Kind::ConvertPacks => {
+            jobs::report(
+                &node.home,
+                job.id,
+                State::Running,
+                "moving this machine's chunks into pack files",
+            );
+            eprintln!("itsanas: converting to pack files; this run stops for it");
+            *PENDING_MOVE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(job);
+            PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+            shutdown.store(true, Ordering::SeqCst);
+            return;
+        }
         Kind::Restore => {
             jobs::report(
                 &node.home,
@@ -3095,6 +3107,8 @@ mod tests {
                 crate::get(&home, "notes/note.txt", Some(&back))?;
                 crate::remove(&home, "notes/note.txt", false)?;
                 crate::trash_command(&home, Some(crate::deleting::TrashAction::List))?;
+                crate::trash_command(&home, Some(crate::deleting::TrashAction::Rules))?;
+                crate::trash_command(&home, Some(crate::deleting::TrashAction::Days { days: 12 }))?;
                 crate::trash_command(
                     &home,
                     Some(crate::deleting::TrashAction::Restore {
@@ -3115,6 +3129,76 @@ mod tests {
             node.store.read_file("notes/note.txt").expect("read"),
             None,
             "`rm --now` through the daemon left the file in the account"
+        );
+        assert_eq!(
+            itsanas_store::deletion::rules_here(&node.store, &node.vault)
+                .expect("rules")
+                .days,
+            12,
+            "`trash days` through the daemon did not change this machine's rules"
+        );
+    }
+
+    /// A command that opens the store (`keep`, `peer`, `device`...) refused
+    /// while the daemon ran. It now asks the daemon to stop, waits for the
+    /// store to be let go, and opens it. Sabotage: open without stopping it.
+    #[test]
+    fn red_team_a_command_that_opens_the_store_stops_the_daemon_first() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("home");
+        let (node, _) = Node::create(&home, "a passphrase", "camille").expect("create");
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                // The daemon's side: a stop asked through the home ends the run.
+                let deadline = std::time::Instant::now() + Duration::from_secs(60);
+                while std::time::Instant::now() < deadline {
+                    if crate::lifecycle::take(&home) == Some(crate::lifecycle::Request::Stop) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                drop(node);
+            });
+            crate::pause_daemon(&home).expect("the daemon is asked to stop");
+            assert!(
+                !crate::daemon_holds(&home),
+                "the command went on while the daemon still held the store: it would refuse, as before"
+            );
+            crate::resume_paused_daemon(&home);
+        });
+    }
+
+    /// `itsanas convert-packs` refused while the service ran, and a service
+    /// always runs. Handed to it, the run stops with the job pending, as for
+    /// a vault move, and `start_daemon` converts once the store is closed.
+    /// Sabotage: the daemon converts nothing and reports it done.
+    #[test]
+    fn red_team_convert_packs_while_the_service_runs_stops_the_run_and_waits_for_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("home");
+        let (node, _) = Node::create(&home, "a passphrase", "camille").expect("create");
+        let id = crate::jobs::ask(&home, crate::jobs::Kind::ConvertPacks, &home).expect("asked");
+        let shutdown = AtomicBool::new(false);
+        run_disk_job(&node, &shutdown);
+        let pending = take_pending_move();
+        let resumed = resume_after_vault_pause();
+        assert!(
+            shutdown.load(Ordering::SeqCst) && resumed,
+            "the run did not stop for the conversion: packs cannot be written beside an open store"
+        );
+        assert_eq!(
+            pending.map(|job| (job.id, job.kind)),
+            Some((id, crate::jobs::Kind::ConvertPacks)),
+            "the conversion was not left for start_daemon to do once the store is closed"
+        );
+        drop(node);
+        crate::convert_stores(&home).expect("convert with the store closed");
+        assert!(
+            itsanas_store::BlobStore::open(Node::store_path(&home))
+                .expect("store")
+                .packs()
+                .is_some(),
+            "the store is not in pack files after the conversion"
         );
     }
 
