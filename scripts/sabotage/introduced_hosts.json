@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-node",
+    "--lib",
+    "introduced_host"
+  ],
+  "defences": {
+    "introduced hosts: the wait after a miss is ignored": {
+      "file": "crates/itsanas-node/src/contact.rs",
+      "live": "                    .is_none_or(|(_, until)| now >= *until)\n",
+      "dead": "                    .is_none_or(|_| true)\n"
+    },
+    "introduced hosts: an answer does not end the wait": {
+      "file": "crates/itsanas-node/src/contact.rs",
+      "live": "        self.host_quiet\n            .retain(|device, _| !reached.contains(device));\n",
+      "dead": "        // an answer does not end the wait\n"
+    }
+  }
+}

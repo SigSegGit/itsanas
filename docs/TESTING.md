@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1679 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
+**Last updated: 2026-11-16 — 1682 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 629 are red-team tests.**
 
-**1563 of the 1679 tests have an entry of their own on this page** — an *entry*,
+**1566 of the 1682 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,11 +181,11 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 367 |
+| `itsanas-cli` unit | 368 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 178 |
+| `itsanas-node` unit | 180 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -217,14 +217,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 81 |
+| `identity` | keys, accounts, devices, claims, invitations | 82 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 217 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 218 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1265,7 +1265,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (367)
+# `itsanas-cli` — unit tests (368)
 
 ## `bench` — measuring this machine (4)
 
@@ -1526,7 +1526,7 @@ an export or a restore is asked through `<home>/job` and answered in
 
 | Test | What it proves |
 | --- | --- |
-| `a_job_asked_is_taken_once_and_its_result_read_back` | A job written is taken by the daemon once (the file is gone after), and its result is read back by the asker. |
+| `a_job_asked_is_taken_once_and_its_result_read_back` | A job written is taken by the daemon once (the file is gone after), and its result is read back by the asker; every kind, the file commands included, reads back as itself. |
 | **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
 | `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
 
@@ -1684,10 +1684,11 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (38)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (39)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_file_commands_work_while_the_daemon_holds_the_store`** | `itsanas put`, `ls`, `get`, `rm`, `trash` (list, restore) and `rm --now` run while a node holds the store, as the service always does: each is handed to the daemon's job loop, `get` gives back what `put` stored and `rm` leaves the account without the file. They refused to start before. Sabotaged (the daemon refuses file jobs): red. |
 | **`red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause`** | The adapter `dial_book` is tested through, run against a real serving machine: a round with the device expected at the address runs, one expecting another device there does not; a pause written on disk and a shutdown halt it. Sabotaged (no device pinned; the pause not read): red. |
 | `the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window` | `drain_refusal_due`: the first refusal at the drain is said, the same refused set five minutes later is not (the forged segment stays in the vault and every loop drains it again), the same set after `OUTAGE_QUIET` is, and a different device, or one more chain past the names, is said at once. Keyed on one fixed label, a second forged chain pushed five minutes after the first went unsaid for the rest of the half hour; the drain's slot is now its own, apart from the peer labels of `REFUSALS_REPORTED`. Sabotaged (the devices not compared; the count not compared): red both times. |
 | **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
@@ -1881,7 +1882,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (201)
+# `itsanas-node` — a node on disk (203)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1925,7 +1926,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all, and never this node for another device (39)
+## `contact` — when the coordinator is dialled at all, and never this node for another device (41)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1942,6 +1943,8 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_machine_on_another_vlan_is_still_dialled`** | Red team, 2026-10-23: the gate above also dropped a NAS at 10.0.2.5 on another VLAN, behind a VPN or a Wi-Fi that filters multicast, which discovery never hears and this machine reaches. It is dialled while discovery warms up (`heard_here` answers `None`), at rounds 6 and 12 after that, at every round once a probe reached it (`Contact::worked` marks it proven, in memory only), and back to the probes once it fails (`Contact::failed`, from `dial_listed`). Sabotaged (no probe; no proven door; `failed` not clearing it): red each time. |
 | **`red_team_a_machine_that_stays_off_is_dialled_about_fifty_times_a_day_not_288`** | Fleet run 40478381966: the runner dialled the laptop's `test` node, shut at home, at every 30 s round -- 31 connect timeouts of 5 s and 31 refusals from the relay it had once parked on, in twenty minutes; 288 a day at the default round for every machine of the account that is off. A device that answered nowhere waits `QUIET_AFTER_MISS` (1 min), doubled at each miss, up to `QUIET_AT_MOST` (30 min) before `Contact::dialable` offers it again: at most 60 dials in a day at 30 s or 5 min rounds, and never more than 30 min plus a round between two, so every hour of its ring is still tried. Sabotaged (no wait; no cap): red. |
 | **`red_team_a_machine_back_on_is_dialled_at_once`** | The way out of that wait: after an hour off, the laptop is offered at the next round when discovery hears it here, when the round reached it elsewhere (`round_reached`), when it answered at its address (`worked`), or when the coordinator lists an address the book did not hold; a read repeating the same address is no news and keeps the wait. Sabotaged (each of the four doors removed in turn): red each time. |
+| **`red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`** | A host of another account the coordinator still names, off for a day of 30 s rounds: dialled between 48 and 60 times (a minute doubling to the half hour), not 2880. Sabotaged (`introduced_due` ignores the wait): red. |
+| `an_introduced_host_that_answers_is_due_again_at_the_next_round` | A host with twenty misses in a row that answers in a round is due at the next one, not after the half hour. Sabotaged (`round_reached` keeps its wait): red. |
 | `a_machine_that_fails_at_three_addresses_in_one_round_missed_once` | A round's failures at a LAN address, a public one and a relay are one miss, not three: counted per address, the first wait was four minutes instead of one. Sabotaged (counted per address): red. |
 | **`red_team_a_coordinator_listing_a_new_port_every_read_buys_a_dial_a_read_at_most`** | Rodin's question on #322, made a test: a coordinator listing a new port for a machine that is off at every read. The first version reset the wait on any new address, and a day of 30 s rounds cost 948 dials for 324 reads (the ramp's 1, 2, 4 minutes after each). Now news allows one dial at the next round and the wait goes on doubling: at most one dial a read plus the wait's own, and under 500 a day. Sabotaged (news resets the wait): red. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |

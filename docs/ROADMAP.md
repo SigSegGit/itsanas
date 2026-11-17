@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1679 test functions, 20 of them `#[ignore]`d into the slow job, and 627 of
+**1682 test functions, 20 of them `#[ignore]`d into the slow job, and 629 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1209,11 +1209,12 @@ Still to build:
   (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`). Left: the
   phone does not say `unwritable` (its store is app-private, and nothing probes
   it); nothing fills a real disk to prove the daemon's call to `low_on_disk`.
-- While the daemon runs, commands that open the store still refuse to start.
-  Pausing, resuming, asking for a round and changing the interval do not need
-  the store and work while it runs (`itsanas pause|resume|sync-now|interval`,
-  through a file the daemon reads); a live file list would still need a local
-  control socket.
+- While the daemon runs, most commands that open the store still refuse to
+  start. Pausing, resuming, asking for a round and changing the interval do not
+  need the store and work while it runs (`itsanas pause|resume|sync-now|interval`,
+  through a file the daemon reads), and since 2026-11-17 `ls`, `put`, `get`,
+  `rm`, `free` and `trash` (list, restore, delete, empty) are handed to the daemon, which does them on the node it holds
+  (`red_team_the_file_commands_work_while_the_daemon_holds_the_store`).
 
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round
@@ -2114,6 +2115,12 @@ missing the wait doubles up to the hour (2026-10-23), so a machine that stays
 off costs about four extra reads, not 288 a day; the daemon's
 snapshot gives the port it is bound to, and `register` beside a running daemon
 names that port before asking for a passphrase instead of failing on the lock.
+**Hosts of other accounts too (2026-11-17):** a host the coordinator names
+that answers nowhere waits before its next dial, a minute doubling to the half
+hour, where it was dialled at every round for the week the coordinator keeps
+its address (`Contact::introduced_due`,
+`red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`); an answer
+ends the wait (`an_introduced_host_that_answers_is_due_again_at_the_next_round`).
 **Two houses on 192.168.1.x, and virtual adapters (2026-10-23):** the laptop
 and a Mac in another house dialled each other's 192.168.1.x address from the
 coordinator at every round; a private (RFC 1918) address of the account's

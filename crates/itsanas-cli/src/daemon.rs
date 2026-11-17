@@ -411,6 +411,15 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
                 })
                 .map_err(|error| error.to_string())
         }
+        Kind::List
+        | Kind::Put
+        | Kind::Get
+        | Kind::Remove { .. }
+        | Kind::TrashList
+        | Kind::TrashRestore
+        | Kind::TrashDelete
+        | Kind::TrashEmpty
+        | Kind::Free { .. } => crate::file_job(node, &job),
         Kind::Restore => {
             jobs::report(
                 &node.home,
@@ -2069,13 +2078,13 @@ fn dial_introduced(
     node: &Node,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
-    contact: &Contact,
+    contact: &mut Contact,
     reached: &mut BTreeSet<DeviceId>,
     hosts: &mut Vec<(DeviceId, String)>,
     scope: PolicyScope,
 ) -> bool {
     let mut in_touch = false;
-    for (device, address) in introduced(node) {
+    for (device, address) in contact.introduced_due(introduced(node), Instant::now()) {
         if halted(node, shutdown) {
             break;
         }
@@ -2108,6 +2117,9 @@ fn dial_introduced(
                 neighbourhood.confirm(outcome.device);
                 hosts.push((outcome.device, address));
             }
+        } else {
+            // Off, or gone: the coordinator keeps its address a week.
+            contact.host_missed(device, Instant::now());
         }
     }
     in_touch
@@ -3052,6 +3064,59 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `itsanas ls`, `put`, `get` and `rm` refused to start while the daemon
+    /// ran, which is always on a machine set up as a service (HANDOVER §9,
+    /// "One process per node"). They hand the work to it now, and it does it
+    /// on the node it holds. Sabotage: the daemon refuses file jobs.
+    #[test]
+    fn red_team_the_file_commands_work_while_the_daemon_holds_the_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("home");
+        let (node, _) = Node::create(&home, "a passphrase", "camille").expect("create");
+        assert!(
+            crate::daemon_holds(&home),
+            "the fixture's node does not hold the store"
+        );
+        let source = dir.path().join("note.txt");
+        std::fs::write(&source, b"stored through the daemon").expect("source");
+        let back = dir.path().join("back.txt");
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::SeqCst) {
+                    run_disk_job(&node, &AtomicBool::new(false));
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            });
+            let outcome = (|| -> crate::Result<()> {
+                crate::put(&home, "notes/note.txt", &source)?;
+                crate::list(&home)?;
+                crate::get(&home, "notes/note.txt", Some(&back))?;
+                crate::remove(&home, "notes/note.txt", false)?;
+                crate::trash_command(&home, Some(crate::deleting::TrashAction::List))?;
+                crate::trash_command(
+                    &home,
+                    Some(crate::deleting::TrashAction::Restore {
+                        path: "notes/note.txt".to_owned(),
+                    }),
+                )?;
+                crate::remove(&home, "notes/note.txt", true)
+            })();
+            stop.store(true, Ordering::SeqCst);
+            outcome.expect("a file command refused while the daemon held the store");
+        });
+        assert_eq!(
+            std::fs::read(&back).expect("the file got back"),
+            b"stored through the daemon",
+            "`get` through the daemon did not give back what `put` stored"
+        );
+        assert_eq!(
+            node.store.read_file("notes/note.txt").expect("read"),
+            None,
+            "`rm --now` through the daemon left the file in the account"
+        );
+    }
 
     /// The adapter `dial_book` is tested through, run for real: a round with
     /// the machine expected at an address happens, one with another device

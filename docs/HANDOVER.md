@@ -15,6 +15,27 @@ WRITTEN-AT: 2026-11-17
 BASE: 25720ae
 -->
 
+**2026-11-17 (evening): a host of another account that is off is no longer dialled every
+round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
+each host it names at every round, a connect timeout each when the machine was off. It now waits
+after a miss as the account's own machines do (`Contact::introduced_due`, `host_missed`, a
+minute doubling to the half hour; an answer ends it), §9 "A stale address" now ✅;
+`red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`, sabotage plan
+`introduced_hosts.json`. Not done: discovery's LAN strangers are rationed per round already
+(`NEW_PEERS_PER_ROUND`), not backed off.
+
+**2026-11-17 (night): `ls`, `put`, `get`, `rm`, `free` and `trash` work while the daemon runs.** They refused to
+start, the store being locked by the service, which on a machine set up normally is always
+running. They now hand the work to the daemon through the job file the backups already used
+(`jobs.rs`: kinds `list`, `put`, `get`, `remove`, `free`, `trash-list`, `trash-restore`,
+`trash-delete` (paths split by tabs), `trash-empty`..., the account path as `name`; a
+listing or a file read to the terminal comes back in `job-output`, `put NAME -` leaves its
+input in `job-input`). The daemon looks every two seconds when idle, so during a long round a
+command waits for the round. The commands' bodies are functions of a `Node` now (`listing`,
+`put_into`, `get_into`, `remove_in`, `free_in`, `file_job` in `lib.rs`; `deleting::trash_job`).
+Left on the same ceiling: `keep`, the trash's rules and days, `peer`, `device` and the rest still
+need the daemon stopped.
+
 **2026-11-17: a replay downloads what the account holds now, not its history.** A device that
 replays the log from nothing (a restore, a new phone) used to apply every entry in log order, so
 it fetched each superseded and deleted version's chunks, and once those were collected it
@@ -4240,18 +4261,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
   coordinator is a notice board that cannot admit anyone and whose lists
   are signed by the members' own keys, so a fake one can refuse service and
   learn who asks, not read or forge.
-- **One process per node.** The index is under an exclusive lock, so commands
-  refuse to run while the daemon holds it. Since 2026-10-06 the commands a tray
-  needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
-  go through files in the home instead (`control.rs`, the snapshot); anything
-  that reads or changes the store itself still needs the daemon stopped, and a
-  live file list still needs a control socket.
+- 🟨 **One process per node.** The index is under an exclusive lock, so a second
+  process cannot open it while the daemon holds it. Since 2026-10-06 the commands a
+  tray needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
+  go through files in the home instead (`control.rs`, the snapshot); since
+  2026-11-17 `ls`, `put`, `get`, `rm`, `free` and `trash` (list, restore, delete, empty) are handed to the daemon as jobs
+  (`jobs.rs`, `red_team_the_file_commands_work_while_the_daemon_holds_the_store`),
+  picked up within two seconds when it is idle and after the round otherwise.
+  The rest (`keep`, the trash's rules and days, `peer`, `device`...) still needs
+  the daemon stopped.
 - ✅ **Fixed 2026-10-13: the escrow attempt counters are on disk too** (`Directory::count_escrow_attempt`, table `escrow_tries`, checked after the in-memory limiter; `red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget`). Was: **The escrow attempt counters are in memory only.** A coordinator restart
   clears every one of them, so anybody who can provoke a restart — or who simply
   waits for one — gets a fresh budget. Persisting them is the fix; the Argon2id
   cost is what carries the weight until then.
-- **A stale address is handed out for a week.** `PRESENCE_TTL` bounds it, but
-  every peer pays a dial for every stale entry until it expires.
+- ✅ **Fixed 2026-11-17: a stale address costs a dial per wait, not per round** (`Contact::introduced_due`,
+  `red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`; the account's own
+  machines since 2026-10-22, `QUIET_AFTER_MISS`). Was: **A stale address is handed out for a
+  week.** `PRESENCE_TTL` bounds it, but every peer pays a dial for every stale entry until it
+  expires.
 - 🟨 **Pack files built 2026-10-13, opt-in** (ROADMAP M10). Was: **The blob layout does not reach a terabyte.** Measured, not suspected: see
   [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
   terabyte, and `blobs().addresses()` walks all of them on every sync round.
