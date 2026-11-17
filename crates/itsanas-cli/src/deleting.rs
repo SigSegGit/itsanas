@@ -244,27 +244,93 @@ fn print_rules(node: &Node) -> Result<(), Failure> {
     Ok(())
 }
 
-fn print_list(node: &Node) -> Result<(), Failure> {
+/// What `itsanas trash` lists, here or in the daemon.
+fn list_text(node: &Node) -> Result<String, Failure> {
+    use std::fmt::Write as _;
     let hidden = crate::phone::purged_trash(node)?;
     let rows = crate::phone::trash_rows(node, &hidden)?;
     let now = itsanas_store::now_unix();
     let empty = Vec::new();
     let listed = rows["trashed"].as_array().unwrap_or(&empty);
+    let mut out = String::new();
     if listed.is_empty() {
-        println!("the trash is empty");
+        let _ = writeln!(out, "the trash is empty");
     }
     for row in listed {
         let due = row["due"].as_u64().unwrap_or(0);
         let path = row["path"].as_str().unwrap_or_default();
         let kind = row["kind"].as_str().unwrap_or_default();
         if kind == "waiting" {
-            println!("   to confirm  {path}  (`itsanas trash delete` deletes it everywhere)");
+            let _ = writeln!(
+                out,
+                "   to confirm  {path}  (`itsanas trash delete` deletes it everywhere)"
+            );
         } else {
             let days = due.saturating_sub(now).div_ceil(itsanas_store::trash::DAY);
-            println!("{days:>4} days  {kind:<9}  {path}");
+            let _ = writeln!(out, "{days:>4} days  {kind:<9}  {path}");
         }
     }
-    Ok(())
+    Ok(out)
+}
+
+/// What `itsanas trash` hands to a running daemon that holds the store
+/// (`jobs.rs`), and what it said, ready to print; `None` to do it here. The
+/// rules and the days are not handed: they wait for the daemon to stop.
+fn handed(home: &std::path::Path, action: &TrashAction) -> Result<Option<String>, Failure> {
+    use crate::jobs::Kind;
+    if !crate::daemon_holds(home) {
+        return Ok(None);
+    }
+    let ask = |kind: Kind, path: &std::path::Path, name: Option<&str>| {
+        crate::ask_daemon(home, kind, path, name).map_err(|error| usage(error.to_string()))
+    };
+    let line = |said: String| format!("{said}\n");
+    Ok(Some(match action {
+        TrashAction::List => {
+            let output = home.join(crate::jobs::JOB_OUTPUT);
+            ask(Kind::TrashList, &output, None)?;
+            let text = crate::taken_output(&output).map_err(|error| usage(error.to_string()))?;
+            String::from_utf8_lossy(&text).into_owned()
+        }
+        TrashAction::Restore { path } => line(ask(Kind::TrashRestore, home, Some(path))?),
+        // Tabs between paths: a name in the account holds none (the folder
+        // refuses them), and the job's name is one line.
+        TrashAction::Delete { paths } => {
+            line(ask(Kind::TrashDelete, home, Some(&paths.join("\t")))?)
+        }
+        TrashAction::Empty => line(ask(Kind::TrashEmpty, home, None)?),
+        _ => return Ok(None),
+    }))
+}
+
+/// A trash command the daemon was handed, done on the node it holds.
+///
+/// # Errors
+///
+/// What the command says when it fails.
+pub(crate) fn trash_job(node: &Node, job: &crate::jobs::Job) -> Result<String, String> {
+    use crate::jobs::Kind;
+    let name = job.name.as_deref().unwrap_or_default();
+    match job.kind {
+        Kind::TrashList => list_text(node)
+            .map_err(|failure| failure.message())
+            .and_then(|text| {
+                std::fs::write(&job.path, text)
+                    .map(|()| String::new())
+                    .map_err(|error| format!("could not write {}: {error}", job.path.display()))
+            }),
+        Kind::TrashRestore => crate::phone::trash_restore_in(node, name)
+            .map(|_| format!("{name} is back"))
+            .map_err(|failure| failure.message()),
+        Kind::TrashDelete => {
+            let paths: Vec<String> = name.split('\t').map(str::to_owned).collect();
+            purge(node, &paths).map_err(|failure| failure.message())
+        }
+        Kind::TrashEmpty => everything(node)
+            .and_then(|paths| purge(node, &paths))
+            .map_err(|failure| failure.message()),
+        _ => Err("not a trash command".to_owned()),
+    }
 }
 
 fn changed(node: &Node, all: bool, change: impl FnOnce(&mut Rules)) -> Result<(), Failure> {
@@ -287,6 +353,10 @@ fn changed(node: &Node, all: bool, change: impl FnOnce(&mut Rules)) -> Result<()
 /// When the node cannot be opened (a running service holds it), or a value is
 /// not understood.
 pub fn command(home: &std::path::Path, action: TrashAction) -> Result<(), Failure> {
+    if let Some(said) = handed(home, &action)? {
+        print!("{said}");
+        return Ok(());
+    }
     if let TrashAction::Days { days: 0 } = action {
         // The trash off, as before the rules: a delete is written at once.
         itsanas_store::trash::set_days(&crate::trash::record_dir(home), 0)
@@ -296,7 +366,7 @@ pub fn command(home: &std::path::Path, action: TrashAction) -> Result<(), Failur
     }
     let node = crate::open(home).map_err(|error| usage(error.to_string()))?;
     match action {
-        TrashAction::List => print_list(&node)?,
+        TrashAction::List => print!("{}", list_text(&node)?),
         TrashAction::Rules => print_rules(&node)?,
         TrashAction::Restore { path } => {
             crate::phone::trash_restore_in(&node, &path)?;

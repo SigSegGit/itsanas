@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_the_file_commands_work_while_the_daemon"
+  ],
+  "defences": {
+    "jobs: the daemon refuses file jobs": {
+      "file": "crates/itsanas-cli/src/daemon.rs",
+      "live": "        | Kind::Free { .. } => crate::file_job(node, &job),\n",
+      "dead": "        | Kind::Free { .. } => Err(\"refused\".to_owned()),\n"
+    }
+  }
+}

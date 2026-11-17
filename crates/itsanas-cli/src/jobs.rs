@@ -21,6 +21,12 @@
 //! ```
 //!
 //! One job at a time: a second is refused while the first is waiting.
+//!
+//! Since 2026-11-17 the file commands go the same way while the daemon runs
+//! (`itsanas ls`, `put`, `get`, `rm`), which refused before (HANDOVER §9, "One
+//! process per node"): the account path travels as `name`, a listing or a
+//! file read to the terminal comes back in [`JOB_OUTPUT`], and what `put`
+//! reads from its standard input waits in [`JOB_INPUT`].
 
 use std::{
     fmt::Write as _,
@@ -33,6 +39,12 @@ pub const JOB: &str = "job";
 
 /// What became of it, in the node's home.
 pub const JOB_RESULT: &str = "job-result";
+
+/// Where the daemon writes a listing, or a file asked for on the terminal.
+pub const JOB_OUTPUT: &str = "job-output";
+
+/// Where `itsanas put NAME -` leaves what it read, for the daemon to store.
+pub const JOB_INPUT: &str = "job-input";
 
 /// The most of either file read: three short lines and a path.
 const MAX_JOB_BYTES: u64 = 8192;
@@ -49,6 +61,39 @@ pub enum Kind {
     Export,
     /// Read the cold copy at the path into this node.
     Restore,
+    /// Write `itsanas ls` into the path.
+    List,
+    /// Store the file at the path as `name`.
+    Put,
+    /// Write the account's `name` into the path.
+    Get,
+    /// Delete `name`: into the trash, or from every machine at once.
+    Remove {
+        /// `itsanas rm --now`.
+        now: bool,
+    },
+    /// Write `itsanas trash` into the path.
+    TrashList,
+    /// Bring `name` back from the trash.
+    TrashRestore,
+    /// Delete for good the paths `name` holds, one per tab.
+    TrashDelete,
+    /// Delete for good everything in the trash.
+    TrashEmpty,
+    /// Free `name` from this machine, or (`keep`) bring it back.
+    Free {
+        /// `itsanas free --keep`.
+        keep: bool,
+    },
+}
+
+impl Kind {
+    /// Whether this is a file command (`ls`, `put`, `get`, `rm`, `trash`,
+    /// `free`), done at once on the node, rather than disk work.
+    #[must_use]
+    pub const fn is_file_command(self) -> bool {
+        !matches!(self, Self::MoveVault { .. } | Self::Export | Self::Restore)
+    }
 }
 
 impl Kind {
@@ -58,6 +103,17 @@ impl Kind {
             Self::MoveVault { same_disk: true } => "move-vault-same-disk",
             Self::Export => "export",
             Self::Restore => "restore",
+            Self::List => "list",
+            Self::Put => "put",
+            Self::Get => "get",
+            Self::Remove { now: false } => "remove",
+            Self::Remove { now: true } => "remove-now",
+            Self::TrashList => "trash-list",
+            Self::TrashRestore => "trash-restore",
+            Self::TrashDelete => "trash-delete",
+            Self::TrashEmpty => "trash-empty",
+            Self::Free { keep: false } => "free",
+            Self::Free { keep: true } => "free-keep",
         }
     }
 
@@ -67,6 +123,17 @@ impl Kind {
             "move-vault-same-disk" => Self::MoveVault { same_disk: true },
             "export" => Self::Export,
             "restore" => Self::Restore,
+            "list" => Self::List,
+            "put" => Self::Put,
+            "get" => Self::Get,
+            "remove" => Self::Remove { now: false },
+            "remove-now" => Self::Remove { now: true },
+            "trash-list" => Self::TrashList,
+            "trash-restore" => Self::TrashRestore,
+            "trash-delete" => Self::TrashDelete,
+            "trash-empty" => Self::TrashEmpty,
+            "free" => Self::Free { keep: false },
+            "free-keep" => Self::Free { keep: true },
             _ => return None,
         })
     }
@@ -78,6 +145,8 @@ pub struct Job {
     pub id: u64,
     pub kind: Kind,
     pub path: PathBuf,
+    /// The file in the account a file command is about.
+    pub name: Option<String>,
 }
 
 /// How far a job went.
@@ -162,7 +231,20 @@ fn fields(text: &str) -> impl Iterator<Item = (&str, &str)> {
 ///
 /// A path [`check_path`] refuses, a job already waiting, or the disk.
 pub fn ask(home: &Path, kind: Kind, path: &Path) -> Result<u64, String> {
+    ask_named(home, kind, path, None)
+}
+
+/// [`ask`], for a file command: `name` is the file in the account, on one
+/// line, for the same reason as the path.
+///
+/// # Errors
+///
+/// As [`ask`], and a name that is empty or holds a line break.
+pub fn ask_named(home: &Path, kind: Kind, path: &Path, name: Option<&str>) -> Result<u64, String> {
     let path = check_path(path)?;
+    if name.is_some_and(|name| name.trim().is_empty() || name.contains(['\n', '\r', '\0'])) {
+        return Err("a file name is empty or holds a line break".to_owned());
+    }
     if home.join(JOB).exists() {
         return Err(
             "the daemon has not picked up the last disk job yet; try again in a few \
@@ -185,6 +267,9 @@ pub fn ask(home: &Path, kind: Kind, path: &Path) -> Result<u64, String> {
     let _ = writeln!(text, "id {id}");
     let _ = writeln!(text, "kind {}", kind.name());
     let _ = writeln!(text, "path {}", path.display());
+    if let Some(name) = name {
+        let _ = writeln!(text, "name {name}");
+    }
     replace(home, JOB, &text).map_err(|error| format!("could not write the job: {error}"))?;
     Ok(id)
 }
@@ -209,12 +294,13 @@ pub fn take(home: &Path) -> Option<Result<Job, String>> {
         Ok(None) => return None,
         Err(error) => return Some(Err(format!("could not read {}: {error}", path.display()))),
     };
-    let (mut id, mut kind, mut target) = (None, None, None);
+    let (mut id, mut kind, mut target, mut name) = (None, None, None, None);
     for (key, value) in fields(&text) {
         match key {
             "id" => id = value.trim().parse().ok(),
             "kind" => kind = Kind::parse(value.trim()),
             "path" => target = Some(PathBuf::from(value)),
+            "name" => name = Some(value.to_owned()),
             _ => {}
         }
     }
@@ -224,6 +310,7 @@ pub fn take(home: &Path) -> Option<Result<Job, String>> {
             id: id?,
             kind: kind?,
             path,
+            name,
         })
     })();
     Some(job.ok_or_else(|| format!("{} is no disk job; ignored", path.display())))
@@ -311,7 +398,8 @@ mod tests {
             Job {
                 id,
                 kind: Kind::Export,
-                path: target.clone()
+                path: target.clone(),
+                name: None,
             }
         );
         assert!(take(home.path()).is_none(), "taken twice");
@@ -329,6 +417,17 @@ mod tests {
             Kind::MoveVault { same_disk: false },
             Kind::MoveVault { same_disk: true },
             Kind::Restore,
+            Kind::List,
+            Kind::Put,
+            Kind::Get,
+            Kind::Remove { now: false },
+            Kind::Remove { now: true },
+            Kind::TrashList,
+            Kind::TrashRestore,
+            Kind::TrashDelete,
+            Kind::TrashEmpty,
+            Kind::Free { keep: false },
+            Kind::Free { keep: true },
         ] {
             ask(home.path(), kind, &target).expect("asked");
             assert_eq!(take(home.path()).expect("one").expect("job").kind, kind);

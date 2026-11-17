@@ -2807,7 +2807,19 @@ fn whoami(home: &Path) -> Result<()> {
 }
 
 fn list(home: &Path) -> Result<()> {
-    let node = open(home)?;
+    let output = home.join(jobs::JOB_OUTPUT);
+    match open_or_hand(home, jobs::Kind::List, &output, None)? {
+        Ok(node) => print!("{}", listing(&node)?),
+        Err(_) => print!("{}", String::from_utf8_lossy(&taken_output(&output)?)),
+    }
+    Ok(())
+}
+
+/// What `itsanas ls` prints, here or in the daemon (`jobs.rs`).
+fn listing(node: &Node) -> Result<String> {
+    use std::fmt::Write as _;
+    let home = &node.home;
+    let mut out = String::new();
 
     // Everything this account has, not everything this machine downloaded. A
     // node that synced on a metered connection knows about files whose contents
@@ -2817,12 +2829,12 @@ fn list(home: &Path) -> Result<()> {
     // Said before the list and before "(no files)", which a chain left out
     // can make untrue.
     if let Some(left_out) = describe_left_out(&known) {
-        println!("note: {left_out}");
+        let _ = writeln!(out, "note: {left_out}");
     }
 
     if known.files.is_empty() {
-        println!("(no files)");
-        return Ok(());
+        let _ = writeln!(out, "(no files)");
+        return Ok(out);
     }
 
     let trashed = trash::list(home);
@@ -2830,53 +2842,120 @@ fn list(home: &Path) -> Result<()> {
     let freed = itsanas_store::freed::list(&trash::record_dir(home));
     let mut absent = 0usize;
     for entry in &known.files {
-        if trashed.contains_key(&entry.path) {
-            println!("{:>12}  in trash  {}", format_size(entry.size), entry.path);
-            continue;
-        }
-        if freed.contains(&entry.path) {
-            println!("{:>12}  freed     {}", format_size(entry.size), entry.path);
-            continue;
-        }
-        match entry.presence {
-            itsanas_store::Presence::Local => {
-                println!("{:>12}            {}", format_size(entry.size), entry.path);
-            }
-            itsanas_store::Presence::Absent => {
-                absent += 1;
-                println!("{:>12}  not here  {}", format_size(entry.size), entry.path);
-            }
-        }
+        let mark = if trashed.contains_key(&entry.path) {
+            "in trash"
+        } else if freed.contains(&entry.path) {
+            "freed   "
+        } else if entry.presence == itsanas_store::Presence::Absent {
+            absent += 1;
+            "not here"
+        } else {
+            "        "
+        };
+        let _ = writeln!(
+            out,
+            "{:>12}  {mark}  {}",
+            format_size(entry.size),
+            entry.path
+        );
     }
 
     if absent > 0 {
-        println!();
+        let _ = writeln!(out);
         // What is actually true, which is not the same as what this said in
         // either of its two earlier versions. On a device with a `keep` limit,
         // sync fetches what the limit and the order choose and lets go of the
         // rest, so "run sync" is not advice that brings a particular file down.
         // Opening one always works, because an explicit request beats a
         // background choice.
-        println!("{absent} file(s) are known and not on this device.");
-        println!("  `itsanas get <path>` fetches one, whatever the limit.");
+        let _ = writeln!(out, "{absent} file(s) are known and not on this device.");
+        let _ = writeln!(
+            out,
+            "  `itsanas get <path>` fetches one, whatever the limit."
+        );
         if node.config.keep_bytes.is_some() || !node.config.keep_only.is_empty() {
-            println!("  `itsanas sync` fetches whatever this device's limit chooses to hold.");
-            println!("  `itsanas keep` shows and changes that choice.");
+            let _ = writeln!(
+                out,
+                "  `itsanas sync` fetches whatever this device's limit chooses to hold."
+            );
+            let _ = writeln!(out, "  `itsanas keep` shows and changes that choice.");
         } else {
-            println!("  `itsanas sync` fetches them.");
+            let _ = writeln!(out, "  `itsanas sync` fetches them.");
         }
     }
 
-    Ok(())
+    Ok(out)
+}
+
+/// The node, opened here; or, when a running daemon holds it, `Err` with
+/// what the daemon said once it did `kind` (`jobs.rs`). Before 2026-11-17 a
+/// file command refused to start while the daemon ran.
+fn open_or_hand(
+    home: &Path,
+    kind: jobs::Kind,
+    path: &Path,
+    name: Option<&str>,
+) -> Result<std::result::Result<Node, String>> {
+    if daemon_holds(home) {
+        return ask_daemon(home, kind, path, name).map(Err);
+    }
+    match open(home) {
+        // A daemon that started between the two looks.
+        Err(_) if daemon_holds(home) => ask_daemon(home, kind, path, name).map(Err),
+        other => other.map(Ok),
+    }
+}
+
+/// What the daemon wrote for the terminal, read and removed.
+fn taken_output(output: &Path) -> Result<Vec<u8>> {
+    let read = std::fs::read(output).map_err(|source| CliError::Io {
+        path: output.to_owned(),
+        source,
+    });
+    let _ = std::fs::remove_file(output);
+    read
 }
 
 fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
+    let stdin = source == std::path::Path::new("-");
+    if daemon_holds(home) {
+        // The daemon cannot read this terminal: what it says waits in the home.
+        let handed = if stdin {
+            let input = home.join(jobs::JOB_INPUT);
+            let mut buffer = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut buffer)
+                .map_err(|error| CliError::Io {
+                    path: PathBuf::from("<stdin>"),
+                    source: error,
+                })?;
+            std::fs::write(&input, buffer).map_err(|error| CliError::Io {
+                path: input.clone(),
+                source: error,
+            })?;
+            input
+        } else {
+            source.to_owned()
+        };
+        let said = ask_daemon(home, jobs::Kind::Put, &handed, Some(path));
+        if stdin {
+            let _ = std::fs::remove_file(&handed);
+        }
+        println!("{}", said?);
+        return Ok(());
+    }
     let node = open(home)?;
+    println!("{}", put_into(&node, path, source)?);
+    Ok(())
+}
+
+/// Store `source` as `path`; what `itsanas put` says.
+fn put_into(node: &Node, path: &str, source: &std::path::Path) -> Result<String> {
     // What the account's other machines lend counts towards what it may hold.
     // A coordinator that cannot be reached leaves the figure it gave last time,
     // which is the right answer offline and not worth failing a write over.
     if node.config.coordinator.is_some()
-        && let Err(error) = itsanas_node::coordinator::refresh_others_pledged(&node)
+        && let Err(error) = itsanas_node::coordinator::refresh_others_pledged(node)
     {
         eprintln!("itsanas: using the last known pledges of your other machines: {error}");
     }
@@ -2893,7 +2972,7 @@ fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
             .len();
         node.store
             .check_room(path, incoming)
-            .map_err(|error| over_budget(&node, error))?;
+            .map_err(|error| over_budget(node, error))?;
     }
 
     let content = if source == std::path::Path::new("-") {
@@ -2915,15 +2994,14 @@ fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
     let entry = node
         .store
         .write_file(path, &content)
-        .map_err(|error| over_budget(&node, error))?;
+        .map_err(|error| over_budget(node, error))?;
     node.store.flush_segment()?;
 
-    println!(
+    Ok(format!(
         "stored {} as {path} ({} chunks)",
         format_size(entry.size),
         entry.chunks.len()
-    );
-    Ok(())
+    ))
 }
 
 /// A refused write, in the words `itsanas keep` and `itsanas space` use: what
@@ -3000,97 +3078,167 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
 }
 
 fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result<()> {
-    let node = open(home)?;
-
-    let content = match node.store.read_file(path)? {
-        Some(content) => content,
-        // Not here does not mean not yours. A device with a storage budget, or
-        // one that synced over a metered link, knows about files it has not
-        // downloaded -- `itsanas ls` shows them. This used to answer "no such
-        // file" for a file the account plainly had, which was both a lie and
-        // the reason the budget setting had nothing behind it.
-        None => fetch_absent(&node, path)?,
+    let output = home.join(jobs::JOB_OUTPUT);
+    let node = match open_or_hand(
+        home,
+        jobs::Kind::Get,
+        destination.unwrap_or(&output),
+        Some(path),
+    )? {
+        Ok(node) => node,
+        Err(said) => {
+            if destination.is_some() {
+                println!("{said}");
+            } else {
+                std::io::stdout()
+                    .write_all(&taken_output(&output)?)
+                    .map_err(|error| CliError::Io {
+                        path: PathBuf::from("<stdout>"),
+                        source: error,
+                    })?;
+            }
+            return Ok(());
+        }
     };
 
-    match destination {
-        Some(destination) => {
-            std::fs::write(destination, &content).map_err(|error| CliError::Io {
-                path: destination.to_owned(),
+    if let Some(destination) = destination {
+        println!("{}", get_into(&node, path, destination)?);
+    } else {
+        std::io::stdout()
+            .write_all(&fetched(&node, path)?)
+            .map_err(|error| CliError::Io {
+                path: PathBuf::from("<stdout>"),
                 source: error,
             })?;
-            println!(
-                "wrote {} to {}",
-                format_size(content.len() as u64),
-                destination.display()
-            );
-        }
-        None => {
-            std::io::stdout()
-                .write_all(&content)
-                .map_err(|error| CliError::Io {
-                    path: PathBuf::from("<stdout>"),
-                    source: error,
-                })?;
-        }
     }
-
     Ok(())
 }
 
 fn free(home: &Path, path: Option<&str>, keep: bool) -> Result<()> {
-    let node = open(home)?;
-    let Some(path) = path else {
-        for path in itsanas_store::freed::list(node.store.root()) {
-            println!("{path}");
-        }
+    if let Some(path) = path {
+        let said = match open_or_hand(home, jobs::Kind::Free { keep }, home, Some(path))? {
+            Ok(node) => free_in(&node, path, keep).map_err(CliError::Usage)?,
+            Err(said) => said,
+        };
+        println!("{said}");
         return Ok(());
-    };
-    let said = if keep {
-        freeing::keep(&node, path)
+    }
+    // The list is a file next to the store: read whether or not a daemon runs.
+    for path in itsanas_store::freed::list(&Node::store_path(home)) {
+        println!("{path}");
+    }
+    Ok(())
+}
+
+/// Free `path` from this machine, or (`keep`) bring it back; what
+/// `itsanas free` says.
+fn free_in(node: &Node, path: &str, keep: bool) -> std::result::Result<String, String> {
+    if keep {
+        freeing::keep(node, path)
     } else {
-        freeing::free(&node, path)
+        freeing::free(node, path)
             .map(|said| format!("{said} `itsanas free --keep {path}` brings it back."))
     }
-    .map_err(|failure| CliError::Usage(failure.message()))?;
+    .map_err(|failure| failure.message())
+}
+
+fn remove(home: &Path, path: &str, now: bool) -> Result<()> {
+    let said = match open_or_hand(home, jobs::Kind::Remove { now }, home, Some(path))? {
+        Ok(node) => remove_in(&node, path, now)?,
+        Err(said) => said,
+    };
     println!("{said}");
     Ok(())
 }
 
-fn remove(home: &Path, path: &str, now: bool) -> Result<()> {
-    let node = open(home)?;
-
+/// Delete `path`, into the trash or (`now`) from every machine; what
+/// `itsanas rm` says.
+fn remove_in(node: &Node, path: &str, now: bool) -> Result<String> {
+    use itsanas_store::trash::Deleted;
+    let home = &node.home;
     if now {
-        if itsanas_store::remove_known(&node.store, &node.vault, path)? {
-            node.store.flush_segment()?;
-            trash::take_out(home, path).map_err(|source| itsanas_node::NodeError::Io {
-                path: trash::record_dir(home),
-                source,
-            })?;
-            println!("deleted {path}");
-        } else {
-            println!("no such file: {path}");
+        if !itsanas_store::remove_known(&node.store, &node.vault, path)? {
+            return Ok(format!("no such file: {path}"));
         }
-    } else {
-        use itsanas_store::trash::Deleted;
+        node.store.flush_segment()?;
+        trash::take_out(home, path).map_err(|source| itsanas_node::NodeError::Io {
+            path: trash::record_dir(home),
+            source,
+        })?;
+        return Ok(format!("deleted {path}"));
+    }
+    Ok(
         match itsanas_store::trash::delete(
             &node.store,
             &node.vault,
             path,
             itsanas_store::now_unix(),
         )? {
-            Deleted::Unknown => println!("no such file: {path}"),
-            Deleted::Everywhere => println!("deleted {path} from every machine"),
-            Deleted::Trashed => println!(
+            Deleted::Unknown => format!("no such file: {path}"),
+            Deleted::Everywhere => format!("deleted {path} from every machine"),
+            Deleted::Trashed => format!(
                 "{path} is in the account's trash; `itsanas trash restore {path}` brings it back on every machine"
             ),
-            Deleted::Waiting => println!(
+            Deleted::Waiting => format!(
                 "{path} waits here for `itsanas trash delete {path}` to delete it from every machine"
             ),
-            Deleted::HereOnly => println!("{path} left this machine; the account keeps it"),
-        }
-    }
+            Deleted::HereOnly => format!("{path} left this machine; the account keeps it"),
+        },
+    )
+}
 
-    Ok(())
+/// A file command the daemon was handed (`jobs.rs`), done on the node it
+/// holds; what it says.
+fn file_job(node: &Node, job: &jobs::Job) -> std::result::Result<String, String> {
+    let name = || {
+        job.name
+            .as_deref()
+            .ok_or_else(|| "a file command came with no file name".to_owned())
+    };
+    let done = match job.kind {
+        jobs::Kind::List => listing(node).and_then(|text| {
+            std::fs::write(&job.path, text).map_err(|source| CliError::Io {
+                path: job.path.clone(),
+                source,
+            })
+        }),
+        jobs::Kind::Put => return put_into(node, name()?, &job.path).map_err(|e| e.to_string()),
+        jobs::Kind::Get => return get_into(node, name()?, &job.path).map_err(|e| e.to_string()),
+        jobs::Kind::Remove { now } => {
+            return remove_in(node, name()?, now).map_err(|e| e.to_string());
+        }
+        jobs::Kind::Free { keep } => return free_in(node, name()?, keep),
+        _ => return deleting::trash_job(node, job),
+    };
+    done.map(|()| String::new())
+        .map_err(|error| error.to_string())
+}
+
+/// The account's `path`, from here or fetched from a machine that has it.
+fn fetched(node: &Node, path: &str) -> Result<Vec<u8>> {
+    match node.store.read_file(path)? {
+        Some(content) => Ok(content),
+        // Not here does not mean not yours. A device with a storage budget, or
+        // one that synced over a metered link, knows about files it has not
+        // downloaded -- `itsanas ls` shows them. This used to answer "no such
+        // file" for a file the account plainly had, which was both a lie and
+        // the reason the budget setting had nothing behind it.
+        None => fetch_absent(node, path),
+    }
+}
+
+/// Write the account's `path` into `destination`; what `itsanas get` says.
+fn get_into(node: &Node, path: &str, destination: &std::path::Path) -> Result<String> {
+    let content = fetched(node, path)?;
+    std::fs::write(destination, &content).map_err(|error| CliError::Io {
+        path: destination.to_owned(),
+        source: error,
+    })?;
+    Ok(format!(
+        "wrote {} to {}",
+        format_size(content.len() as u64),
+        destination.display()
+    ))
 }
 
 /// `itsanas trash`, its list when nothing is asked ([`deleting::command`]).
@@ -3702,12 +3850,24 @@ pub(crate) fn daemon_holds(home: &Path) -> bool {
 
 /// Ask the running daemon for a disk job and wait for its answer, printing it.
 fn hand_to_daemon(home: &Path, kind: jobs::Kind, path: &Path) -> Result<()> {
+    println!("{}", ask_daemon(home, kind, path, None)?);
+    Ok(())
+}
+
+/// Ask the running daemon for a job and wait for what it says. What it does
+/// on the way goes to standard error: standard output carries the answer,
+/// which for `ls` and `get` is the listing or the file.
+fn ask_daemon(home: &Path, kind: jobs::Kind, path: &Path, name: Option<&str>) -> Result<String> {
     let wanted = std::path::absolute(path).map_err(|source| CliError::Io {
         path: path.to_owned(),
         source,
     })?;
-    let id = jobs::ask(home, kind, &wanted).map_err(CliError::Usage)?;
-    println!("the running daemon does this; waiting for it (Ctrl-C stops waiting, not the job)");
+    let id = jobs::ask_named(home, kind, &wanted, name).map_err(CliError::Usage)?;
+    if !kind.is_file_command() {
+        eprintln!(
+            "the running daemon does this; waiting for it (Ctrl-C stops waiting, not the job)"
+        );
+    }
     let asked = std::time::Instant::now();
     let mut said_running = false;
     let mut alone_since: Option<std::time::Instant> = None;
@@ -3728,15 +3888,14 @@ fn hand_to_daemon(home: &Path, kind: jobs::Kind, path: &Path) -> Result<()> {
             alone_since.is_some_and(|since| since.elapsed() > std::time::Duration::from_secs(30));
         match mine {
             Some(report) if report.state == jobs::State::Done => {
-                println!("{}", report.said);
-                return Ok(());
+                return Ok(report.said.clone());
             }
             Some(report) if report.state == jobs::State::Failed => {
                 return Err(CliError::Usage(report.said.clone()));
             }
             Some(report) => {
                 if !said_running {
-                    println!("{}...", report.said);
+                    eprintln!("{}...", report.said);
                     said_running = true;
                 }
                 if gone && !moving {
