@@ -2069,13 +2069,13 @@ fn dial_introduced(
     node: &Node,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
-    contact: &Contact,
+    contact: &mut Contact,
     reached: &mut BTreeSet<DeviceId>,
     hosts: &mut Vec<(DeviceId, String)>,
     scope: PolicyScope,
 ) -> bool {
     let mut in_touch = false;
-    for (device, address) in introduced(node) {
+    for (device, address) in contact.introduced_due(introduced(node), Instant::now()) {
         if halted(node, shutdown) {
             break;
         }
@@ -2108,6 +2108,9 @@ fn dial_introduced(
                 neighbourhood.confirm(outcome.device);
                 hosts.push((outcome.device, address));
             }
+        } else {
+            // Off, or gone: the coordinator keeps its address a week.
+            contact.host_missed(device, Instant::now());
         }
     }
     in_touch
