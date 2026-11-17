@@ -15,6 +15,11 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (late): a noisy chunk is asked for once a round.** `apply_replaying` wraps its
+source in `AskedOnce` (`source.rs`): an address is fetched at most once per application of a
+round's segments, so a host serving noise for a chunk five files share costs one download, not
+five (ROADMAP, the integrity pass's residues). Plan `replay.json`, its second defence.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits

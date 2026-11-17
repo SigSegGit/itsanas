@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1679 test functions, 20 of them `#[ignore]`d into the slow job, and 626 of
+**1680 test functions, 20 of them `#[ignore]`d into the slow job, and 626 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2038,10 +2038,10 @@ hides content equality *across* accounts, not account identity from hosts.
 **Not tested here, named:** the two residues of the integrity pass. The
 has_chunk race in `session.rs` `kept` needs a second writer injected between
 the fetch and the check, and no seam exists for that -- not a five-line test.
-Repeated fetches of one noisy chunk shared by several files cost one
-chunk-sized download per file per round; the simulator counts no fetches, so
-the test needs a counter first, and the cost is bounded by chunk size times
-files.
+✅ Repeated fetches of one noisy chunk shared by several files cost one
+chunk-sized download per file per round; since 2026-11-17 an address is asked
+for at most once per application of a round's segments (`AskedOnce`,
+`a_chunk_that_came_back_as_noise_is_asked_for_once_a_round_not_once_a_file`).
 
 **And the thing the sweep could not check.** Three of the eight surfaces —
 losing data through the store and garbage collector, secrets in the repository
