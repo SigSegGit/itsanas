@@ -370,6 +370,44 @@ fn red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_relea
     }
 }
 
+/// `updates = auto` on a program its account cannot replace (a `--prefix`
+/// like `/usr/local`): the install failed every day, said only in a log, and
+/// the person never heard of the release. Told as `notify` tells it now, and
+/// `itsanas update` says what to type. Sabotage: auto installs whatever the
+/// directory allows.
+#[test]
+fn red_team_an_auto_update_where_the_program_cannot_be_replaced_is_told_not_failed() {
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    let blocked = world.exe.parent().expect("bin").join(super::SCRATCH);
+    std::fs::write(&blocked, b"not a directory").expect("block");
+    let updater = world.updater();
+    match daily(&world.home, &updater, Updates::Auto) {
+        Ok(Daily::Notified(found)) => assert_eq!(found, version("0.2.0")),
+        other => panic!(
+            "an auto update where the program cannot be replaced is not told to the person: {other:?}"
+        ),
+    }
+    assert!(
+        world.home.join(NOTICE_FILE).exists(),
+        "the tray is not told a release waits"
+    );
+    let manifest = match updater.check().expect("check") {
+        Found::Available(manifest) => manifest,
+        other => panic!("{other:?}"),
+    };
+    let said = updater
+        .install(&manifest)
+        .expect_err("installed where nothing can be written")
+        .to_string();
+    assert!(
+        said.contains("sudo itsanas update"),
+        "the refusal does not say what to type: {said}"
+    );
+    std::fs::remove_file(&blocked).expect("unblock");
+    world.assert_untouched("a program that cannot be replaced");
+}
+
 #[test]
 fn without_a_pinned_key_nothing_is_fetched() {
     let world = World::new();
