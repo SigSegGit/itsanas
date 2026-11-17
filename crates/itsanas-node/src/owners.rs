@@ -321,13 +321,16 @@ impl ClaimBook {
             postcard::from_bytes(bytes).map_err(|_| "not a claim".to_owned())?;
         signed.verify_origin().map_err(|error| error.to_string())?;
         let claim = &signed.claim;
-        if claim.device != caller {
-            return Err("the claim is for another device than the one connected".to_owned());
-        }
         let mut book = self.lock();
         if claim.revoked {
-            book.remove(&caller);
-            return Err("this device was withdrawn by its account".to_owned());
+            // Signed with the account's key, a withdrawal is the account's word
+            // whoever hands it over: a sibling passes it on to the hosts it
+            // meets (`Node::introduce`), so a host learns it without a
+            // coordinator, and the withdrawn device's old claim stays refused.
+            return Err(Self::withdrawn(&mut book, claim, bytes));
+        }
+        if claim.device != caller {
+            return Err("the claim is for another device than the one connected".to_owned());
         }
         let mut standing = Standing::Unconfirmed;
         let mut presented = Instant::now();
@@ -346,9 +349,13 @@ impl ClaimBook {
                 asked = held.asked;
             }
             None => {
+                // Live ones: a withdrawn device keeps its row, refused, and
+                // takes no slot from the account's machines.
                 let siblings = book
                     .values()
-                    .filter(|held| held.owner == claim.owner)
+                    .filter(|held| {
+                        held.owner == claim.owner && held.standing != Standing::Withdrawn
+                    })
                     .count();
                 if siblings >= MAX_DEVICES_PER_ACCOUNT {
                     return Err(format!(
@@ -671,6 +678,41 @@ fn lent_on_promise(
         total = total.saturating_add(held.saturating_sub(Split::DEFAULT.room_earned(proved)));
     }
     Ok(total)
+}
+
+impl ClaimBook {
+    /// Record `claim`, a withdrawal, in `book`: its device is refused here for
+    /// good. At most [`MAX_DEVICES_PER_ACCOUNT`] withdrawn devices an account,
+    /// besides its live ones, so an account cannot fill the book with
+    /// withdrawals of ids it made up. What `take` answers.
+    fn withdrawn(
+        book: &mut std::collections::BTreeMap<DeviceId, Held>,
+        claim: &itsanas_coord::claim::NodeClaim,
+        bytes: &[u8],
+    ) -> String {
+        let known = book
+            .get(&claim.device)
+            .is_some_and(|held| held.owner == claim.owner);
+        let withdrawn = book
+            .values()
+            .filter(|held| held.owner == claim.owner && held.standing == Standing::Withdrawn)
+            .count();
+        if known || withdrawn < MAX_DEVICES_PER_ACCOUNT {
+            book.insert(
+                claim.device,
+                Held {
+                    owner: claim.owner,
+                    pledged: 0,
+                    issued: claim.issued_unix,
+                    claim: bytes.to_vec(),
+                    standing: Standing::Withdrawn,
+                    presented: Instant::now(),
+                    asked: None,
+                },
+            );
+        }
+        WITHDRAWN.to_owned()
+    }
 }
 
 impl itsanas_net::Owners for ClaimBook {

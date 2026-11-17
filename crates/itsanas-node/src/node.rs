@@ -945,6 +945,12 @@ impl Node {
         if let Ok(Some(theirs)) = client.present_claim(self.claim_bytes(now)) {
             siblings.push(theirs);
         }
+        // The account's withdrawals this machine knows, passed on: a host of
+        // another account learnt one from the coordinator alone, and took the
+        // withdrawn device's old claim until then (HANDOVER §9).
+        for withdrawal in self.withdrawals()? {
+            let _ = client.present_claim(withdrawal);
+        }
         siblings.extend(client.claims(self.store.owner()).unwrap_or_default());
         self.admit_roster(&siblings)?;
         Ok(())
@@ -979,6 +985,30 @@ impl Node {
             admitted += 1;
         }
         Ok(admitted)
+    }
+
+    /// The withdrawals of this account kept here, as signed: the revoked
+    /// claims in the vault, which [`Self::introduce`] passes on to hosts.
+    ///
+    /// # Errors
+    ///
+    /// If the vault cannot be read.
+    pub fn withdrawals(&self) -> Result<Vec<Vec<u8>>> {
+        let owner = self.store.owner();
+        Ok(self
+            .vault
+            .claims_for(owner)?
+            .into_iter()
+            .filter(|bytes| {
+                postcard::from_bytes::<itsanas_coord::claim::SignedClaim>(bytes).is_ok_and(
+                    |signed| {
+                        signed.claim.revoked
+                            && signed.claim.owner == owner
+                            && signed.verify_origin().is_ok()
+                    },
+                )
+            })
+            .collect())
     }
 
     /// Record here that `device` was withdrawn, on its revoked claim: out of

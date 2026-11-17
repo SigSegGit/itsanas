@@ -20,7 +20,10 @@ the phone's withdraw) sent the revoked claim to the coordinator alone; a machine
 went on admitting the withdrawn device. It is now kept on the machine that signs it first
 (`Node::withdrawn_here`: roster revoked, claim in the vault), so the siblings' existing claims
 exchange carries it, and a host keeps it over the old live claim the withdrawn machine presents
-(`service.rs`, `Store::is_revoked`). Sabotage plan `withdrawals.json`, two defences.
+(`service.rs`, `Store::is_revoked`). Hosts of other accounts too: `Node::introduce` passes the
+account's kept withdrawals on to every host it meets, and `ClaimBook::take` records a withdrawal
+signed with the account's key whoever hands it over (sticky `Withdrawn`, at most ten an account
+besides its live devices). Sabotage plan `withdrawals.json`, four defences.
 
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
@@ -4285,8 +4288,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   host keeps it over the old live claim the withdrawn machine still presents
   (`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`). Left: a
   machine of the account that meets none of its siblings after the withdrawal,
-  and no coordinator, still admits it; and a host of another account learns it
-  only from the coordinator.
+  and no coordinator, still admits it. A host of another account learns it from
+  any machine of the account that introduces itself there (`Node::withdrawals`,
+  `ClaimBook::withdrawn`,
+  `red_team_a_host_of_another_account_learns_a_withdrawal_from_a_sibling`).
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 

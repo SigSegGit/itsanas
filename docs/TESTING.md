@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1680 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
+**Last updated: 2026-11-16 — 1681 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 628 are red-team tests.**
 
-**1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
+**1565 of the 1681 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 369 |
+| `itsanas-cli` unit | 370 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -224,7 +224,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 216 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 217 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1265,7 +1265,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (369)
+# `itsanas-cli` — unit tests (370)
 
 ## `bench` — measuring this machine (4)
 
@@ -1661,11 +1661,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way (3)
+## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way (4)
 
 | Test | What it proves |
 |---|---|
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
+| **`red_team_a_host_of_another_account_learns_a_withdrawal_from_a_sibling`** | The laptop introduces itself to a host of another account after withdrawing the old phone; the old phone then presents its live claim there and is refused. The host learnt it from the coordinator alone before. Sabotaged (nothing passed on; the host taking no withdrawal but the caller's own): red both. |
 | **`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`** | HANDOVER §9: the laptop withdraws the old phone, the old phone still presents its live claim to the laptop, and the VM, with no coordinator, learns the withdrawal from the laptop at its next round: revoked in its roster, its chain no longer applied. Sabotaged (the withdrawal not kept on the laptop; the live claim replacing it there): red both. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
 
