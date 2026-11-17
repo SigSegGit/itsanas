@@ -553,6 +553,7 @@ mod tests {
             device: keys.device_id(),
             address: "a:1".to_owned(),
             at_unix: 0,
+            head: 0,
         }
         .sign(&keys);
         let departure = crate::claim::Departure {

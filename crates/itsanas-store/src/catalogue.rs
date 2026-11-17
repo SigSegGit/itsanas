@@ -123,6 +123,10 @@ pub struct Catalogue {
     /// such segment from failing every listing for good; naming it keeps the
     /// sibling's files, and its deletes, from vanishing without a word.
     pub left_out: Vec<itsanas_crypto::DeviceId>,
+    /// Other devices of the account whose chain this machine holds less of
+    /// than they signed in their presence ([`Store::behind`]): their last
+    /// files and deletes are not in this listing yet. Makes it incomplete.
+    pub behind: Vec<itsanas_crypto::DeviceId>,
 }
 
 /// Every file this account has, downloaded or not, sorted by path.
@@ -222,10 +226,19 @@ fn catalogue_with_reserved(store: &Store, vault: &Vault) -> Result<Catalogue> {
         );
     }
 
+    // A chain shorter here than its device signed: a host served only its
+    // start, or the rest is on no host met yet. Either way the listing is not
+    // the account's, and says so instead of reading as complete.
+    let behind: Vec<itsanas_crypto::DeviceId> = store
+        .behind(vault)?
+        .into_iter()
+        .map(|(device, _, _)| device)
+        .collect();
     Ok(Catalogue {
         files: out.into_values().collect(),
-        complete,
+        complete: complete && behind.is_empty(),
         left_out,
+        behind,
     })
 }
 

@@ -1146,6 +1146,43 @@ impl Store {
         self.index.chain_length()
     }
 
+    /// Record that `device` signed a chain at least `length` segments long
+    /// (its presence's `head`). Only grows.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_known_head(&self, device: &DeviceId, length: u64) -> Result<()> {
+        self.index.note_known_head(device, length)
+    }
+
+    /// The account's devices whose chain this vault holds less of than they
+    /// signed, with what is held and what they said: a host served only the
+    /// start of the chain, or the rest has not reached any host this machine
+    /// met yet. Never this device.
+    ///
+    /// # Errors
+    ///
+    /// If the index or the vault cannot be read.
+    pub fn behind(&self, vault: &crate::Vault) -> Result<Vec<(DeviceId, u64, u64)>> {
+        let held: std::collections::BTreeMap<DeviceId, u64> = vault
+            .heads_for(self.owner())?
+            .into_iter()
+            .map(|(device, _, length)| (device, length))
+            .collect();
+        let mine = self.device_id();
+        Ok(self
+            .index
+            .known_heads()?
+            .into_iter()
+            .filter(|(device, _)| *device != mine)
+            .filter_map(|(device, said)| {
+                let have = held.get(&device).copied().unwrap_or(0);
+                (have < said).then_some((device, have, said))
+            })
+            .collect())
+    }
+
     // --------------------------------------------------------- housekeeping
 
     /// Delete chunks that have been unreferenced for longer than `grace`.

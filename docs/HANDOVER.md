@@ -15,6 +15,14 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-18: tail truncation is caught (§9).** Every presence a device signs carries its chain
+length (`Presence::head`, in the signed payload; old coordinators and clients can no longer read
+new presences, decided by Nicolas). Heads are kept from the coordinator's read (`peers`,
+`contact`) and from siblings' relayed presences (`Contact::take_relayed_heads`, noted in
+`dial_listed`). `Store::behind` compares them with the vault's chain lengths; the catalogue is
+then incomplete and `ls` names the machines. Plans `chain_heads.json` (three defences) and
+`relayed_heads.json`. The daemon's wiring of relayed heads into the store has no test of its own.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits
@@ -4218,9 +4226,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 9. Known gaps, deliberately open
 
-- **Tail truncation.** A host can serve an internally consistent *prefix* of a
-  segment chain. Detecting it needs signed, timestamped head records gossiped
-  between peers. Documented at the top of `store/src/oplog.rs`.
+- ✅ **Fixed 2026-11-18: tail truncation is caught.** A host can serve an
+  internally consistent *prefix* of a segment chain. Every presence now carries
+  the length of its device's chain, signed (`Presence::head`); a machine keeps
+  the longest each sibling signed, from the coordinator's list and from the
+  presences siblings relay (`Store::note_known_head`, `Contact::relayed`), and a
+  chain it holds less of makes its listing incomplete and names the device
+  (`Store::behind`, `Catalogue::behind`, `itsanas ls`'s note;
+  `red_team_a_host_serving_the_start_of_a_chain_is_caught`,
+  `red_team_a_relayed_presence_says_how_long_its_devices_log_is`). Not covered:
+  a machine that never read a presence of the device (no coordinator and no
+  sibling met); the length a presence carries is at most an hour old. Presence
+  bytes changed: a coordinator and its clients must run the same release.
 - **Usage is self-reported.** A member who under-reports gains entitlement they
   have not earned. Verifiable usage needs hosts to report what they hold.
 - **Storage challenges prove possession at a moment**, not continuously, and a

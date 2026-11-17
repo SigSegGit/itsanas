@@ -3087,6 +3087,7 @@ mod tests {
             device: dev.device_id(),
             address: "10.0.0.1:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&dev);
 
@@ -3108,6 +3109,7 @@ mod tests {
             device: dev.device_id(),
             address: "10.0.0.1:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&dev);
         directory.announce(&announced, NOW).unwrap();
@@ -3139,6 +3141,7 @@ mod tests {
                     device: dev.device_id(),
                     address: "a:1".to_owned(),
                     at_unix: NOW,
+                    head: 0,
                 }
                 .sign(&dev),
                 NOW,
@@ -3169,6 +3172,7 @@ mod tests {
                         device: dev.device_id(),
                         address: "a:1".to_owned(),
                         at_unix: at,
+                        head: 0,
                     }
                     .sign(&dev),
                     at,
@@ -3222,6 +3226,7 @@ mod tests {
                     device: dev.device_id(),
                     address: "a:1".to_owned(),
                     at_unix: NOW,
+                    head: 0,
                 }
                 .sign(&dev),
                 NOW,
@@ -3237,6 +3242,7 @@ mod tests {
                         device: dev.device_id(),
                         address: "a:1".to_owned(),
                         at_unix: clock,
+                        head: 0,
                     }
                     .sign(&dev),
                     clock,
@@ -3450,6 +3456,7 @@ mod tests {
                     device: dev.device_id(),
                     address: "203.0.113.7:9797".to_owned(),
                     at_unix: said,
+                    head: 0,
                 }
                 .sign(dev),
                 heard,

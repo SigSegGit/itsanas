@@ -85,6 +85,7 @@ fn red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed() {
         device: laptop.device_id(),
         address: "192.168.1.20:9797".to_owned(),
         at_unix: now,
+        head: 0,
     }
     .sign(&laptop);
     assert!(matches!(
@@ -157,6 +158,7 @@ fn red_team_the_real_coordinator_erases_a_silent_address_as_it_starts() {
                     device: laptop.device_id(),
                     address: "203.0.113.9:9797".to_owned(),
                     at_unix: long_ago,
+                    head: 0,
                 }
                 .sign(&laptop),
                 long_ago,
