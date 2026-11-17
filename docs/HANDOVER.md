@@ -15,6 +15,15 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (evening): a host of another account that is off is no longer dialled every
+round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
+each host it names at every round, a connect timeout each when the machine was off. It now waits
+after a miss as the account's own machines do (`Contact::introduced_due`, `host_missed`, a
+minute doubling to the half hour; an answer ends it), §9 "A stale address" now ✅;
+`red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`, sabotage plan
+`introduced_hosts.json`. Not done: discovery's LAN strangers are rationed per round already
+(`NEW_PEERS_PER_ROUND`), not backed off.
+
 **2026-11-17: a replay downloads what the account holds now, not its history.** A device that
 replays the log from nothing (a restore, a new phone) used to apply every entry in log order, so
 it fetched each superseded and deleted version's chunks, and once those were collected it
@@ -4230,8 +4239,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
   clears every one of them, so anybody who can provoke a restart — or who simply
   waits for one — gets a fresh budget. Persisting them is the fix; the Argon2id
   cost is what carries the weight until then.
-- **A stale address is handed out for a week.** `PRESENCE_TTL` bounds it, but
-  every peer pays a dial for every stale entry until it expires.
+- ✅ **Fixed 2026-11-17: a stale address costs a dial per wait, not per round** (`Contact::introduced_due`,
+  `red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`; the account's own
+  machines since 2026-10-22, `QUIET_AFTER_MISS`). Was: **A stale address is handed out for a
+  week.** `PRESENCE_TTL` bounds it, but every peer pays a dial for every stale entry until it
+  expires.
 - 🟨 **Pack files built 2026-10-13, opt-in** (ROADMAP M10). Was: **The blob layout does not reach a terabyte.** Measured, not suspected: see
   [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
   terabyte, and `blobs().addresses()` walks all of them on every sync round.
