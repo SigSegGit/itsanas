@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_a_command_that_opens_the_store"
+  ],
+  "defences": {
+    "open: the store is opened without stopping the daemon": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "    if !lifecycle::stop_and_wait(home) {\n",
+      "dead": "    if false {\n"
+    }
+  }
+}

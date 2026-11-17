@@ -939,8 +939,15 @@ fn dispatch() -> Result<()> {
     }
     let home = resolve_home(cli.instance.as_deref(), cli.home)?;
     set_prompt_context(&home, &cli.command);
+    let done = command(&home, cli.instance.as_deref(), cli.command);
+    resume_paused_daemon(&home);
+    done
+}
 
-    match cli.command {
+/// The command, on the node at `home`.
+fn command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> {
+    let home = home.to_owned();
+    match command {
         Command::Init { username } => init(&home, &username),
         Command::Login {
             username,
@@ -970,7 +977,7 @@ fn dispatch() -> Result<()> {
         command @ (Command::Setup { .. }
         | Command::Signout
         | Command::Signin
-        | Command::Settings { .. }) => setup_command(&home, cli.instance.as_deref(), command),
+        | Command::Settings { .. }) => setup_command(&home, instance, command),
         command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
@@ -1222,7 +1229,62 @@ fn open(home: &Path) -> Result<Node> {
     if !Node::exists(home) {
         return Err(CliError::NoNode(home.to_path_buf()));
     }
-    Node::open(home, &passphrase(false)?)
+    let passphrase = passphrase(false)?;
+    if daemon_holds(home) {
+        pause_daemon(home)?;
+    }
+    Node::open(home, &passphrase)
+}
+
+/// Set when this command stopped the running daemon to open the store: it
+/// starts again once the command is done ([`resume_paused_daemon`]).
+static PAUSED_DAEMON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stop the daemon that holds the store, for the length of this command, as
+/// the Settings page does. Before 2026-11-17 a command that opens the store
+/// refused while the daemon ran, and a machine set up as a service always runs
+/// it: `keep`, `peer`, `device` and the rest needed it stopped by hand. The
+/// commonest commands do not stop it at all: they are handed to it (`jobs.rs`).
+fn pause_daemon(home: &Path) -> Result<()> {
+    eprintln!(
+        "the running daemon holds this account: it stops for this command and starts again after"
+    );
+    if !lifecycle::stop_and_wait(home) {
+        return Err(CliError::Usage(
+            "the running daemon did not stop; nothing was changed. Try again in a moment."
+                .to_owned(),
+        ));
+    }
+    PAUSED_DAEMON.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// Start again the daemon [`pause_daemon`] stopped: its service, when the
+/// account at `home` has one here; otherwise say how.
+fn resume_paused_daemon(home: &Path) {
+    use setup::service::ServiceControl as _;
+    if !PAUSED_DAEMON.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let instance = config::node_homes(&config::user_home())
+        .into_iter()
+        .find(|(_, at)| at == home)
+        .map(|(name, _)| name);
+    let started = instance.is_some_and(|name| {
+        // `node_homes` names the default node "(unnamed)": its service has
+        // no instance suffix.
+        let instance = (name != "(unnamed)").then_some(name.as_str());
+        let service = setup::service::Platform::of_this_machine(home, instance);
+        service.installed() && service.start().is_ok()
+    });
+    if started {
+        eprintln!("the daemon runs again");
+    } else {
+        eprintln!(
+            "the daemon was stopped for this command and has no service here to start it: \
+             start it again with `itsanas daemon`"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4572,7 +4634,13 @@ fn start_daemon(
         }
         if let Some(job) = daemon::take_pending_move() {
             let same_disk = matches!(job.kind, jobs::Kind::MoveVault { same_disk: true });
-            let (state, said) = match move_vault(node, &job.path, same_disk) {
+            let done = if job.kind == jobs::Kind::ConvertPacks {
+                drop(node);
+                convert_stores(home)
+            } else {
+                move_vault(node, &job.path, same_disk)
+            };
+            let (state, said) = match done {
                 Ok(said) => (jobs::State::Done, said),
                 Err(error) => (jobs::State::Failed, error.to_string()),
             };
@@ -5585,6 +5653,16 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
 }
 
 fn convert_packs(home: &Path) -> Result<()> {
+    if daemon_holds(home) {
+        return hand_to_daemon(home, jobs::Kind::ConvertPacks, home);
+    }
+    println!("{}", convert_stores(home)?);
+    Ok(())
+}
+
+/// Move this machine's store and every store it hosts into pack files; what
+/// it says. The stores must be closed.
+fn convert_stores(home: &Path) -> Result<String> {
     let store = itsanas_node::node::Node::store_path(home);
     if itsanas_store::Store::is_locked(&store) {
         return Err(CliError::Usage(
@@ -5601,11 +5679,10 @@ fn convert_packs(home: &Path) -> Result<()> {
     for root in &roots {
         moved += itsanas_store::BlobStore::convert_to_packs(root)?;
     }
-    println!(
+    Ok(format!(
         "{moved} chunks moved into pack files, across {} stores (this machine's and the ones it hosts)",
         roots.len()
-    );
-    Ok(())
+    ))
 }
 
 fn gc(home: &Path, grace: u64) -> Result<()> {
