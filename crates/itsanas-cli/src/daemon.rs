@@ -1305,9 +1305,7 @@ fn sync_loop(
             last_round = Some(Instant::now());
             // What `isolated` ages (`steering.rs`'s
             // red_team_a_round_that_reaches_the_account_stamps_the_contact).
-            if in_touch {
-                seen.reached = Some(itsanas_discover::now_unix());
-            }
+            seen.reached = last_contact(in_touch, seen.reached);
             board.replace(contact.board());
             // A pause asked for during the round: `halted` stopped the dialling,
             // and nothing after it may touch the folder or the store either.
@@ -1718,7 +1716,25 @@ fn peer_service<'a>(
     // `measured` each round swaps its placement in (`placing::begin_round`).
     .with_placement(crate::placing::slot())
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
+    .noting_siblings(&SIBLING_SEEN)
 }
+
+/// When this node last reached the account, after a round: now if the round
+/// did, else when one of the account's machines last dialled in, else as it was.
+fn last_contact(in_touch: bool, before: Option<u64>) -> Option<u64> {
+    if in_touch {
+        return Some(itsanas_discover::now_unix());
+    }
+    let inbound = SIBLING_SEEN.load(Ordering::Relaxed);
+    if inbound > 0 {
+        return before.max(Some(inbound));
+    }
+    before
+}
+
+/// When a machine of this account last presented its claim to this node's
+/// listener: a contact, for `isolated`, on a machine the others dial in to.
+static SIBLING_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// When the coordinator last named hosts, and which.
 type Introduced = (Instant, Vec<(DeviceId, String)>);

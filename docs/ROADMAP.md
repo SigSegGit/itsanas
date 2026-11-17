@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1679 test functions, 20 of them `#[ignore]`d into the slow job, and 626 of
+**1680 test functions, 20 of them `#[ignore]`d into the slow job, and 627 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1187,10 +1187,10 @@ Still to build:
   and through the running daemon
   `red_team_a_running_daemon_says_when_its_vault_takes_no_write`); a refused
   removal of the probe's file is no refusal
-  (`red_team_a_probe_whose_file_could_not_be_removed_still_passes`). Left:
-  a contact is a round *this* node dialled out on; a public machine that
-  others only dial in to, unparked, can read `isolated` though they reach it
-  (the listener's witness counts scanners, so it cannot say who synced).
+  (`red_team_a_probe_whose_file_could_not_be_removed_still_passes`). A
+  contact is a round this node dialled out on, or, since 2026-11-17, a
+  machine of the account presenting its claim to the listener, which a
+  scanner cannot (`red_team_a_sibling_presenting_here_is_a_contact_and_a_stranger_is_not`).
   Three more (2026-11-03): a machine that failed its last storage challenge
   reads `failing`, orange, one notification, and `status` names it
   (`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`), for
