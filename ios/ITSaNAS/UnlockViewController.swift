@@ -1,5 +1,6 @@
 import CryptoKit
 import LocalAuthentication
+import Security
 import UIKit
 
 /// Asks the passphrase and opens the account.
@@ -66,15 +67,18 @@ final class UnlockViewController: UIViewController, UITextFieldDelegate {
             // A finger enrolled since the lock was turned on changes this
             // state: then only the passphrase opens.
             let state = context.evaluatedPolicyDomainState?.base64EncodedString() ?? ""
-            let same = granted && Core.fingerMatches(state)
+            // And the item sealed to the fingers: where the state does not
+            // change (the simulator), iOS still deletes the item.
+            let item = granted ? Core.fingersUnchanged(context) : errSecAuthFailed
+            let same = granted && Core.fingerMatches(state) && item == errSecSuccess
             // What the hand test reads from the PC (scripts/iphone-watch.sh):
             // the answers, and six hex digits of a hash of the fingers' state,
             // enough to see whether iOS changed it when a finger was added
             // (step 5 opened with a new finger on iOS 15.8, 2026-11-11).
             let mark = SHA256.hash(data: Data(state.utf8)).prefix(3).map { String(format: "%02x", $0) }.joined()
             NSLog(
-                "ITSaNAS finger: granted %@, fingers %@, same fingers %@",
-                granted ? "yes" : "no", state.isEmpty ? "unread" : mark, same ? "yes" : "no")
+                "ITSaNAS finger: granted %@, fingers %@, item %d, same fingers %@",
+                granted ? "yes" : "no", state.isEmpty ? "unread" : mark, item, same ? "yes" : "no")
             guard same else { return }
             DispatchQueue.main.async { self.openRemembered() }
         }

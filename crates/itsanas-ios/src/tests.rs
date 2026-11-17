@@ -296,6 +296,33 @@ fn red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing() {
 }
 
 #[test]
+fn red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    keychain::set("a passphrase").expect("kept");
+    assert!(keychain::set_guarded(true), "Touch ID did not turn on");
+    let sealed = keychain::fingers_sealed();
+    assert!(keychain::set_guarded(false), "Touch ID did not turn off");
+    let after_off = keychain::fingers_sealed();
+    assert!(
+        keychain::set_guarded(true),
+        "Touch ID did not turn on again"
+    );
+    keychain::forget();
+    let after_sign_out = keychain::fingers_sealed();
+    assert!(
+        sealed,
+        "Touch ID on sealed nothing to the fingers: where their state stays the same, a new finger opens the app"
+    );
+    assert!(
+        !after_off && !after_sign_out,
+        "the fingers' item outlived the lock: turned on again, the old fingers would decide"
+    );
+}
+
+#[test]
 fn a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round() {
     let _turn = host::tests::SERIAL
         .lock()

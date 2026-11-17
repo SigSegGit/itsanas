@@ -1,5 +1,6 @@
 import Foundation
 import LocalAuthentication
+import Security
 
 /// A fault the core reported: the sentence the command line prints for it.
 struct CoreError: LocalizedError {
@@ -98,6 +99,23 @@ enum Core {
 
     /// Whether the fingers enrolled now are those Touch ID was turned on with.
     static func fingerMatches(_ state: String) -> Bool { itsanas_finger_matches(state) }
+
+    /// Whether the item the core sealed to the fingers when Touch ID was turned
+    /// on is still readable: iOS deletes it itself when a finger is added, where
+    /// the fingers' state may not change (the simulator keeps it). Read with the
+    /// context the finger was just asked through, so no second sheet appears.
+    static func fingersUnchanged(_ context: LAContext) -> OSStatus {
+        context.interactionNotAllowed = true
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "fr.ngas.itsanas",
+            kSecAttrAccount as String: "fingers",
+            kSecReturnData as String: true,
+            kSecUseAuthenticationContext as String: context,
+        ]
+        var found: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &found)
+    }
 
     /// Delete as this phone's rules say (Settings, Trash): the days are the
     /// rules' too, so the count passed is not used.

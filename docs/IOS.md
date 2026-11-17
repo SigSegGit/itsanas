@@ -45,6 +45,13 @@ enrolled after the lock was turned on opens nothing: the first finger records
 which ones are enrolled (the system's `evaluatedPolicyDomainState`), and then
 only the passphrase opens, until the lock is turned off and on again
 (`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`).
+That state does not always change: the simulator kept it through an enrolment
+change (2026-11-16). So turning the lock on also seals an item to the fingers
+enrolled then (`.biometryCurrentSet`), which iOS deletes itself when a finger
+is added, and the unlock screen reads it with the finger it has just asked
+(`red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then`). A lock
+turned on by 0.1.20 or before has no such item: only the passphrase opens until
+Touch ID is turned off and on again in Settings.
 
 **A delete follows this phone's rules**, as on every machine: by default the
 file goes to the account's trash for 30 days; the trash screen restores it or

@@ -19,13 +19,19 @@ pub(crate) type Kept<T> = Result<T, String>;
 const PASSPHRASE: &str = "passphrase";
 /// Present when the unlock screen asks for a finger.
 const GUARDED: &str = "biometric";
+/// Sealed when the lock is turned on, bound to the fingers enrolled then
+/// (`.biometryCurrentSet`): iOS deletes it itself when a finger is added. The
+/// unlock screen reads it with the finger it just asked (`Core.fingersUnchanged`),
+/// never the core: reading it asks a finger. The service and this name are
+/// repeated in `ios/ITSaNAS/Core.swift`.
+const FINGERS: &str = "fingers";
 
 #[cfg(target_os = "ios")]
 mod system {
     use super::Kept;
     use security_framework::access_control::{ProtectionMode, SecAccessControl};
     use security_framework::passwords::{
-        PasswordOptions, delete_generic_password, get_generic_password,
+        AccessControlOptions, PasswordOptions, delete_generic_password, get_generic_password,
         set_generic_password_options,
     };
 
@@ -36,16 +42,37 @@ mod system {
     }
 
     pub(super) fn set(account: &str, secret: &str) -> Kept<()> {
+        kept(
+            account,
+            secret,
+            ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly,
+            AccessControlOptions::empty(),
+        )
+    }
+
+    /// An item only the fingers enrolled now open: adding one deletes it.
+    pub(super) fn seal_to_fingers(account: &str) -> Kept<()> {
+        kept(
+            account,
+            "1",
+            ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly,
+            AccessControlOptions::BIOMETRY_CURRENT_SET,
+        )
+    }
+
+    fn kept(
+        account: &str,
+        secret: &str,
+        mode: ProtectionMode,
+        options: AccessControlOptions,
+    ) -> Kept<()> {
         // Deleted first: an update cannot change an item's protection.
         forget(account);
-        let control = SecAccessControl::create_with_protection(
-            Some(ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
-            0,
-        )
-        .map_err(|error| error.to_string())?;
-        let mut options = PasswordOptions::new_generic_password(SERVICE, account);
-        options.set_access_control(control);
-        set_generic_password_options(secret.as_bytes(), options).map_err(|error| error.to_string())
+        let control = SecAccessControl::create_with_protection(Some(mode), options.bits())
+            .map_err(|error| error.to_string())?;
+        let mut item = PasswordOptions::new_generic_password(SERVICE, account);
+        item.set_access_control(control);
+        set_generic_password_options(secret.as_bytes(), item).map_err(|error| error.to_string())
     }
 
     pub(super) fn forget(account: &str) {
@@ -74,6 +101,10 @@ mod system {
             .unwrap_or_else(PoisonError::into_inner)
             .insert(account.to_owned(), secret.as_bytes().to_vec());
         Ok(())
+    }
+
+    pub(super) fn seal_to_fingers(account: &str) -> Kept<()> {
+        set(account, "1")
     }
 
     pub(super) fn forget(account: &str) {
@@ -127,6 +158,14 @@ pub(crate) fn set(secret: &str) -> Kept<()> {
 pub(crate) fn forget() {
     system::forget(PASSPHRASE);
     system::forget(GUARDED);
+    system::forget(FINGERS);
+}
+
+/// Whether the item bound to the fingers is there (the stand-in's view: on an
+/// iPhone, reading it asks a finger).
+#[cfg(test)]
+pub(crate) fn fingers_sealed() -> bool {
+    system::get(FINGERS).is_some()
 }
 
 /// Ask for a finger at the unlock screen, or stop. Whether it is now as asked.
@@ -136,9 +175,13 @@ pub(crate) fn set_guarded(on: bool) -> bool {
     }
     if on {
         // With nothing kept the finger would have nothing to open.
-        unlock().is_some() && system::set(GUARDED, UNSEEN).is_ok()
+        // With no finger enrolled there is nothing to seal, and no lock.
+        unlock().is_some()
+            && system::seal_to_fingers(FINGERS).is_ok()
+            && system::set(GUARDED, UNSEEN).is_ok()
     } else {
         system::forget(GUARDED);
+        system::forget(FINGERS);
         true
     }
 }

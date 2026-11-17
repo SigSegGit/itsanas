@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-16
-BASE: f650518
+WRITTEN-AT: 2026-11-17
+BASE: 25720ae
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -61,15 +61,17 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
-**2026-11-16: the iPhone PRs, still red on two hand-test steps.** #409 carries #406 (close #406
-with it). On the simulator, step 3's Restore leaves the file in the trash, although the core restores
-it (`a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted` now checks the trash too, and
-passes); step 5 opens with a finger enrolled after Touch ID was turned on, as Nicolas's iPhone SE did
-on 2026-11-11. Neither reproduces off a Mac, and a failed run kept nothing the app said:
-`scripts/iphone-e2e.sh` now prints the app's own `ITSaNAS ...` lines (the finger mark at each unlock,
-the trash's errors) and the computer's last lines when a test fails. Read them first. If step 5's two
-marks are the same, `evaluatedPolicyDomainState` does not change on that system and the lock needs a
-keychain item with `.biometryCurrentSet`, which iOS deletes itself when a finger is added.
+**2026-11-17: the iPhone PR's two red steps, read from the app's own lines.** #409 carries #406
+(close #406 with it). Step 3: the core restored the file (the trash's rows went from
+`to-trash.txt=shared` to none in 2 s) but the table kept the swiped row drawn; the trash now ends
+the swipe's editing before it reloads. Step 5: the simulator's fingers' state stayed `020820`
+through `enrol(false)` and `enrol(true)`, so `evaluatedPolicyDomainState` alone cannot see a new
+finger there, and perhaps not on Nicolas's iPhone SE either (2026-11-11). Turning the lock on now
+also seals a Keychain item with `.biometryCurrentSet` (`keychain::seal_to_fingers`), which iOS
+deletes when a finger is added; the unlock screen reads it with the context the finger was just
+asked through (`Core.fingersUnchanged`, `interactionNotAllowed`, its status in the `ITSaNAS finger`
+line). If step 4 goes red, that read asked a second finger: read the line's `item` status first.
+A lock turned on by 0.1.20 has no item, so only the passphrase opens until it is turned off and on.
 
 **2026-11-11 (night): the deferred items, and real devices.** #402: the Android trash dialog reads
 its record as it opens (an emulator left it blank for 30 s). #404: Start at login per account

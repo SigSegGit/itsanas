@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1674 test functions across 44 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 624 are red-team tests.**
+**Last updated: 2026-11-16 — 1677 test functions across 44 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
 
-**1558 of the 1674 tests have an entry of their own on this page** — an *entry*,
+**1561 of the 1677 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 367 |
 | `itsanas-android` unit | 26 |
-| `itsanas-ios` unit | 21 |
+| `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 178 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -223,7 +223,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 214 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 217 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -2155,7 +2155,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (21)
+# `itsanas-ios` — the C boundary (22)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
@@ -2193,6 +2193,7 @@ below, and the app's side is read in the Mac job's log.
 | `a_remembered_passphrase_comes_back_until_it_is_forgotten` | The Keychain side of the service keeps the passphrase and forgets it at Sign out; refusing to keep it failed a step of setup, and the new account with it. |
 | **`red_team_a_passphrase_that_does_not_open_is_not_remembered`** | A mistyped passphrase is not kept, one that opened is, the kept one opens the account again, and a forgotten one opens nothing. Sabotaged (kept before the check): red. |
 | `a_background_pass_runs_with_touch_id_on` | The finger locks the screen, so a round iOS grants still opens the account. Sabotaged (reads as the engine does): red. |
+| **`red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then`** | Turning Touch ID on seals an item to the fingers enrolled then, which iOS deletes when one is added (the unlock screen reads it after the finger); turning it off or signing out removes it. Sabotaged (nothing sealed, or the item left behind): red. |
 | **`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`** | The first finger after Touch ID is turned on records which are enrolled; the same set opens again, another set or none does not. Sabotaged (any set opens): red. |
 | **`red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger`** | With Touch ID on the screen is told to ask for a finger, and with it off it is not; otherwise the app opens for whoever holds the phone. Sabotaged (never asks): red. |
 | `a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round` | Nothing kept: no round. A kept passphrase opens the account, the round is tried, and the node is left to the app to close. |

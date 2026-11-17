@@ -41,6 +41,10 @@ final class TrashViewController: UITableViewController {
                     self.now = (list["now"] as? NSNumber)?.doubleValue ?? 0
                     self.askAuth = list["ask_auth"] as? Bool ?? true
                     self.confirm = list["confirm"] as? Bool ?? true
+                    // A row swiped open keeps the table editing, and a reload
+                    // then left a restored file's row drawn (the hand test's
+                    // step 3, 2026-11-16, its record already empty).
+                    self.tableView.setEditing(false, animated: false)
                     self.tableView.reloadData()
                 case .failure(let error):
                     self.show(error.localizedDescription)
