@@ -1,9 +1,16 @@
 # Test Catalogue
 
+<<<<<<< HEAD
 **Last updated: 2026-11-16 — 1681 test functions across 45 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 628 are red-team tests.**
 
 **1565 of the 1681 tests have an entry of their own on this page** — an *entry*,
+=======
+**Last updated: 2026-11-16 — 1680 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 626 are red-team tests.**
+
+**1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
+>>>>>>> origin/feat/noise-once
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,7 +172,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
-| `itsanas-sync` replay from nothing (`tests/replay.rs`) | 2 |
+| `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 69 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
@@ -824,7 +831,7 @@ account's trash, Protect, and rules every machine reads alike.
 
 ---
 
-# `itsanas-sync` — a replay from nothing (2)
+# `itsanas-sync` — a replay from nothing (3)
 
 A device that replays an account's log with nothing of its own: a restore, a
 new phone, a replacement disk. `tests/replay.rs`.
@@ -832,6 +839,7 @@ new phone, a replacement disk. `tests/replay.rs`.
 | Test | What it proves |
 |---|---|
 | `a_replay_applies_the_last_operation_of_each_path_and_fetches_nothing_older` | A file edited twice and a file deleted, replayed after the writer collected the old chunks: the device ends on the last version and without the deleted file in one round, asks no host for a chunk only a superseded or deleted version named, and does not read as needing another round. Sabotaged (every entry applied in log order): red, two old chunks asked and deferred. |
+| `a_chunk_that_came_back_as_noise_is_asked_for_once_a_round_not_once_a_file` | A chunk five files share, served as bytes that are not it: fetched once in the round, not once per file (a chunk-sized download each). Sabotaged (no once-per-address memory): red. |
 | `a_version_another_machine_superseded_is_not_fetched_by_a_replay` | The same across machines: a version the laptop wrote and the phone edited after it is not fetched by a third machine replaying the log, the laptop's chain read first. Sabotaged as above: red. |
 
 ---

@@ -15,11 +15,18 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+<<<<<<< HEAD
 **2026-11-17 (night): an automatic update where the program cannot be replaced is told, not
 failed.** Under a `--prefix` the service's account cannot write, `updates = auto` failed its
 install every day, said only in a log. `daily` now asks `can_replace_itself` first and, when it
 cannot, writes the notice as `notify` does; `install` refuses with the command to type. Plan
 `update_prefix.json`.
+=======
+**2026-11-17 (late): a noisy chunk is asked for once a round.** `apply_replaying` wraps its
+source in `AskedOnce` (`source.rs`): an address is fetched at most once per application of a
+round's segments, so a host serving noise for a chunk five files share costs one download, not
+five (ROADMAP, the integrity pass's residues). Plan `replay.json`, its second defence.
+>>>>>>> origin/feat/noise-once
 
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
