@@ -266,6 +266,9 @@ pub fn apply_replaying(
     Ok((report, outcomes))
 }
 
+/// How many concurrent versions of one path `superseded_upserts` follows.
+const MAX_CONCURRENT_TRACKED: usize = 64;
+
 /// One entry of a peer's log, with the device that wrote it and the account.
 type Replayed = (DeviceId, UserId, LogEntry);
 
@@ -348,7 +351,13 @@ fn superseded_upserts(entries: &[Replayed]) -> BTreeSet<usize> {
             continue;
         }
         maxima.retain(|known| known.compare(version) != CausalOrder::Before);
-        maxima.push(version);
+        // Past the cap, a path's later versions are not tracked: an entry is
+        // still only marked superseded by a version truly after it, so the
+        // replay stays right and merely stops saving fetches on that path,
+        // where thousands of concurrent versions would cost their square.
+        if maxima.len() < MAX_CONCURRENT_TRACKED {
+            maxima.push(version);
+        }
     }
     entries
         .iter()
