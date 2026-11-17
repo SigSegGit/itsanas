@@ -81,7 +81,10 @@ table's editing before the reload did not help (second run, same screen). The Re
 now removes the row itself (`deleteRows`) before it calls the swipe's completion, as Apple's
 lists do; a failed restore brings it back with the reload. Third run, same screen with the
 rows empty again: the test now reads a trash opened afresh after going back to the list, and a
-cell that leaves the table drops its identifier (`didEndDisplaying`). Step 4 passed with the sealed item
+cell that leaves the table drops its identifier (`didEndDisplaying`); that run's restore
+passed. The same step's delete for good then asked nothing and deleted nothing: "who is there"
+was presented while "are you sure" was still closing, which UIKit drops without a word; it waits
+for the screen to be free now (`presentWhenFree`). Step 4 passed with the sealed item
 read through the finger's own context (`item 0`, no second sheet). Step 5: the simulator's
 enrolment change (`enrol(false)`, `enrol(true)`) moved neither the fingers' state (`020820`)
 nor the `.biometryCurrentSet` item (still `item 0`), so nothing on a simulator can show a

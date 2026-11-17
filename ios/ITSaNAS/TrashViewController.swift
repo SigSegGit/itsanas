@@ -146,7 +146,7 @@ final class TrashViewController: UITableViewController {
                 }
             }
         })
-        present(alert, animated: true)
+        presentWhenFree(alert)
     }
 
     private func act(_ body: @escaping () throws -> Void) {
@@ -164,9 +164,23 @@ final class TrashViewController: UITableViewController {
         }
     }
 
+    /// Present `shown` once nothing else is: an alert presented while the
+    /// one before it is still closing is dropped without a word, and "who is
+    /// there" comes right after "are you sure" (the hand test's step 3,
+    /// 2026-11-17: the delete asked nothing and deleted nothing).
+    private func presentWhenFree(_ shown: UIViewController, tries: Int = 25) {
+        if presentedViewController == nil || tries == 0 {
+            present(shown, animated: true)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.presentWhenFree(shown, tries: tries - 1)
+        }
+    }
+
     private func show(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        presentWhenFree(alert)
     }
 }
