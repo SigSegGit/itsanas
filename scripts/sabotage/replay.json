@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-sync",
+    "--test",
+    "replay"
+  ],
+  "defences": {
+    "replay: every entry applied in log order": {
+      "file": "crates/itsanas-sync/src/engine.rs",
+      "live": "    let superseded = superseded_upserts(&entries);\n",
+      "dead": "    let superseded = BTreeSet::<usize>::new();\n"
+    }
+  }
+}

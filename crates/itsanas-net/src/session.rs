@@ -1478,7 +1478,7 @@ fn apply_per_chain(
             .push(envelope.clone());
     }
 
-    let mut total = SyncReport::default();
+    let mut accepted = Vec::with_capacity(segments.len());
     for (device, chain) in chains {
         if device == mine {
             if replay == itsanas_sync::Replay::OthersOnly {
@@ -1498,10 +1498,13 @@ fn apply_per_chain(
             refused.insert(device);
             continue;
         }
-        let (report, _) = itsanas_sync::apply_replaying(store, &chain, source, replay)?;
-        total.absorb(&report);
+        accepted.extend(chain);
     }
-    Ok(total)
+    // In one call, every chain that verified: an edit made on one machine
+    // supersedes an older version written on another, and the engine applies
+    // the older one last, without fetching it (`superseded_upserts`).
+    let (report, _) = itsanas_sync::apply_replaying(store, &accepted, source, replay)?;
+    Ok(report)
 }
 
 /// Fetch and merge everything the peer has, at `scope`.

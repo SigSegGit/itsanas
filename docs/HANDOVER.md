@@ -15,6 +15,19 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17: a replay downloads what the account holds now, not its history.** A device that
+replays the log from nothing (a restore, a new phone) used to apply every entry in log order, so
+it fetched each superseded and deleted version's chunks, and once those were collected it
+deferred them and never read as finished (ROADMAP, "A restore depends on chunks that garbage
+collection will take", now ✅). `engine::superseded_upserts` puts last every upsert another entry
+of the same path supersedes; it then finds the later version or its tombstone in place and is
+passed over without a fetch. `apply_per_chain` (itsanas-net) now applies every verified chain in
+one call, so this holds across machines. `tests/replay.rs`, sabotage plan `replay.json`. Left
+open from the same ROADMAP list, judged: a refused chain stays in the vault (quarantine would
+have to tell a stranger's chain from a genuine sibling's damaged one); Android's cap-named ids
+(filtering by the roster would not stop a coordinator naming real devices, and withdrawing
+needs the account's signature).
+
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
 permanently?"): every step that touches a machine, the fleet, a release or
 a secret is written with its exact commands, one fenced block each, hosts,
