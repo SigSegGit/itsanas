@@ -34,6 +34,14 @@ minute doubling to the half hour; an answer ends it), §9 "A stale address" now 
 `introduced_hosts.json`. Not done: discovery's LAN strangers are rationed per round already
 (`NEW_PEERS_PER_ROUND`), not backed off.
 
+**2026-11-17 (late): every command works while the daemon runs.** On top of the file commands
+below: every `trash` subcommand travels as its words (`trash` job, one word per tab, read back
+with clap in `deleting::trash_job`, what it prints in `job-output`); `convert-packs` is a job the
+daemon does as a vault move, its run stopped, the store closed, then started again; and any other
+command that opens the store (`open` in `lib.rs`) asks the daemon to stop (`lifecycle`), opens it,
+and starts the account's service again when it is done (`resume_paused_daemon`, through
+`config::node_homes` to find the service's instance). Not run against a real service manager.
+
 **2026-11-17 (night): `ls`, `put`, `get`, `rm`, `free` and `trash` work while the daemon runs.** They refused to
 start, the store being locked by the service, which on a machine set up normally is always
 running. They now hand the work to the daemon through the job file the backups already used
@@ -4251,15 +4259,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
   coordinator is a notice board that cannot admit anyone and whose lists
   are signed by the members' own keys, so a fake one can refuse service and
   learn who asks, not read or forge.
-- 🟨 **One process per node.** The index is under an exclusive lock, so a second
-  process cannot open it while the daemon holds it. Since 2026-10-06 the commands a
-  tray needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
-  go through files in the home instead (`control.rs`, the snapshot); since
-  2026-11-17 `ls`, `put`, `get`, `rm`, `free` and `trash` (list, restore, delete, empty) are handed to the daemon as jobs
-  (`jobs.rs`, `red_team_the_file_commands_work_while_the_daemon_holds_the_store`),
-  picked up within two seconds when it is idle and after the round otherwise.
-  The rest (`keep`, the trash's rules and days, `peer`, `device`...) still needs
-  the daemon stopped.
+- ✅ **Fixed 2026-11-17: no command refuses because the daemon runs.** The index is
+  under an exclusive lock, so a second process cannot open it while the daemon
+  holds it. The commands a tray needs -- `pause`, `resume`, `sync-now`, `interval`,
+  `status` -- go through files in the home (`control.rs`, the snapshot, since
+  2026-10-06); `ls`, `put`, `get`, `rm`, `free`, every `trash` subcommand and
+  `convert-packs` are handed to the daemon as jobs (`jobs.rs`,
+  `red_team_the_file_commands_work_while_the_daemon_holds_the_store`,
+  `red_team_convert_packs_while_the_service_runs_stops_the_run_and_waits_for_the_store`);
+  every other command that opens the store stops the daemon for its length and
+  starts its service again after, as the Settings page does
+  (`red_team_a_command_that_opens_the_store_stops_the_daemon_first`). A daemon
+  started by hand is not started again: the command says so.
 - ✅ **Fixed 2026-10-13: the escrow attempt counters are on disk too** (`Directory::count_escrow_attempt`, table `escrow_tries`, checked after the in-memory limiter; `red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget`). Was: **The escrow attempt counters are in memory only.** A coordinator restart
   clears every one of them, so anybody who can provoke a restart — or who simply
   waits for one — gets a fresh budget. Persisting them is the fix; the Argon2id

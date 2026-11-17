@@ -72,14 +72,12 @@ pub enum Kind {
         /// `itsanas rm --now`.
         now: bool,
     },
-    /// Write `itsanas trash` into the path.
-    TrashList,
-    /// Bring `name` back from the trash.
-    TrashRestore,
-    /// Delete for good the paths `name` holds, one per tab.
-    TrashDelete,
-    /// Delete for good everything in the trash.
-    TrashEmpty,
+    /// `itsanas trash` with the words `name` holds, one per tab; what it
+    /// prints goes into the path.
+    Trash,
+    /// `itsanas convert-packs`: stop this run, convert with the store
+    /// closed, start again, as a vault move does.
+    ConvertPacks,
     /// Free `name` from this machine, or (`keep`) bring it back.
     Free {
         /// `itsanas free --keep`.
@@ -92,7 +90,10 @@ impl Kind {
     /// `free`), done at once on the node, rather than disk work.
     #[must_use]
     pub const fn is_file_command(self) -> bool {
-        !matches!(self, Self::MoveVault { .. } | Self::Export | Self::Restore)
+        !matches!(
+            self,
+            Self::MoveVault { .. } | Self::Export | Self::Restore | Self::ConvertPacks
+        )
     }
 }
 
@@ -108,10 +109,8 @@ impl Kind {
             Self::Get => "get",
             Self::Remove { now: false } => "remove",
             Self::Remove { now: true } => "remove-now",
-            Self::TrashList => "trash-list",
-            Self::TrashRestore => "trash-restore",
-            Self::TrashDelete => "trash-delete",
-            Self::TrashEmpty => "trash-empty",
+            Self::Trash => "trash",
+            Self::ConvertPacks => "convert-packs",
             Self::Free { keep: false } => "free",
             Self::Free { keep: true } => "free-keep",
         }
@@ -128,10 +127,8 @@ impl Kind {
             "get" => Self::Get,
             "remove" => Self::Remove { now: false },
             "remove-now" => Self::Remove { now: true },
-            "trash-list" => Self::TrashList,
-            "trash-restore" => Self::TrashRestore,
-            "trash-delete" => Self::TrashDelete,
-            "trash-empty" => Self::TrashEmpty,
+            "trash" => Self::Trash,
+            "convert-packs" => Self::ConvertPacks,
             "free" => Self::Free { keep: false },
             "free-keep" => Self::Free { keep: true },
             _ => return None,
@@ -422,10 +419,8 @@ mod tests {
             Kind::Get,
             Kind::Remove { now: false },
             Kind::Remove { now: true },
-            Kind::TrashList,
-            Kind::TrashRestore,
-            Kind::TrashDelete,
-            Kind::TrashEmpty,
+            Kind::Trash,
+            Kind::ConvertPacks,
             Kind::Free { keep: false },
             Kind::Free { keep: true },
         ] {
