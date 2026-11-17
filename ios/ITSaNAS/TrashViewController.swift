@@ -41,10 +41,6 @@ final class TrashViewController: UITableViewController {
                     self.now = (list["now"] as? NSNumber)?.doubleValue ?? 0
                     self.askAuth = list["ask_auth"] as? Bool ?? true
                     self.confirm = list["confirm"] as? Bool ?? true
-                    // A row swiped open keeps the table editing, and a reload
-                    // then left a restored file's row drawn (the hand test's
-                    // step 3, 2026-11-16, its record already empty).
-                    self.tableView.setEditing(false, animated: false)
                     self.tableView.reloadData()
                 case .failure(let error):
                     self.show(error.localizedDescription)
@@ -76,8 +72,16 @@ final class TrashViewController: UITableViewController {
     ) -> UISwipeActionsConfiguration? {
         let file = path(indexPath)
         let restore = UIContextualAction(style: .normal, title: NSLocalizedString("Restore", comment: "")) { _, _, done in
-            self.act { try Core.trashRestore(file) }
+            // The row leaves with the swipe, as Apple's lists do it: reloaded
+            // once the swipe had closed, the table kept it drawn (the hand
+            // test's step 3, 2026-11-16 and 17, the trash's rows already
+            // empty). A restore that fails brings it back with the reload.
+            if let at = self.rows.firstIndex(where: { $0["path"] as? String == file }) {
+                self.rows.remove(at: at)
+                self.tableView.deleteRows(at: [IndexPath(row: at, section: 0)], with: .automatic)
+            }
             done(true)
+            self.act { try Core.trashRestore(file) }
         }
         let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Delete", comment: "")) { _, _, done in
             self.deleteForGood([file])

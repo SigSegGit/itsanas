@@ -63,15 +63,17 @@ words and translated; what passed shows no detail.
 
 **2026-11-17: the iPhone PR's two red steps, read from the app's own lines.** #409 carries #406
 (close #406 with it). Step 3: the core restored the file (the trash's rows went from
-`to-trash.txt=shared` to none in 2 s) but the table kept the swiped row drawn; the trash now ends
-the swipe's editing before it reloads. Step 5: the simulator's fingers' state stayed `020820`
-through `enrol(false)` and `enrol(true)`, so `evaluatedPolicyDomainState` alone cannot see a new
-finger there, and perhaps not on Nicolas's iPhone SE either (2026-11-11). Turning the lock on now
-also seals a Keychain item with `.biometryCurrentSet` (`keychain::seal_to_fingers`), which iOS
-deletes when a finger is added; the unlock screen reads it with the context the finger was just
-asked through (`Core.fingersUnchanged`, `interactionNotAllowed`, its status in the `ITSaNAS finger`
-line). If step 4 goes red, that read asked a second finger: read the line's `item` status first.
-A lock turned on by 0.1.20 has no item, so only the passphrase opens until it is turned off and on.
+`to-trash.txt=shared` to none in 2 s) but the table kept the swiped row drawn, and ending the
+table's editing before the reload did not help (second run, same screen). The Restore action
+now removes the row itself (`deleteRows`) before it calls the swipe's completion, as Apple's
+lists do; a failed restore brings it back with the reload. Step 4 passed with the sealed item
+read through the finger's own context (`item 0`, no second sheet). Step 5: the simulator's
+enrolment change (`enrol(false)`, `enrol(true)`) moved neither the fingers' state (`020820`)
+nor the `.biometryCurrentSet` item (still `item 0`), so nothing on a simulator can show a
+finger added: `test5_` is gone and step 5 is a person's, on a real iPhone (`docs/IOS.md`, "The
+hand test"). The core still seals the item when the lock turns on
+(`keychain::seal_to_fingers`), for a real iPhone. If step 3 goes red again, the trash's
+`ITSaNAS trash rows` line says whether the core or the table is wrong.
 
 **2026-11-11 (night): the deferred items, and real devices.** #402: the Android trash dialog reads
 its record as it opens (an emulator left it blank for 30 s). #404: Start at login per account

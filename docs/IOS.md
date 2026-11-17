@@ -46,7 +46,8 @@ which ones are enrolled (the system's `evaluatedPolicyDomainState`), and then
 only the passphrase opens, until the lock is turned off and on again
 (`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`).
 That state does not always change: the simulator kept it through an enrolment
-change (2026-11-16). So turning the lock on also seals an item to the fingers
+change (2026-11-16), and kept the sealed item below as well (2026-11-17), so
+step 5 of the hand test is a person's, on a real iPhone. So turning the lock on also seals an item to the fingers
 enrolled then (`.biometryCurrentSet`), which iOS deletes itself when a finger
 is added, and the unlock screen reads it with the finger it has just asked
 (`red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then`). A lock
@@ -151,7 +152,7 @@ not the same as the App Store or TestFlight.
 
 ## The hand test
 
-Steps 1 to 5, 8 and 9 run by themselves now, on a simulator, in the Mac job
+Steps 1 to 4, 8 and 9 run by themselves now, on a simulator, in the Mac job
 of every run that touches the iPhone app: `scripts/iphone-e2e.sh` (called by
 `sh scripts/build-ios.sh test`) starts a coordinator and a computer of the
 account on the Mac, and the UI tests in `ios/ITSaNASUITests` do what a person
@@ -166,8 +167,6 @@ did by hand:
 4. Touch ID on in Settings: back from the home screen a finger is asked, one
    that is not enrolled leaves the passphrase field, which opens; the enrolled
    one opens;
-5. after the enrolment changes no finger opens, the passphrase does, and Touch
-   ID turned off and on again opens with a finger;
 8. Settings, its sections opened, shows no Disks, no USB key, no Advanced
    section, and no lending of space, not even an empty section for it;
 9. Sign out locks the app, and the app opened again asks for the passphrase.
@@ -178,7 +177,7 @@ says it was kept, since no two machines have proved yet that they hold it. After
 a round that changed anything, that line names it ("2 new: a, b · 1 changed:
 c"), from the `new`, `changed` and `gone` of the round's answer.
 
-`FreeTest`, which runs first, and steps 1, 4 and 5 start from an empty phone; the others open the account the
+`FreeTest`, which runs first, and steps 1 and 4 start from an empty phone; the others open the account the
 step before left on it. A login fetches the account's recovery copy, which the
 coordinator gives one username five times in 15 minutes, and a run has more
 steps than that.
@@ -199,6 +198,13 @@ and OK or KO, with a screenshot for a KO.
    USB, from the start: it keeps the app's log lines, collects its crash reports
    and ends with a verdict (background rounds seen, no crash, no panic). Open the
    account on the phone (log in, or create one).
+5. **A finger added.** In the app's Settings, Security, turn on the
+   fingerprint; then add a fingerprint in iOS's Settings, Touch ID & Passcode,
+   and come back to the app: no finger opens it, the passphrase does. Turn the
+   fingerprint off and on again in the app's Settings: a finger opens it again.
+   The PC's log shows the `ITSaNAS finger` line of each try; for a KO, note its
+   `item` status. The simulator cannot do this step: its enrolment change moves
+   neither the fingers' state nor the item sealed to them.
 6. **A round in the background.** First check that iOS's Settings, General,
    Background App Refresh lists ITSaNAS, switched on: if it is missing, the
    free signing dropped the background modes, and say so. Then put a new file

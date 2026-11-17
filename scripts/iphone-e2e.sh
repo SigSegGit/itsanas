@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The hand test of docs/IOS.md, steps 1 to 5, 8 and 9, on an iPhone simulator.
+# The hand test of docs/IOS.md, steps 1 to 4, 8 and 9, on an iPhone simulator.
 #
 # Starts what the hand test needs around the phone, on this Mac: a coordinator
 # on a scratch directory, and a computer of the account (a node made with the

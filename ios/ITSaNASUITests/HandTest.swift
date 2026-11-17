@@ -1,10 +1,12 @@
 import XCTest
 
-/// The hand test of docs/IOS.md, steps 1 to 5, 8 and 9, as a person does them
+/// The hand test of docs/IOS.md, steps 1 to 4, 8 and 9, as a person does them
 /// on a simulator: a computer of the account (a node `scripts/iphone-e2e.sh`
 /// runs on the Mac) holds `from-computer.txt` and `to-trash.txt`, and every
-/// scenario starts from a phone with nothing on it. Steps 6 and 7 (iOS choosing
-/// when a background round runs) and 10 (Windows Hello) stay with a person.
+/// scenario starts from a phone with nothing on it. Steps 5 (a finger added:
+/// the simulator's enrolment change moves neither the fingers' state nor the
+/// item sealed to them, 2026-11-17), 6 and 7 (iOS choosing when a background
+/// round runs) and 10 (Windows Hello) stay with a person.
 ///
 /// XCTest runs these in the order of their names, which is the hand test's.
 final class HandTest: E2eCase {
@@ -111,35 +113,6 @@ final class HandTest: E2eCase {
         leaveAndComeBack()
         touch(matching: true)
         try waitFor("the enrolled finger did not open the account") { app.tables["files"].exists }
-    }
-
-    /// 5. A finger enrolled later: once the enrolment changed, no finger opens,
-    /// the passphrase does; off and on again in Settings, a finger opens.
-    func test5_aFingerEnrolledLaterOpensNothingUntilTouchIDIsTurnedOnAgain() throws {
-        enrol(true)
-        try logIn(fresh: true)
-        try setFinger(true)
-        leaveAndComeBack()
-        touch(matching: true)
-        try waitFor("the enrolled finger did not open the account") { app.tables["files"].exists }
-
-        // As adding a fingerprint in the iPhone's settings does.
-        enrol(false)
-        enrol(true)
-        leaveAndComeBack()
-        touch(matching: true)
-        Thread.sleep(forTimeInterval: 3)
-        if app.tables["files"].exists {
-            try fail("a finger enrolled after Touch ID was turned on opened the account")
-        }
-        cancelFingerSheet()
-        try unlockWithPassphrase()
-
-        try setFinger(false)
-        try setFinger(true)
-        leaveAndComeBack()
-        touch(matching: true)
-        try waitFor("Touch ID turned on again does not open with a finger") { app.tables["files"].exists }
     }
 
     /// 8. Settings hides what an iPhone does not do.
