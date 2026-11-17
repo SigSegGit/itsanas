@@ -234,6 +234,49 @@ pub fn apply_replaying(
     source: &dyn ChunkSource,
     replay: Replay,
 ) -> Result<(SyncReport, Vec<Outcome>)> {
+    let mut report = SyncReport::default();
+    let entries = entries_to_apply(store, segments, replay, &mut report)?;
+
+    // Every entry a later one supersedes goes last: by then the later version,
+    // or its tombstone, is in place and the old one is passed over without a
+    // fetch. A replay from nothing (a restore, a new phone) thus downloads what
+    // the account holds now, not its whole history, and finishes in one round
+    // once the old chunks were collected, which would otherwise defer for ever.
+    let superseded = superseded_upserts(&entries);
+    let order = (0..entries.len())
+        .filter(|index| !superseded.contains(index))
+        .chain(superseded.iter().copied());
+
+    let mut outcomes = Vec::with_capacity(entries.len());
+    for index in order {
+        let (device, owner, entry) = &entries[index];
+        // A file another machine deletes outright is kept here first,
+        // when this machine's rules protect (HANDOVER §8 13).
+        itsanas_store::deletion::protect(
+            store,
+            device,
+            &entry.operation,
+            itsanas_store::now_unix(),
+        )?;
+        let outcome = apply_entry(store, *device, entry, *owner, source)?;
+        report.record(&outcome.applied);
+        outcomes.push(outcome);
+    }
+
+    Ok((report, outcomes))
+}
+
+/// One entry of a peer's log, with the device that wrote it and the account.
+type Replayed = (DeviceId, UserId, LogEntry);
+
+/// Every entry of `segments` this round may apply, chain by chain, each chain
+/// checked before any of its entries is read.
+fn entries_to_apply(
+    store: &Store,
+    segments: &[SegmentEnvelope],
+    replay: Replay,
+    report: &mut SyncReport,
+) -> Result<Vec<Replayed>> {
     // Chains are per device. A host serves segments from several devices
     // interleaved, so they have to be separated before any chain can be
     // checked — validating the interleaved sequence would report a break on
@@ -247,9 +290,7 @@ pub fn apply_replaying(
             .push(envelope.clone());
     }
 
-    let mut report = SyncReport::default();
-    let mut outcomes = Vec::new();
-
+    let mut entries = Vec::new();
     // BTreeMap iterates in device-id order, so two devices given the same
     // segments apply them in the same order. The merge rules are designed to
     // be order-independent anyway, but determinism here means a divergence
@@ -275,23 +316,51 @@ pub fn apply_replaying(
 
         for envelope in &chain {
             let body = store.open_segment(envelope)?;
-            for entry in &body.entries {
-                // A file another machine deletes outright is kept here first,
-                // when this machine's rules protect (HANDOVER §8 13).
-                itsanas_store::deletion::protect(
-                    store,
-                    &device,
-                    &entry.operation,
-                    itsanas_store::now_unix(),
-                )?;
-                let outcome = apply_entry(store, device, entry, envelope.owner, source)?;
-                report.record(&outcome.applied);
-                outcomes.push(outcome);
-            }
+            entries.extend(
+                body.entries
+                    .into_iter()
+                    .map(|entry| (device, envelope.owner, entry)),
+            );
         }
     }
+    Ok(entries)
+}
 
-    Ok((report, outcomes))
+/// The upserts of `entries` that another entry of the same path supersedes:
+/// its version comes strictly after. Removes keep their place: one applied
+/// after a later edit would read as a delete that lost to an edit.
+///
+/// Through the maximal versions of each path, which are few (concurrent
+/// edits), so a file saved ten thousand times costs ten thousand comparisons
+/// with one version, not with each other.
+fn superseded_upserts(entries: &[Replayed]) -> BTreeSet<usize> {
+    let mut latest: std::collections::BTreeMap<&str, Vec<&VersionVector>> =
+        std::collections::BTreeMap::new();
+    for (_, _, entry) in entries {
+        let version = entry.operation.version();
+        let maxima = latest.entry(entry.operation.path()).or_default();
+        if maxima.iter().any(|known| {
+            matches!(
+                known.compare(version),
+                CausalOrder::After | CausalOrder::Equal
+            )
+        }) {
+            continue;
+        }
+        maxima.retain(|known| known.compare(version) != CausalOrder::Before);
+        maxima.push(version);
+    }
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, _, entry))| {
+            matches!(entry.operation, Operation::Upsert { .. })
+                && latest[entry.operation.path()]
+                    .iter()
+                    .any(|known| known.compare(entry.operation.version()) == CausalOrder::After)
+        })
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// Apply one log entry.
