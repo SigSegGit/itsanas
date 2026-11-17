@@ -3802,17 +3802,7 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> 
         println!("the daemon uses it from its next start");
         return Ok(());
     }
-    // A vault that holds data moves only with `--move`, which copies and
-    // checks before switching: a bare path change would strand it.
-    if node.vault.held_bytes()? > 0 {
-        return Err(CliError::Usage(format!(
-            "the vault at {} holds data: `itsanas vault {} --move` copies it there and switches \
-             once the copy checks out",
-            node.vault_dir().display(),
-            wanted.display()
-        )));
-    }
-    set_vault(&mut node, &wanted, same_disk)?;
+    switch_empty_vault(&mut node, &wanted, same_disk)?;
     println!(
         "vault set to {}; the daemon uses it from its next start",
         wanted.display()
@@ -3992,6 +3982,21 @@ fn tree_size(root: &Path) -> Result<(u64, u64)> {
 /// Point `node` at an empty or new directory `wanted`, marked as its own.
 /// A directory that holds anything, or another device's vault, is refused:
 /// adopting it would mix what two nodes hold, or another node's hosted data.
+/// Point this node at a vault elsewhere, while its own holds nothing. A vault
+/// that holds data moves only with `--move`, which copies and checks before
+/// switching: a bare path change would strand it. The setup's disk question
+/// comes here too.
+pub(crate) fn switch_empty_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    if node.vault.held_bytes()? > 0 {
+        return Err(CliError::Usage(format!(
+            "the vault at {} holds data: `itsanas vault {} --move` copies it there and switches once the copy checks out",
+            node.vault_dir().display(),
+            wanted.display()
+        )));
+    }
+    set_vault(node, wanted, same_disk)
+}
+
 fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
     check_vault_target(node, wanted, same_disk)?;
     let io = |path: &Path| {

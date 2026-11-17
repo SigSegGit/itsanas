@@ -722,7 +722,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "itsanas-android"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "itsanas-cli",
  "itsanas-coord",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-cli"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "clap",
@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-coord"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "itsanas-coord",
  "itsanas-crypto",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-coordinator"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "clap",
  "ctrlc",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-crypto"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "argon2",
  "bip39",
@@ -819,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-discover"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "if-addrs",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-drive"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "getrandom 0.4.3",
  "itsanas-crypto",
@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-folder"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-ios"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "itsanas-cli",
  "itsanas-node",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-net"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-node"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "fs4",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-placement"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -923,11 +923,11 @@ dependencies = [
 
 [[package]]
 name = "itsanas-policy"
-version = "0.1.19"
+version = "0.1.20"
 
 [[package]]
 name = "itsanas-release"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "clap",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-store"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-sync"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-testkit"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-tls"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "itsanas-crypto",
  "itsanas-wire",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-touchid"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "block2",
  "objc2",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-wire"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "blake3",
  "postcard",
@@ -1149,9 +1149,9 @@ dependencies = [
 
 [[package]]
 name = "notify"
-version = "8.2.1"
+version = "8.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82f812702fbc75d35416d3f884e04925be7e9498f4eceea2e24ba34559284674"
+checksum = "c41a04a5f59df9322cc657286dd2d79f90816119b22c5f847607c850110205ab"
 dependencies = [
  "bitflags",
  "inotify",
@@ -1520,9 +1520,9 @@ dependencies = [
 
 [[package]]
 name = "rpassword"
-version = "7.5.4"
+version = "7.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+checksum = "1fa2c5d9304b618df61ff17f3d3485c6e1854a3d94902a49abbb8d43dfbe0464"
 dependencies = [
  "libc",
  "rtoolbox",

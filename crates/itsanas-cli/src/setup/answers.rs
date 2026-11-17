@@ -99,6 +99,9 @@ pub(crate) struct Answers {
     pub(crate) coordinator_device: Option<String>,
     pub(crate) invite: Option<String>,
     pub(crate) pledge: Option<u64>,
+    /// Where other people's copies go, when not in this machine's home: the
+    /// disk the space offered is measured on. `None` keeps the node's.
+    pub(crate) vault: Option<PathBuf>,
     /// Set with the pledge, as a pair, because what a machine may keep is what
     /// it earns.
     pub(crate) keep: Keep,
@@ -127,6 +130,7 @@ impl Default for Answers {
             coordinator_device: None,
             invite: None,
             pledge: None,
+            vault: None,
             keep: Keep::Unchanged,
             announce: None,
             service: true,
@@ -237,6 +241,7 @@ pub(crate) fn parse(text: &str, base: &Path) -> Result<Answers> {
             ("coordinator_device", Value::Text(v)) => answers.coordinator_device = Some(v),
             ("invite", Value::Text(v)) => answers.invite = Some(v),
             ("pledge", Value::Text(v)) => answers.pledge = Some(parse_size(&v)?),
+            ("vault", Value::Text(v)) => answers.vault = Some(expand(&v, base)),
             ("announce", Value::Text(v)) => answers.announce = Some(v),
             ("updates", Value::Text(v)) => {
                 answers.updates = Some(crate::config::Updates::parse(&v).ok_or_else(|| {

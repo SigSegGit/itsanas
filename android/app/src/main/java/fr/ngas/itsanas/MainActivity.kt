@@ -21,11 +21,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -508,11 +513,15 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     var level by remember { mutableStateOf(Level("", emptyList(), emptyList())) }
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf<Known?>(null) }
+    // The files a delete asks about: one from its row, or every chosen one.
+    var confirmDelete by remember { mutableStateOf(emptyList<Known>()) }
     var trashOpen by remember { mutableStateOf(false) }
+    // Files chosen by a long press, to share together. Only files of the folder on screen.
+    var chosen by remember { mutableStateOf(emptySet<String>()) }
 
     suspend fun refresh(folder: String = level.at) {
         level = Account.level(folder)
+        chosen = chosen.filter { path -> level.files.any { it.path == path } }.toSet()
         status = Account.status()
         // What a delete does here, before the person deletes anything.
         runCatching { Trash.readRules() }
@@ -764,6 +773,44 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                 }
             }
 
+            if (chosen.isNotEmpty()) {
+                ChosenBar(
+                    chosen.size,
+                    onNone = { chosen = emptySet() },
+                    onFree = {
+                        val picked = level.files.filter { it.path in chosen && it.here }
+                        scope.launch {
+                            try {
+                                // One at a time, as the row's button: each kept while no other machine holds it.
+                                val freed = withContext(Dispatchers.IO) {
+                                    picked.count { org.json.JSONObject(Native.release(it.path)).optBoolean("freed") }
+                                }
+                                chosen = emptySet()
+                                refresh()
+                                snackbar.showSnackbar(context.getString(R.string.files_freed, freed, picked.size - freed))
+                            } catch (error: Throwable) {
+                                complain(error.message ?: "could not free them")
+                            }
+                        }
+                    },
+                    onDelete = { confirmDelete = level.files.filter { it.path in chosen } },
+                ) {
+                    val picked = level.files.filter { it.path in chosen }
+                    scope.launch {
+                        busy = true
+                        try {
+                            sendAll(context, picked.map { Account.openable(context, it) })
+                            chosen = emptySet()
+                            refresh()
+                        } catch (error: Throwable) {
+                            complain(error.message ?: "could not share them")
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            }
+
             LazyColumn(Modifier.fillMaxSize()) {
                 items(level.folders, key = { "folder:${it.path}" }) { folder ->
                     FolderRow(folder) { open(folder.path) }
@@ -771,6 +818,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                 items(level.files, key = { "file:${it.path}" }) { file ->
                     FileRow(
                         file = file,
+                        chosen = file.path in chosen,
+                        selecting = chosen.isNotEmpty(),
+                        onChoose = { chosen = if (file.path in chosen) chosen - file.path else chosen + file.path },
                         onOpen = {
                             scope.launch {
                                 busy = true
@@ -798,7 +848,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                                 }
                             }
                         },
-                        onDelete = { confirmDelete = file },
+                        onDelete = { confirmDelete = listOf(file) },
                         onFree = {
                             scope.launch {
                                 try {
@@ -820,11 +870,19 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         TrashDialog({ trashOpen = false }, { refresh() }, { complain(it) })
     }
 
-    confirmDelete?.let { file ->
+    confirmDelete.takeIf { it.isNotEmpty() }?.let { files ->
         val trashContext = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text(stringResource(R.string.delete_title, file.name)) },
+            onDismissRequest = { confirmDelete = emptyList() },
+            title = {
+                Text(
+                    if (files.size == 1) {
+                        stringResource(R.string.delete_title, files[0].name)
+                    } else {
+                        stringResource(R.string.delete_title_many, files.size)
+                    },
+                )
+            },
             text = {
                 val rules = Trash.rules
                 Text(
@@ -837,12 +895,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             },
             confirmButton = {
                 TextButton(modifier = Modifier.testTag("delete-confirm"), onClick = {
-                    val doomed = file
-                    confirmDelete = null
+                    val doomed = files
+                    confirmDelete = emptyList()
                     scope.launch {
                         try {
-                            val became = Trash.put(doomed.path)
-                            if (became == "waiting") complain(trashContext.getString(R.string.delete_waiting))
+                            // Every file goes, then one word if any waits.
+                            val became = doomed.map { Trash.put(it.path) }
+                            chosen = chosen - doomed.map { it.path }.toSet()
+                            if ("waiting" in became) complain(trashContext.getString(R.string.delete_waiting))
                             refresh()
                         } catch (error: Throwable) {
                             complain(error.message ?: "could not delete it")
@@ -850,7 +910,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     }
                 }) { Text(stringResource(R.string.delete_everywhere)) }
             },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text(stringResource(R.string.delete_keep)) } },
+            dismissButton = { TextButton({ confirmDelete = emptyList() }) { Text(stringResource(R.string.delete_keep)) } },
         )
     }
 
@@ -900,6 +960,9 @@ private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
 @Composable
 private fun FileRow(
     file: Known,
+    chosen: Boolean,
+    selecting: Boolean,
+    onChoose: () -> Unit,
     onOpen: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
@@ -910,11 +973,27 @@ private fun FileRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .testTag("file-row")
+            // A long press chooses the file; once one is chosen, a tap chooses or drops another.
+            .pointerInput(selecting) {
+                detectTapGestures(onLongPress = { onChoose() }, onTap = { if (selecting) onChoose() })
+            },
+        colors = if (chosen) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
     ) {
         Row(
             Modifier.padding(12.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (chosen) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    stringResource(R.string.file_chosen),
+                    Modifier.padding(end = 8.dp).testTag("file-chosen"),
+                )
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     file.name,
@@ -945,6 +1024,39 @@ private fun FileRow(
                 }
             }
             IconButton(onDelete, Modifier.testTag("file-delete")) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
+        }
+    }
+}
+
+/** The bar over the list while files are chosen: how many, drop them all, then what to do with them. */
+@Composable
+private fun ChosenBar(
+    count: Int,
+    onNone: () -> Unit,
+    onFree: () -> Unit,
+    onDelete: () -> Unit,
+    onShare: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onNone, Modifier.testTag("files-choose-none")) {
+            Icon(Icons.Default.Close, stringResource(R.string.files_choose_none))
+        }
+        Text(
+            stringResource(R.string.files_chosen, count),
+            Modifier.weight(1f).testTag("files-chosen"),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        IconButton(onShare, Modifier.testTag("files-share-chosen")) {
+            Icon(Icons.Default.Share, stringResource(R.string.files_share_chosen))
+        }
+        IconButton(onFree, Modifier.testTag("files-free-chosen")) {
+            Icon(Icons.Default.CloudUpload, stringResource(R.string.files_free_chosen))
+        }
+        IconButton(onDelete, Modifier.testTag("files-delete-chosen")) {
+            Icon(Icons.Default.Delete, stringResource(R.string.files_delete_chosen))
         }
     }
 }
@@ -1004,6 +1116,27 @@ private fun share(context: android.content.Context, file: java.io.File) {
 /** Send a file elsewhere -- messaging, mail, Bluetooth -- as any app on the phone does. */
 private fun send(context: android.content.Context, file: java.io.File) {
     context.startActivity(Intent.createChooser(sending(context, file), file.name))
+}
+
+/**
+ * Several files at once to one person or app, as the gallery sends several photos:
+ * one share sheet, every file readable by whoever receives them.
+ */
+private fun sendAll(context: android.content.Context, files: List<java.io.File>) {
+    if (files.size == 1) return send(context, files[0])
+    val uris = files.map { FileProvider.getUriForFile(context, "${context.packageName}.files", it) }
+    val types = uris.map { context.contentResolver.getType(it) ?: "application/octet-stream" }.toSet()
+    val family = types.map { it.substringBefore('/') }.toSet().singleOrNull()
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        setType(types.singleOrNull() ?: family?.let { "$it/*" } ?: "*/*")
+        // The grant reaches every file only through the clip; EXTRA_STREAM alone carries the first.
+        clipData = android.content.ClipData.newRawUri(null, uris[0]).apply {
+            uris.drop(1).forEach { addItem(android.content.ClipData.Item(it)) }
+        }
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.files_chosen, files.size)))
 }
 
 /** The system's "send this file" intent: one person or app at a time, never a public link. */

@@ -3,6 +3,10 @@ package fr.ngas.itsanas
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.click as tap
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.percentOffset
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -206,6 +210,23 @@ object Flows {
         click(compose, "files-add")
         waitTag(compose, "file-row", "the file chosen with + was never listed", 90)
         return name
+    }
+
+    /**
+     * Two files listed, both chosen: a long press on the first, a tap on the
+     * second, each on the name, left of the row's buttons. Leaves Intents
+     * initialised, as [addFile] does.
+     */
+    fun chooseTwoFiles(compose: ComposeTestRule) {
+        addFile(compose, "first.txt")
+        androidx.test.espresso.intent.Intents.release()
+        addFile(compose, "second.txt")
+        compose.waitUntil(90_000) { compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size == 2 }
+        val rows = compose.onAllNodesWithTag("file-row")
+        rows[0].performTouchInput { longClick(percentOffset(0.1f, 0.5f)) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("files-chosen").fetchSemanticsNodes().isNotEmpty() }
+        rows[1].performTouchInput { tap(percentOffset(0.1f, 0.5f)) }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("file-chosen").fetchSemanticsNodes().size == 2 }
     }
 
     /** The words typed into the recovery screen, which checks them as they come. */

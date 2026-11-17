@@ -68,6 +68,8 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:hosting` | ✅ | ✅ | ✅ | ✅ |
 | `feature:update_check` | ✅ | ✅ | ✅ | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
+| Choose several files and share, free or delete them together: on a computer the file manager's own selection in the synced folder; on a phone a long press in the Files screen, then the bar | ✅ | ✅ | ✅ | ✅ |
+| At setup, a folder on another disk for other people's copies, the space offered measured on it | ✅ | ✅ | ✅ | ⬜ a phone has one app-private store |
 | Share a file out through the system's share sheet, one person or app at a time (no public link), and take in what another app shares: on a computer the synced folder, with the file manager's own Share and drop; on a phone the app's Share button and the system's share target | ✅ | ✅ | ✅ | ✅ |
 
 ## The commands

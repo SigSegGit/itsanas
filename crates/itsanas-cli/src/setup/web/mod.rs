@@ -1370,6 +1370,9 @@ fn answers_from_form(
     answers.pledge = field(form, "pledge")
         .map(|text| parse_size(text).map_err(|error| error.to_string()))
         .transpose()?;
+    answers.vault = field(form, "vault")
+        .filter(|_| shell.features.folder)
+        .map(|vault| answers::expand(vault, base));
     // Present and empty is "everything"; absent is "not asked".
     answers.keep = match form
         .iter()
@@ -2392,10 +2395,20 @@ fn pick(request: &Request) -> Response {
     match output {
         Ok(output) => {
             let chosen = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            ok_json(object(&[(
-                "path",
-                optional((!chosen.is_empty()).then_some(chosen.as_str())),
-            )]))
+            // The free room of the disk chosen, for a page that offers space on it.
+            let free = (!chosen.is_empty())
+                .then(|| crate::drives::free_bytes(Path::new(&chosen)))
+                .flatten();
+            ok_json(object(&[
+                (
+                    "path",
+                    optional((!chosen.is_empty()).then_some(chosen.as_str())),
+                ),
+                (
+                    "free_bytes",
+                    optional(free.map(|f| f.to_string()).as_deref()),
+                ),
+            ]))
         }
         Err(error) => Response::refuse(
             500,

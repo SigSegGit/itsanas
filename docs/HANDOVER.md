@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
+TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
 WRITTEN-AT: 2026-11-16
-BASE: cc2361b
+BASE: f650518
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -121,8 +121,9 @@ into the folder, emptied, days set.
 **The fleet's F row** (`docs/FLEET-CI.md`) deletes in the folder and expects it gone everywhere a round
 later: the agents (`agent.sh`, `agent.ps1`) now write `0` into the `test` home's `store/trash-days` before
 `F delete`, so F keeps testing propagation; an agent installed before this needs `setup.sh` again, or F goes
-red. Not run on the fleet. The local bench turns the trash off too (`acceptance-local.sh`). Left: an edit made elsewhere to a file trashed here is deleted when the
-delay runs out (the record keeps no version), and a phone's days are its app's setting, not `trash-days`.
+red. Not run on the fleet. The local bench turns the trash off too (`acceptance-local.sh`). Since: an edit made elsewhere takes a file out of the account's trash (its marker keeps the version
+deleted, `red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash`, 2026-11-16), and a
+phone's days are the account's rules (`Trash.readRules`), as every machine's.
 
 **2026-11-10: the phone's leftovers before a release.** A phone folder's files go in by batches of 64
 files or 256 MB, one segment each (`folder_import`, `write_file`), not one segment per photo: the folder
@@ -274,17 +275,15 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-0a. **Release 0.1.19, everywhere, then the iPhone hand test** (§8 0c). 0.1.19 carries what
-   0.1.18 lacks on a PC: a passphrase changed while sealed is sealed again (#395), and an
-   open waiting out a lock probe no longer falls in step with it (#394); step 10 of the hand
-   test needs the first. Release `main` (after the version PR has merged), then the laptop,
-   then the Pi and the VM (the fleet run's row U rebuilds their containers on the latest
-   release, and row V fails if one is not on it; run `scripts/fleet/setup.sh` on each first,
-   since the agent changed for the trash), then the Android phone (Settings, Check
-   for updates). By hand on the laptop, per account: Start at login off on one account
-   only and a Windows sign-out shows it alone stays down; Files on this machine, Free up
-   then Keep here; the trash from the folder; on the phone, below 15 % and closed, a file
-   added on the PC is listed within two hours:
+0a. **Release 0.1.20, everywhere, then the hand test with Mandarine's Mac** (§8 0c). 0.1.20
+   carries what 0.1.19 lacks: the trash on every machine and its rules (§8 13), files freed
+   from a machine (§8 11), Start at login per account (§8 12), one system unlock for every
+   account at sign-in (§8 10d), sharing both ways on a phone, several files at once on
+   Android (§8 14), and a phone that hosts said hosting (#416). The whole run, every command
+   in order with its expected result and the report to send back, is in the owner's private
+   notes (`RECETTE-0.1.20.md`). It starts here: the release (it waits for the version PR's
+   merge), the laptop, then the fleet run, which brings the Pi and the VM to the release
+   (run `scripts/fleet/setup.sh` on each first if the agent predates the trash):
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
@@ -292,18 +291,9 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
        gh workflow run fleet.yml --repo SigSegGit/itsanas; gh run watch --repo SigSegGit/itsanas $(gh run list --repo SigSegGit/itsanas --workflow fleet.yml --limit 1 --json databaseId -q '.[0].databaseId')
 
-   Then the recipe: `docs/IOS.md`, "The hand test", steps 0 to 10, and the report is each
-   step's number, OK or KO. The iPhone's build:
+   The iPhone's steps are `docs/IOS.md`, "The hand test", 0 to 10; its build:
 
        gh run download --repo SigSegGit/itsanas --name ITSaNAS-unsigned-ipa --dir ios-ipa $(gh run list --repo SigSegGit/itsanas --branch main --workflow CI --status success --limit 1 --json databaseId -q '.[0].databaseId')
-
-0. **The one-shot acceptance run of 0.1.17**, in the owner's private notes (`RECETTE-0.1.17.md`): every
-   command in order, and the report to send back. It starts with the release, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
-   offers the update when opened, once a day, after the unlock:
-
-       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
-
-       itsanas update
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
@@ -2067,8 +2057,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the page and the phone, and `status` says the silence and which machine
       failed (ROADMAP M7, ARCHITECTURE §7). A phone says a day of silence from
       its own `last-contact` file. The online-node floor reads `exposed` on the
-      next write, which a test now names. **Left:** the phone's `unwritable`,
-      and the desktop notifications seen by Nicolas at the next hand test.
+      next write, which a test now names. The phone's `unwritable` is there too
+      (`vaultRefuses` in `status_of`, shown on the Files screen). **Left:** the
+      desktop notifications seen by Nicolas at the next hand test.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes
@@ -2309,7 +2300,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187; the 2099-clock gap and the v5 test closed 2026-09-30). The decisions of `dial_listed` have tests of their own since 2026-10-30, without two full nodes: they are `dial_book` over a `DialSite` trait, as `park_loop` is over `ParkSite`, behaviour unchanged. Nine tests in `daemon.rs`, each sabotaged red: a `relay:` address whose relay the book does not hold is never dialled; a machine parked on a relay is dialled through it (at the book's address for a relay of the account, at the carried one for a host of another account); a machine a sibling relays is dialled the next round and a row that fails its signatures never is, and the sibling is asked for presences (`ask_presences` is decided in `dial_book`); a machine that missed waits before it is dialled again; an address that answered is dialled first the next round, and a private one that answered is dialled off probe rounds; answering is not trust (only `earned_trust` confirms in the neighbourhood); a machine reached at its first address is not dialled at its second; a pause stops the book dials after the machine under way. **Left:** the `Dialling` adapter itself is read, not run: that `sync_once` is pinned on the expected device and is handed the relay and `ask_presences` it is given, and that its `halted` reads the shutdown flag and the pause on disk; phase 3 only if the fleet shows 1 and 2 fall short.
+   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187; the 2099-clock gap and the v5 test closed 2026-09-30). The decisions of `dial_listed` have tests of their own since 2026-10-30, without two full nodes: they are `dial_book` over a `DialSite` trait, as `park_loop` is over `ParkSite`, behaviour unchanged. Nine tests in `daemon.rs`, each sabotaged red: a `relay:` address whose relay the book does not hold is never dialled; a machine parked on a relay is dialled through it (at the book's address for a relay of the account, at the carried one for a host of another account); a machine a sibling relays is dialled the next round and a row that fails its signatures never is, and the sibling is asked for presences (`ask_presences` is decided in `dial_book`); a machine that missed waits before it is dialled again; an address that answered is dialled first the next round, and a private one that answered is dialled off probe rounds; answering is not trust (only `earned_trust` confirms in the neighbourhood); a machine reached at its first address is not dialled at its second; a pause stops the book dials after the machine under way. The `Dialling` adapter itself runs in `red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause` (2026-11-16): pinned on the device expected, halted by a pause on disk or a shutdown. **Left:** that it hands the relay and `ask_presences` on is still read, not run; phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a
@@ -2993,17 +2984,27 @@ Detail and measurements are in ROADMAP.md; this is the map.
          **Built 2026-10-07 (one PR, batch mode by Nicolas's request: his
          weekly limit was near), what is left:** (2, 6) the folder has a
          native *Browse* (`/api/pick`), the space a slider tied to the field
-         and "you get about X" from `Split::DEFAULT`, but the disk hosted for
-         others is still the home's: choosing another disk means moving the
-         node's home, which the service step refuses today
-         (`refuse_a_home_the_service_would_not_run`); (4) default
+         and "you get about X" from `Split::DEFAULT`; the disk hosted for
+         others is chosen too (2026-11-16): an optional folder for other
+         people's copies (`vault` in the answers and on the page, its *Browse*
+         sets the slider to that disk's free room) becomes the node's vault
+         before the pledge is measured on it, and one already holding a copy
+         is never left (`red_team_setup_puts_the_vault_on_the_disk_chosen_and_never_strands_one_that_holds_data`;
+         `itsanas vault --move` moves one that does); (4) default
          `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
          "Advanced"; it was not pinned here, and is since #250
          (`DEFAULT_COORDINATOR_DEVICE`, `pinned_for`); (9)
-         Copy / Save in the Windows window only; macOS (`osascript`) and
-         Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
+         Copy / Save in the Windows window and, since 2026-11-16, the Mac's
+         (`mac_words_window`: AppleScript writes the clipboard and the file,
+         the clipboard emptied when the check ends if it still holds the
+         words), and zenity's (extra buttons, the window shown again after
+         each; `wl-copy`, `xclip` or `xsel` fed on standard input; a file
+         saved readable by its owner alone). kdialog's text box has no extra
+         buttons: on KDE without zenity the words are only shown. None of the
+         three windows has been clicked by a person yet;
          (5a) `upnp.rs`, IGD only here (NAT-PMP, `natpmp.rs`, came with #265; still
-         no PCP), the public address read once at start (a new public IP is announced only after a restart),
+         no PCP), the public address read again at each renewal and a new one announced
+         (`a_new_public_address_after_a_renewal_is_announced_and_nothing_else_is`, 2026-11-16),
          never seen against a real router; (1) `install/windows/itsanas.iss`
          + `release.yml` job `setup-exe`, never built (first run: the v0.1.1
          tag); its uninstaller only signs out. Also built: the coordinator's
@@ -3909,9 +3910,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       sessions, hosts' claims and `Request::Claims`; a chain whose device is
       not on it waits; reads are answered only to a device whose claim names
       the account (`Owners::may_read`). This line said "not yet planned"
-      until 2026-10-24, five days after it shipped. Left: an end-to-end
-      socket test of a VM learning a laptop through a Pi, and a withdrawn
-      device on a network with no coordinator (§9).
+      until 2026-10-24, five days after it shipped. The end-to-end socket test
+      of a VM learning a laptop through a Pi is
+      `red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`
+      (2026-11-16). Left: a withdrawn device on a network with no coordinator
+      (§9).
 4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
    under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
 
@@ -4024,8 +4027,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     already opened the share sheet; ITSaNAS is now an "Open in" and share-sheet target for any file
     (`CFBundleDocumentTypes`, `application(_:open:options:)`, put in by the Files screen once the
     account is open). A computer has its synced folder, with the file manager's own Share and drop.
-    **Left:** the iPhone's share target is compiled by CI only, run by no test; a phone shares one
-    file at a time.
+    Several files go out together: a long press chooses a file, a tap chooses more, and the bar's
+    Share sends them in one `ACTION_SEND_MULTIPLE`, the read grant on each through the clip
+    (`ShareTest`, its third case). **Left:** the iPhone's share
+    target is compiled by CI only, run by no test; the iPhone shares one file at a time.
+    The same bar frees the chosen files from the phone (each kept while no other machine holds
+    it) and deletes them on one answer (`TrashTest`, its chosen-files case).
 
 13. 🟨 **What a delete does, machine by machine** (asked by Nicolas, 2026-11-12). Each machine has
     its rules, and the account a default that a new machine follows (`itsanas_store::deletion`):
@@ -4100,8 +4107,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
        and hosts nothing (Nicolas, 2026-11-11; `plan`'s low row).
     c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
        on every 15 minutes, 9 of them hosting, and reopens only what the person left open.
-       `ServiceLimitTest` runs the limit and a refused restart; nothing tests the worker: no
-       scenario runs an app closed.
+       `ServiceLimitTest` runs the limit and a refused restart; `WorkerTest` runs `SyncWorker` as
+       WorkManager does, the service stopped: an account the system closed is reopened, one the
+       person closed is not. Not run: the worker scheduled by the system itself over hours.
     d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
        file replaces the passphrase file. At sign-in the services of every account reuse the
        sign-in: the system's key is kept under DPAPI (the login keychain on a Mac) and read
@@ -4191,10 +4199,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   ISP.
 - **The self-update's scratch directory is beside the program**
   (`update.rs`, `SCRATCH`), so the final rename stays on one disk. With a
-  `--prefix` the daemon's account cannot write (`/usr/local`), even
-  `updates = notify` fails its daily check, logged each day. Manifests
-  could go to the node's home instead; not to a shared temp directory,
-  where a fixed name is a symlink target.
+  `--prefix` the daemon's account cannot write (`/usr/local`), the install
+  fails there; the daily check no longer does (2026-11-16: its manifests
+  fall back to a private directory with a random name,
+  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`).
 - ✅ **Fixed 2026-10-13: a source build is no longer told of an update it will refuse** (`check` runs `installed_from_release` when a newer release exists). Was: **A source build is told of an update it will refuse.** Since the key is
   pinned, a binary built from source outside `target/` (every machine
   installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,
@@ -4203,9 +4211,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   release"). Harmless and misleading. The fix is for `check` to run
   `installed_from_release` before it answers `Available`, at the price of a
   second manifest fetch a day; it needs its own red-team test.
-- **The default coordinator is not pinned.** `setup::DEFAULT_COORDINATOR`
-  is a name; anything answering there is taken for the coordinator until
-  its device id is compiled in beside it (the coordinator prints it). A
+- ✅ **Fixed (#250): the default coordinator is pinned** (`DEFAULT_COORDINATOR_DEVICE`,
+  `red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`). Was:
+  `setup::DEFAULT_COORDINATOR` is a name; anything answering there is taken
+  for the coordinator until its device id is compiled in beside it. A
   coordinator is a notice board that cannot admit anyone and whose lists
   are signed by the members' own keys, so a fake one can refuse service and
   learn who asks, not read or forge.

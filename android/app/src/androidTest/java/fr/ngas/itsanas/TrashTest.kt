@@ -50,6 +50,24 @@ class TrashTest {
     }
 
     @Test
+    fun several_chosen_files_go_to_the_trash_on_one_answer() {
+        Flows.createAccount(compose, Flows.freshName())
+        Flows.chooseTwoFiles(compose)
+        Flows.click(compose, "files-delete-chosen")
+        Flows.waitTag(compose, "delete-confirm", "deleting the chosen files asked no confirmation")
+        Flows.click(compose, "delete-confirm")
+        E2e.waitFor("two chosen files deleted together are still listed", 60) {
+            val listed = Native.list()
+            !listed.contains("first.txt") && !listed.contains("second.txt")
+        }
+        val trash = Native.trashList()
+        assertTrue(
+            "a chosen file left the listing without reaching the trash: it cannot be restored ($trash)",
+            trash.contains("first.txt") && trash.contains("second.txt"),
+        )
+    }
+
+    @Test
     fun a_deleted_file_can_be_restored_and_only_a_second_answer_removes_it() {
         Flows.createAccount(compose, Flows.freshName())
         val name = Flows.addFile(compose)
