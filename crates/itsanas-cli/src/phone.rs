@@ -85,15 +85,17 @@ pub fn fetch(node: &Node, path: &str) -> Result<Vec<u8>, Failure> {
         )));
     }
 
+    // A machine that answered and did not serve them is not asked again at
+    // its other addresses.
+    let mut asked = std::collections::BTreeSet::new();
     for (target, pinned) in &targets {
-        let Ok(mut client) = itsanas_net::PeerClient::connect(
-            itsanas_net::AddressList(target.as_str()),
-            &node.device,
-            node.store.owner(),
-            *pinned,
-        ) else {
+        if pinned.is_some_and(|device| asked.contains(&device)) {
+            continue;
+        }
+        let Ok(mut client) = crate::rounds::connect(node, target, *pinned) else {
             continue;
         };
+        asked.insert(client.peer_device());
         let _ = node.introduce(&mut client, itsanas_discover::now_unix());
 
         if itsanas_net::session::fetch_only(&node.store, &node.vault, &mut client, &wanted).is_err()

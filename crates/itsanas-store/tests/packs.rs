@@ -20,6 +20,27 @@ fn packed_store(root: &std::path::Path, master: &MasterSecret, device: DeviceKey
     .expect("store opens")
 }
 
+/// A store with nothing in it yet starts in pack files (since 2026-11-17);
+/// one already in blob files keeps them. Sabotage: new stores in blob files.
+#[test]
+fn red_team_a_new_store_starts_in_packs_and_an_old_one_keeps_its_blob_files() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let fresh = BlobStore::open(dir.path().join("new")).expect("a new store");
+    assert!(
+        fresh.packs().is_some(),
+        "a new store starts in one file per chunk: 2.2 times slower to write on Windows, and 14.7 million files a terabyte"
+    );
+    let old = dir.path().join("old");
+    std::fs::create_dir_all(old.join("blobs").join("00")).expect("an old store");
+    assert!(
+        BlobStore::open(&old)
+            .expect("the old store")
+            .packs()
+            .is_none(),
+        "a store in blob files opened in packs: every chunk it holds would read as missing"
+    );
+}
+
 #[test]
 fn a_store_in_packs_writes_reads_checks_collects_and_reopens_with_no_file_per_chunk() {
     let dir = tempfile::tempdir().expect("temp dir");

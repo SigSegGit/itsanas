@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-store",
+    "--lib",
+    "red_team_a_vault_opens"
+  ],
+  "defences": {
+    "vault: an owner's store is not kept open": {
+      "file": "crates/itsanas-store/src/vault.rs",
+      "live": "        stores.insert(owner, store.clone());\n",
+      "dead": "        let _ = &stores;\n"
+    }
+  }
+}

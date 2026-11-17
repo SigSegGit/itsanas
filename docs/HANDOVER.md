@@ -15,6 +15,22 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (night): a new store starts in pack files; a phone dials like a computer.** Packs
+(M10) are the default for a store with nothing in it yet: 2.2 times faster to write on Windows
+with Defender on, no file per chunk (`blob.rs`, `ITSANAS_PACKS=0` keeps blob files;
+`red_team_a_new_store_starts_in_packs_and_an_old_one_keeps_its_blob_files`). An existing store
+keeps its blob files until `itsanas convert-packs`, never run on a real node: run it on the
+laptop's `test` node before anyone else's. The tests about blob files open that layout
+(`BlobStore::open_files`); `tests/crash.rs` counts chunk bytes in `.blob` or `.pack`. Found on the way: the vault
+reopened an owner's pack index (a database and a replay) for every chunk a peer sent, 14 ms a
+put against 3 in blob files; it keeps each owner's store open now
+(`red_team_a_vault_opens_an_owners_packs_once_not_once_a_chunk`), and the store's unit tests
+went from 59 s to 8 s. The phone's
+targets are `account_targets` now, so it dials the address book and a machine parked on a relay
+(`rounds::connect` = `connect_peer`), and a machine listed at several addresses gets one round,
+not one per address (`rounds.rs`, `phone::fetch`, `tell_machines`). Not done: local discovery on
+the phone (M12), which needs Android's multicast lock and a real Wi-Fi to test.
+
 **2026-11-17: a replay downloads what the account holds now, not its history.** A device that
 replays the log from nothing (a restore, a new phone) used to apply every entry in log order, so
 it fetched each superseded and deleted version's chunks, and once those were collected it

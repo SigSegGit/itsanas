@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1676 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 624 are red-team tests.**
+**Last updated: 2026-11-16 — 1680 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 628 are red-team tests.**
 
-**1560 of the 1676 tests have an entry of their own on this page** — an *entry*,
+**1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,10 +158,10 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 25 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 230 |
+| `itsanas-store` unit | 231 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
-| `itsanas-store` packs (`tests/packs.rs`) | 2 |
+| `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 367 |
+| `itsanas-cli` unit | 369 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -219,12 +219,12 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 74 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 214 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 216 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -470,7 +470,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (189, plus the 41 vault tests below)
+# `itsanas-store` — unit tests (189, plus the 42 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -718,10 +718,11 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | `a_restored_file_never_comes_due` | Restoring cancels the delete: otherwise a file brought back would vanish when the delay ran out. |
 | `the_wait_is_thirty_days_until_a_person_sets_it_and_stays_in_bounds` | Thirty days by default; zero is kept as "off", not turned into one; a wait past `MAX_DAYS` is cut to it; a path with a line break is refused rather than trashing another file. |
 
-# `itsanas-store` — a whole store in packs (`tests/packs.rs`) (2)
+# `itsanas-store` — a whole store in packs (`tests/packs.rs`) (3)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_new_store_starts_in_packs_and_an_old_one_keeps_its_blob_files`** | A store with nothing in it yet opens in pack files, the default since 2026-11-17; one with a blob shard opens in blob files, so its chunks are found. Sabotaged (new stores in blob files): red. |
 | `a_store_in_packs_writes_reads_checks_collects_and_reopens_with_no_file_per_chunk` | Through the real `Store`: write, remove, garbage-collect, deep integrity check and reopen all work on a store created in packs, and no blob file is written. |
 | `red_team_a_store_converted_to_packs_keeps_every_file_and_survives_a_crash_at_each_step` | A store in blob files converted by `BlobStore::convert_to_packs`: a half-made staging directory never switches the layout, the converted store reopens in packs with every file, and blob files left by a crash after the rename are cleared by the next call. Sabotage: skipping the copy turns it red. |
 
@@ -883,7 +884,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (41 of the store's unit tests)
+# `itsanas-store` — the vault (42 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -931,6 +932,7 @@ about reading.
 ---
 | **`red_team_a_blob_lost_behind_the_index_is_found_within_one_pass`** | §8 4c. The summary an owner compares is read from the vault's index, and since 4c an agreeing summary re-stamps records without asking: a blob gone from the disk behind the index left the summary agreeing for ever. One pass of `Vault::check_disk` removes the row, the summary changes, and the pledge stops counting the bytes. Sabotaged by keeping the row. |
 | **`red_team_the_disk_check_resumes_where_it_stopped_after_a_restart`** | The check's cursor is on disk: a daemon restarted more often than a pass takes must not check the first rows for ever. A blob lost at the end is found after a reopen. Sabotaged by not keeping the cursor. |
+| **`red_team_a_vault_opens_an_owners_packs_once_not_once_a_chunk`** | Found when packs became the default: every chunk a peer sent reopened its owner's pack index (a database and a replay), 14 ms a put on the laptop against 3 in blob files, and 4106 one-byte chunks took a minute. The vault keeps each owner's store open; twenty chunks open it once at most. Sabotaged (the store not kept): red. |
 | **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
@@ -1265,7 +1267,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (367)
+# `itsanas-cli` — unit tests (369)
 
 ## `bench` — measuring this machine (4)
 
@@ -1667,6 +1669,13 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 |---|---|
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
+
+## `rounds` — one round per machine, a parked machine through its relay (2)
+
+| Test | What it proves |
+|---|---|
+| **`red_team_a_machine_listed_at_two_addresses_gets_one_round`** | A machine listed at two addresses that both answer gets one round from a phone, not one at each: the phone pushed and pulled twice for one machine. Sabotaged (every address dialled): red. |
+| **`red_team_a_phone_dials_a_parked_machine_through_its_relay`** | A machine of the account the coordinator lists at `relay:<relay>@<address>` is among a phone's targets, pinned, in the form the relayed dial takes; the phone's own list dropped it, so away from home a phone reached no parked machine. Sabotaged (`relay:` dropped): red. |
 
 ## `freeing` — files that need not stay on this machine (2)
 
