@@ -15,6 +15,12 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (night): an automatic update where the program cannot be replaced is told, not
+failed.** Under a `--prefix` the service's account cannot write, `updates = auto` failed its
+install every day, said only in a log. `daily` now asks `can_replace_itself` first and, when it
+cannot, writes the notice as `notify` does; `install` refuses with the command to type. Plan
+`update_prefix.json`.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits
@@ -4225,7 +4231,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
   `--prefix` the daemon's account cannot write (`/usr/local`), the install
   fails there; the daily check no longer does (2026-11-16: its manifests
   fall back to a private directory with a random name,
-  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`).
+  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`),
+  and since 2026-11-17 `updates = auto` there tells the release as `notify`
+  does instead of failing every day, and `itsanas update` says to run it as
+  the account that installed it
+  (`red_team_an_auto_update_where_the_program_cannot_be_replaced_is_told_not_failed`).
 - ✅ **Fixed 2026-10-13: a source build is no longer told of an update it will refuse** (`check` runs `installed_from_release` when a newer release exists). Was: **A source build is told of an update it will refuse.** Since the key is
   pinned, a binary built from source outside `target/` (every machine
   installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,

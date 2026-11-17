@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1679 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 626 are red-team tests.**
+**Last updated: 2026-11-16 — 1680 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 627 are red-team tests.**
 
-**1563 of the 1679 tests have an entry of their own on this page** — an *entry*,
+**1564 of the 1680 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 368 |
+| `itsanas-cli` unit | 369 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -224,7 +224,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 63 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 215 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 216 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1265,7 +1265,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (368)
+# `itsanas-cli` — unit tests (369)
 
 ## `bench` — measuring this machine (4)
 
@@ -1356,7 +1356,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_refused_passphrase_is_asked_again_with_the_reason_and_three_refusals_stop_the_run`** | A new passphrase that breaks the rule is asked again, with the reason in an event that never holds what was typed, instead of ending a long setup; three refusals stop it with nothing written. Sabotaged (one attempt; the reason not said): red. |
 | **`red_team_forgetting_the_passphrase_replaces_the_keys_only_for_the_account_s_own_words`** | `forgot` leaves the node byte for byte as it was, and the service unstopped, for the words of another account, words that do not parse and a passphrase refused three times; the account's own words give the same account and a new device under the new passphrase, keep what was set up, store the passphrase for the service and start it. Sabotaged (owner comparison, store, stop, attempts): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it, checked where the program cannot write (17)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it, checked where the program cannot write (18)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1379,6 +1379,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
 | **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. The same test also holds `check()` to the same answer: a source build is told `NotFromRelease`, not "update available" it will then refuse every day, while a release install still hears `Available` (sabotaged: `Available` on error, red). |
 | **`red_team_a_network_drop_never_calls_a_release_install_a_source_build`** | `check` fetches the manifest twice: the newest, then the running version's own, to learn whether this program is that release. When the second fetch fails for want of a network, the check fails "could not check for an update", to be retried; it used to answer `NotFromRelease`, telling a release install it never updates itself. Only a 404 (the server answering that there is no such release) means not-from-release. Sabotaged by treating every fetch error as missing: red. |
+| **`red_team_an_auto_update_where_the_program_cannot_be_replaced_is_told_not_failed`** | `updates = auto` on a program its account cannot replace: the release is told as `notify` tells it (the notice the tray reads), nothing is downloaded or installed, and `itsanas update` refuses with `sudo itsanas update` in its words. It failed every day, said only in a log. Sabotaged (auto installs whatever the directory allows): red. |
 | **`red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`** | The daily check writes its two small signed files beside the program, where the install will need them; a program under a prefix its account cannot write failed the check every day. It now falls back to a private directory with a fresh random name (never a fixed name in a shared one). Sabotaged (the fallback made beside the program): red. |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |

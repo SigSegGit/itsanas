@@ -218,6 +218,19 @@ impl<'a> Updater<'a> {
             .map_or_else(|| PathBuf::from(SCRATCH), |dir| dir.join(SCRATCH))
     }
 
+    /// Whether this account can put a new program beside this one: the swap
+    /// is a rename, so the download goes into the program's own directory.
+    /// A `--prefix` it cannot write (`/usr/local`) cannot, and an `auto`
+    /// machine failed its install there every day, saying so only in a log.
+    fn can_replace_itself(&self) -> bool {
+        let scratch = self.scratch();
+        let made = std::fs::create_dir_all(&scratch).is_ok();
+        if made {
+            let _ = std::fs::remove_dir(&scratch);
+        }
+        made
+    }
+
     /// Why this build must not replace itself, from what it can see without
     /// the network.
     fn local_refusal(&self) -> Option<String> {
@@ -449,7 +462,14 @@ impl<'a> Updater<'a> {
             ))));
         }
         let scratch = self.scratch();
-        std::fs::create_dir_all(&scratch).map_err(io_error(&scratch))?;
+        std::fs::create_dir_all(&scratch).map_err(|error| {
+            CliError::Usage(format!(
+                "this program is in {}, which this account cannot write ({error}): update it as \
+                 the account that installed it (`sudo itsanas update` on Linux and macOS, an \
+                 administrator's terminal on Windows), or install it where this account can",
+                self.exe.parent().unwrap_or(&self.exe).display()
+            ))
+        })?;
         let download = scratch.join("itsanas.new");
         let _ = std::fs::remove_file(&download);
         let checked = self
@@ -581,7 +601,7 @@ pub(crate) fn daily(home: &Path, updater: &Updater<'_>, setting: Updates) -> Res
             let _ = std::fs::remove_file(&notice_file);
             Ok(Daily::Nothing(format!("{version} is the newest release")))
         }
-        Found::Available(manifest) if setting == Updates::Auto => {
+        Found::Available(manifest) if setting == Updates::Auto && updater.can_replace_itself() => {
             let version = updater.install(&manifest)?;
             let _ = std::fs::remove_file(&notice_file);
             Ok(Daily::Installed(version))
