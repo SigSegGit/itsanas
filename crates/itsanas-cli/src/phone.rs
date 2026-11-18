@@ -605,6 +605,100 @@ mod tests {
         });
     }
 
+    /// HANDOVER §9, "A withdrawn device keeps its old claim": a withdrawal
+    /// reached the coordinator alone, so a machine of the account that reads
+    /// none went on admitting the withdrawn one. The laptop withdraws the old
+    /// phone, the old phone still presents its live claim to the laptop, and
+    /// the VM, with no coordinator, learns the withdrawal from the laptop.
+    /// Sabotage: the withdrawal is not kept on the laptop; or the old phone's
+    /// live claim replaces it there.
+    #[test]
+    fn red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (laptop, phrase) =
+                crate::testing::phone(&dir.path().join("laptop"), coordinator, "camille", None);
+            let (mut vm, _) = crate::testing::phone(
+                &dir.path().join("vm"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (mut old, _) = crate::testing::phone(
+                &dir.path().join("old"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let gone = old.store.device_id();
+            vm.store
+                .admit_member(&gone, false)
+                .expect("the old phone was a member");
+            // Whatever the coordinator answers: the old phone never enrolled.
+            let _ = itsanas_node::coordinator::withdraw_device(&laptop, gone, unix_now());
+
+            vm.config.coordinator = None;
+            old.config.coordinator = None;
+            crate::testing::serving(&laptop, |at| {
+                old.config.peers.push(at.to_string());
+                let _ = sync_node(&old, true, unix_now());
+                vm.config.peers.push(at.to_string());
+                sync_node(&vm, true, unix_now()).expect("the VM's round");
+            });
+            assert!(
+                vm.store.is_revoked(&gone).expect("roster"),
+                "a machine that reads no coordinator still admits a device the account withdrew: its writes are applied"
+            );
+            assert!(
+                !vm.store.may_apply_chain_of(&gone).expect("roster"),
+                "the VM still applies the withdrawn phone's chain"
+            );
+        });
+    }
+
+    /// A host of another account learnt a withdrawal from the coordinator
+    /// alone, and took the withdrawn device's old claim until then. A machine
+    /// of the account passes its withdrawals on to the hosts it meets now, and
+    /// the host refuses the old claim. Sabotage: pass nothing on; or the host
+    /// takes no withdrawal but the caller's own.
+    #[test]
+    fn red_team_a_host_of_another_account_learns_a_withdrawal_from_a_sibling() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (laptop, phrase) =
+                crate::testing::phone(&dir.path().join("laptop"), coordinator, "camille", None);
+            let (old, _) = crate::testing::phone(
+                &dir.path().join("old"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (host, _) =
+                crate::testing::phone(&dir.path().join("host"), coordinator, "bob", None);
+            let gone = old.store.device_id();
+            let _ = itsanas_node::coordinator::withdraw_device(&laptop, gone, unix_now());
+            let dial = |node: &itsanas_node::Node, at: std::net::SocketAddr| {
+                itsanas_net::PeerClient::connect(
+                    at,
+                    &node.device,
+                    node.store.owner(),
+                    Some(host.store.device_id()),
+                )
+                .expect("the host answers")
+            };
+            crate::testing::serving(&host, |at| {
+                laptop
+                    .introduce(&mut dial(&laptop, at), unix_now())
+                    .expect("the laptop introduces itself");
+                let presented = dial(&old, at).present_claim(old.claim_bytes(unix_now()));
+                assert!(
+                    presented.is_err(),
+                    "a host of another account took the withdrawn phone's old claim after a sibling had passed the withdrawal on: it stores for it again"
+                );
+            });
+        });
+    }
+
     /// A round's report names what arrived, what changed and what left, and
     /// counts past the few it names. Sabotage: compare paths only, so an edit
     /// made on a computer goes unreported.
