@@ -1363,6 +1363,15 @@ impl Store {
         self.index.is_member(device)
     }
 
+    /// Whether `device` was withdrawn from this account, for good.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn is_revoked(&self, device: &DeviceId) -> Result<bool> {
+        self.index.is_revoked(device)
+    }
+
     /// Whether `device` should still be offered new file content.
     ///
     /// A peer that keeps failing audits is not blocked and loses nothing of its
