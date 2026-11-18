@@ -100,7 +100,7 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
     }
     'placement measured' {
         # As agent.sh: `measured` on the test node for a week before it is ever
-        # the default (HANDOVER §8 7(a)), then a restart asked through its home.
+        # the default (HANDOVER section 8 7(a)), then a restart asked through its home.
         if ($n -ne 2) { Refuse 'usage: placement measured' }
         $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
         if (-not $test) { Refuse 'no test account on this machine' }
@@ -191,7 +191,7 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             $copies = if ($lines[0] -match ' copies (\d+ of \d+( since \d+)?)') { $Matches[1] } else { 'none' }
             Write-Output "copies $copies"
             $lines | Where-Object { $_ -match '^  (username|device|files|live chunks)' }
-            # The figures `measured` places by (HANDOVER §8 7(a)), as agent.sh.
+            # The figures `measured` places by (HANDOVER section 8 7(a)), as agent.sh.
             $in = $false
             foreach ($line in $lines) {
                 if ($line -ceq 'availability, as this machine measured it') { $in = $true; continue }
