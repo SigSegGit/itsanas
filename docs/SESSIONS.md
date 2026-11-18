@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-18 ~01:30 | ~25 min | fenêtre 5 h 28 % → 34 % ; hebdo 45 % → 46 % ; contexte ~690 k | §8 7(a) | au bout | 🟨 | la flotte passe ses comptes `test` en placement `measured` et en imprime les chiffres à chaque run ; la semaine de lecture commence au premier run | branche feat/fleet-measured |
 | 2026-11-18 ~00:45 | ~40 min | fenêtre 5 h 0 % → ~12 % ; hebdo 42 % → 44 % ; contexte ~620 k | hors §8 (§9 « Tail truncation ») | au bout | ✅ | la troncature de queue est détectée : chaque présence signe la longueur de la chaîne de son appareil, une liste qui en a moins se dit incomplète et nomme la machine ; format des présences changé | branche feat/chain-heads |
 | 2026-11-18 ~00:20 | ~25 min | fenêtre 5 h ~2 % → ~6 % (remise à zéro) ; hebdo 41 % ; contexte ~560 k | hors §8 (§9 self-update) | au bout | ✅ | une mise à jour automatique là où le programme ne peut être remplacé est annoncée au lieu d'échouer chaque jour ; #432 et #433 fondues ici | branche feat/night-batch |
 | 2026-11-17 ~23:50 | ~15 min | fenêtre 5 h 51 % → 55 % ; hebdo 39 % → 40 % ; contexte ~480 k | hors §8 (§8 9c, M7) | au bout | ✅ | une machine que les autres appellent ne se dit plus `isolated` : un appareil du compte qui présente sa revendication compte comme un contact | branche feat/inbound-contact |
