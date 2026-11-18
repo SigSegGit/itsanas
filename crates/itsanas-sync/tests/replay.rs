@@ -94,6 +94,61 @@ fn a_replay_applies_the_last_operation_of_each_path_and_fetches_nothing_older() 
     );
 }
 
+/// A host serving noise for a chunk several files share: refused for the
+/// first file, it was fetched and refused again for each of the others, a
+/// chunk-sized download per file per round. Asked once now. Sabotage: drop
+/// the once-per-address memory in `apply_replaying`.
+#[test]
+fn a_chunk_that_came_back_as_noise_is_asked_for_once_a_round_not_once_a_file() {
+    let mut swarm = Swarm::new(2).expect("a two-device swarm");
+    swarm.set_online(NEWCOMER, false);
+    let writer = swarm.device(WRITER);
+    let shared = b"the same photo, filed in five albums";
+    for album in 0..5 {
+        writer
+            .write(&format!("album-{album}/photo.jpg"), shared)
+            .unwrap();
+    }
+    writer.publish().unwrap();
+    let noisy: BTreeSet<ChunkId> = writer
+        .store()
+        .stat("album-0/photo.jpg")
+        .unwrap()
+        .expect("written")
+        .chunks
+        .into_iter()
+        .collect();
+
+    swarm.set_online(NEWCOMER, true);
+    let segments = swarm.cloud().with(|cloud| cloud.segments().to_vec());
+    let source = Noisy {
+        noisy,
+        asked: RefCell::new(0),
+    };
+    let _ = apply_segments(swarm.device(NEWCOMER).store(), &segments, &source).unwrap();
+    assert_eq!(
+        *source.asked.borrow(),
+        1,
+        "a chunk five files share, served as noise, was fetched once per file: a chunk-sized download each, every round"
+    );
+}
+
+/// A host that answers every chunk of `noisy` with bytes that are not it.
+struct Noisy {
+    noisy: BTreeSet<ChunkId>,
+    asked: RefCell<usize>,
+}
+
+impl ChunkSource for Noisy {
+    fn fetch(&self, _owner: UserId, address: &ChunkId) -> Result<Option<Vec<u8>>> {
+        if self.noisy.contains(address) {
+            *self.asked.borrow_mut() += 1;
+            return Ok(Some(b"bytes that are not the chunk".to_vec()));
+        }
+        Ok(None)
+    }
+}
+
 /// The same across machines: a file the laptop wrote and the phone edited
 /// after it, replayed by a third machine once the laptop's version was
 /// collected, ends on the phone's version in one round and asks for nothing of

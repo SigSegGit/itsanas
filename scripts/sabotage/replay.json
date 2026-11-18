@@ -12,6 +12,11 @@
       "file": "crates/itsanas-sync/src/engine.rs",
       "live": "    let superseded = superseded_upserts(&entries);\n",
       "dead": "    let superseded = BTreeSet::<usize>::new();\n"
+    },
+    "replay: a chunk asked for again for every file that shares it": {
+      "file": "crates/itsanas-sync/src/engine.rs",
+      "live": "    let source = &crate::source::AskedOnce::new(source);\n",
+      "dead": "    let source = source;\n"
     }
   }
 }
