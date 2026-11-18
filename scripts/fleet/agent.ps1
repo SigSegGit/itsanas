@@ -98,6 +98,27 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
         Room-For-One-More
         Kit $w[0] write $folder
     }
+    'placement measured' {
+        # As agent.sh: `measured` on the test node for a week before it is ever
+        # the default (HANDOVER §8 7(a)), then a restart asked through its home.
+        if ($n -ne 2) { Refuse 'usage: placement measured' }
+        $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+        if (-not $test) { Refuse 'no test account on this machine' }
+        $config = Join-Path ([string] $test.Value) 'config'
+        if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { Refuse "the test node has no configuration at $config" }
+        $lines = @(Get-Content -LiteralPath $config)
+        if ($lines -ccontains 'placement = measured') {
+            Write-Output 'PLACEMENT measured, already'
+            exit 0
+        }
+        $kept = @($lines | Where-Object { $_ -notmatch '^placement *=' }) + 'placement = measured'
+        Set-Content -LiteralPath $config -Value $kept -Encoding ascii
+        $pending = Join-Path ([string] $test.Value) 'lifecycle.new'
+        Set-Content -LiteralPath $pending -Value 'restart' -Encoding ascii
+        Move-Item -LiteralPath $pending -Destination (Join-Path ([string] $test.Value) 'lifecycle') -Force
+        Write-Output 'PLACEMENT measured, set: the test node restarts on it'
+        exit 0
+    }
     'C plant' {
         if ($n -ne 2) { Refuse 'usage: C plant' }
         Room-For-One-More
@@ -143,8 +164,15 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             $copies = if ($lines[0] -match ' copies (\d+ of \d+( since \d+)?)') { $Matches[1] } else { 'none' }
             Write-Output "copies $copies"
             $lines | Where-Object { $_ -match '^  (username|device|files|live chunks)' }
+            # The figures `measured` places by (HANDOVER §8 7(a)), as agent.sh.
+            $in = $false
+            foreach ($line in $lines) {
+                if ($line -ceq 'availability, as this machine measured it') { $in = $true; continue }
+                if (-not $in) { continue }
+                if ($line.StartsWith('  ')) { Write-Output "figure $($line.Substring(2))" } else { break }
+            }
             exit 0
         }
-        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status)"
+        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status, placement measured)"
     }
 }

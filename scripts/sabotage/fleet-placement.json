@@ -1,0 +1,23 @@
+{
+  "command": [
+    "bash",
+    "scripts/check-fleet.sh"
+  ],
+  "defences": {
+    "placement: no restart asked": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "printf 'restart\\n' >\"$home/lifecycle.new\"",
+      "dead": "printf 'nothing\\n' >\"$home/lifecycle.new\""
+    },
+    "placement: other lines of the configuration dropped": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "{ grep -v '^placement *=' \"$conf\"; echo 'placement = measured'; }",
+      "dead": "{ echo 'placement = measured'; }"
+    },
+    "placement: the figures not read back": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "f && /^  / { print \"figure \" substr($0, 3); next }",
+      "dead": "f && /^  / { next }"
+    }
+  }
+}
