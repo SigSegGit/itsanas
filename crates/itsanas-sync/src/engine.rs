@@ -236,6 +236,7 @@ pub fn apply_replaying(
 ) -> Result<(SyncReport, Vec<Outcome>)> {
     let mut report = SyncReport::default();
     let entries = entries_to_apply(store, segments, replay, &mut report)?;
+    let source = &crate::source::AskedOnce::new(source);
 
     // Every entry a later one supersedes goes last: by then the later version,
     // or its tombstone, is in place and the old one is passed over without a

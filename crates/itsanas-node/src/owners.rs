@@ -953,6 +953,41 @@ mod tests {
         );
     }
 
+    /// A public machine the others only dial in to read `isolated` though
+    /// they reached it at every round: only a contact it dialled counted.
+    /// A sibling's claim presented here counts now, a stranger's does not.
+    /// Sabotage: note nothing.
+    #[test]
+    fn red_team_a_sibling_presenting_here_is_a_contact_and_a_stranger_is_not() {
+        use itsanas_net::{PeerService, Pledge, Request};
+        let host = host();
+        let seen = std::sync::atomic::AtomicU64::new(0);
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&host.book)
+            .noting_siblings(&seen);
+        let present = |seed: u8, account: &UserKeys| {
+            service
+                .handle(
+                    &Request::Claim {
+                        claim: claim(account, seed, 0, false),
+                    },
+                    device(seed),
+                )
+                .unwrap();
+        };
+        present(0x32, &account(0x0C));
+        assert_eq!(
+            seen.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "a device of another account presenting here counted as this account reaching the node"
+        );
+        present(0x31, &account(0x01));
+        assert!(
+            seen.load(std::sync::atomic::Ordering::Relaxed) > 0,
+            "a machine of this account dialled in and the node still reads as reaching nobody"
+        );
+    }
+
     #[test]
     fn red_team_nobody_but_the_account_reads_what_a_host_holds_for_it() {
         // ROADMAP, "reads are not scoped to the account": anyone who knew a
