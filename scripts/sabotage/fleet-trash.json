@@ -1,0 +1,28 @@
+{
+  "command": [
+    "bash",
+    "scripts/check-fleet.sh"
+  ],
+  "defences": {
+    "trash: left off for T's delete": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "printf '30\\n' >\"$home/store/trash-days\"",
+      "dead": "printf '0\\n' >\"$home/store/trash-days\""
+    },
+    "trash: left on after the purge": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "            printf '0\\n' >\"$home/store/trash-days\"\n            if [ \"$status\" -ne 0 ]; then",
+      "dead": "            if [ \"$status\" -ne 0 ]; then"
+    },
+    "trash: a file never held still passes": {
+      "file": "scripts/fleet/run.sh",
+      "live": "elif ! said=$(until_pass \"$t_writer\" T held \"$t_name\"); then",
+      "dead": "elif false; then"
+    },
+    "trash: a file left in the trash still passes": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "                [ \"$1\" = held ] && echo \"PASS  T held  $2 waits in the trash\" ||\n                    { echo \"FAIL  T gone  $2 is still in the trash\"; exit 1; }",
+      "dead": "                echo \"PASS  T $1  $2 waits in the trash\""
+    }
+  }
+}

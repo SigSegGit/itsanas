@@ -15,6 +15,13 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-18: the fleet runs the trash's purge (§8 10h, row T).** F turns the trash off to test a
+delete reaching everyone at once; T keeps it on: a file deleted on the laptop waits in the
+account's trash (`T held`), `itsanas trash delete` sends it (`T purge`), and the run checks it
+left the trash and every other machine, then a round later. Only an agent with a native program
+(`agent.ps1`, or `agent.sh` with `ITSANAS_BIN`) offers it; the containers' would need docker.
+`check-fleet.sh` passes under WSL with a stand-in `itsanas`; its `pwsh` cases run in CI only,
+and `agent.ps1`'s T was run by hand here with pwsh. Not yet run on the fleet.
 **2026-11-18: a phone finds its machines on the local network (M12).** A phone runs no daemon,
 so it heard beacons only by listening through their 30 s interval, and with no coordinator to read
 it reached no machine at home. `sync_node` now asks first when no address is typed in
@@ -4224,8 +4231,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
        `agent.ps1` write `0` into the `test` home's `store/trash-days`, so the delete is not held in
        the writer's trash. Ran on the fleet with 0.1.19 (2026-11-11, both runs green), and
        `check-fleet.sh` asserts the file is written before the delete (a `trashy` machine; sabotaged
-       red). **Left:** the trash's purge across real machines is untested (a run with the trash on
-       and `itsanas trash delete NAME` after the daemon trashed the file would test it).
+       red). Row T (2026-11-18) runs the purge: the laptop's agent deletes a file with the trash
+       on, waits for `itsanas trash list` to hold it, deletes it for good with `itsanas trash
+       delete`, and the run checks it left the trash and every other machine, then a round later
+       (`check-fleet.sh` with a stand-in `itsanas`; plan `fleet-trash.json`, four defences).
+       **Left:** row T has not yet run on the fleet: its first nightly run after merge is the test;
+       the containers' agent offers no T (a note), the laptop is its only writer.
 
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
        Wi-Fi, and on battery on Wi-Fi answering only.
