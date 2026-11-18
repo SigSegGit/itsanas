@@ -113,7 +113,10 @@ rows empty again: the test now reads a trash opened afresh after going back to t
 cell that leaves the table drops its identifier (`didEndDisplaying`); that run's restore
 passed. The same step's delete for good then asked nothing and deleted nothing: "who is there"
 was presented while "are you sure" was still closing, which UIKit drops without a word; it waits
-for the screen to be free now (`presentWhenFree`). Step 4 passed with the sealed item
+for the screen to be free now (`presentWhenFree`). The next run still showed no prompt: with a
+finger enrolled the app asks through `LAContext`, whose sheet another process draws, invisible to
+the test, which waited on its "Cancel"; the test now answers with a finger when no passphrase field
+comes and checks the file left the trash. Step 4 passed with the sealed item
 read through the finger's own context (`item 0`, no second sheet). Step 5: the simulator's
 enrolment change (`enrol(false)`, `enrol(true)`) moved neither the fingers' state (`020820`)
 nor the `.biometryCurrentSet` item (still `item 0`), so nothing on a simulator can show a

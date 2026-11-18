@@ -77,12 +77,15 @@ final class HandTest: E2eCase {
     /// Who is there, as the trash asks before a delete from every machine:
     /// the phone's own lock when it has one (a finger, on the simulator), the
     /// account's passphrase on a phone without a passcode.
+    ///
+    /// The lock's sheet is drawn by another process, which neither the app nor
+    /// springboard shows a test (CI, 2026-11-17 and 18: the delete waited on a
+    /// "Cancel" nobody could see, the trash's rows unchanged). So a finger
+    /// answers whatever is asking when no passphrase field came, and the
+    /// caller checks the outcome: the file gone from the trash.
     private func proveIdentity() throws {
         let typed = app.alerts.firstMatch.secureTextFields["identity-pass"]
-        try waitFor("deleting from every machine never asked who is there", seconds: 15) {
-            typed.exists || springboard.buttons["Cancel"].exists || app.buttons["Cancel"].exists
-        }
-        if typed.exists {
+        if typed.waitForExistence(timeout: 5) {
             typed.tap()
             typed.typeText(passphrase)
             app.alerts.firstMatch.buttons["Confirm"].tap()
