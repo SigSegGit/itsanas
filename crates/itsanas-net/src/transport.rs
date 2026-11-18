@@ -1366,6 +1366,11 @@ mod tests {
 
     #[test]
     fn binding_a_public_address_no_longer_needs_an_override() {
+        // A wildcard bind on a developer's Windows asks the firewall at every new
+        // test binary (Nicolas, 2026-11-18: a window per build); CI runs it.
+        if cfg!(windows) && std::env::var_os("CI").is_none() {
+            return;
+        }
         // It used to be refused, because the transport leaked chunk identifiers
         // and sizes to anyone on the path. TLS closed that, so keeping the
         // refusal would be cargo cult.

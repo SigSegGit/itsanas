@@ -495,6 +495,11 @@ mod tests {
 
     #[test]
     fn a_broadcasting_socket_asks_the_kernel_for_broadcast() {
+        // A wildcard bind on a developer's Windows asks the firewall at every
+        // new test binary (Nicolas, 2026-11-18); CI runs it.
+        if cfg!(windows) && std::env::var_os("CI").is_none() {
+            return;
+        }
         // Without SO_BROADCAST the socket sends nothing at all to
         // 255.255.255.255, and does so without an error: discovery would
         // silently never work while every send reported success.
@@ -507,6 +512,11 @@ mod tests {
 
     #[test]
     fn two_nodes_on_one_machine_both_hear_the_discovery_port() {
+        // A wildcard bind on a developer's Windows asks the firewall at every
+        // new test binary (Nicolas, 2026-11-18); CI runs it.
+        if cfg!(windows) && std::env::var_os("CI").is_none() {
+            return;
+        }
         // Two accounts on one machine are two daemons. The second used to fail
         // to bind 21037 and run with discovery silently off -- it synced only
         // with peers somebody typed in, which is exactly what discovery exists

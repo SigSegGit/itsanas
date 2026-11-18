@@ -31,6 +31,12 @@ pub const NEARBY_WAIT: std::time::Duration = std::time::Duration::from_millis(15
 /// no coordinator to read (none reachable, no internet at home) it reached
 /// none of them (ROADMAP M12). Empty when the network allows no broadcast.
 pub fn nearby(node: &Node) -> Vec<(String, Option<DeviceId>)> {
+    // Not from the unit tests: every test binary that syncs would listen on
+    // every interface, and a developer's Windows asks its firewall each time
+    // (`heard_nearby`, on loopback, is what the tests run).
+    if cfg!(test) {
+        return Vec::new();
+    }
     itsanas_discover::Lan::announcer(itsanas_discover::DEFAULT_PORT)
         .map(|lan| heard_nearby(node, &lan, NEARBY_WAIT))
         .unwrap_or_default()
