@@ -7,15 +7,15 @@ Everything on this page that is a status is **redrawn from
 page behind. To change a status, change it there.
 
 <!-- GENERATED:stats -->
-**1684 tests, 630 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
+**1684 tests, 630 of them red-team** (a red-team test passes when the attack fails) · **11/16 milestones done**
 <!-- /GENERATED:stats -->
 
 ## Progress
 
 <!-- GENERATED:progress -->
-🟩🟩🟩🟩🟩🟩🟩🟨🟩🟨⬜🟩🟨🟩🟨🟨
+🟩🟩🟩🟩🟩🟩🟩🟨🟩🟩🟨🟩🟨🟩🟨🟨
 
-**10 of 16 milestones done**, 5 in progress, 1 not started. One square per milestone, in order.
+**11 of 16 milestones done**, 5 in progress, 0 not started. One square per milestone, in order.
 <!-- /GENERATED:progress -->
 
 ## Map
@@ -41,14 +41,14 @@ flowchart LR
   end
   subgraph G2["What a person touches"]
     direction TB
-    M7["M7 · Daemon, CLI, synced folder"]:::wip
+    M7["M7 · Daemon, CLI, synced folder"]:::done
     M12["M12 · Android shell"]:::wip
     M13["M13 · One-click install"]:::wip
   end
   subgraph G3["Proof"]
     direction TB
     M0["M0 · Repository, CI, licence"]:::done
-    M8["M8 · Three-device bring-up"]:::todo
+    M8["M8 · Three-device bring-up"]:::wip
     M9["M9 · Measurement"]:::done
   end
   classDef done fill:#1a7f37,stroke:#116329,color:#ffffff
@@ -73,8 +73,8 @@ Green is done, amber is in progress, grey is not started. Grouping follows the l
 | 🟩 | **M4b** Local discovery | `itsanas-discover` | Done |
 | 🟨 | **M5** Placement and repair | `itsanas-placement` | In progress |
 | 🟩 | **M6** Coordinator | `itsanas-coord`, `itsanas-coordinator` | Done |
-| 🟨 | **M7** Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | In progress |
-| ⬜ | **M8** Three-device bring-up | — | Not started |
+| 🟩 | **M7** Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | Done |
+| 🟨 | **M8** Three-device bring-up | — | In progress |
 | 🟩 | **M9** Measurement | `itsanas bench` | Done |
 | 🟨 | **M10** Pack files | `itsanas-store` | In progress |
 | 🟩 | **M11** A catalogue of known-but-absent files | `itsanas-store` | Done |
@@ -122,14 +122,13 @@ A🟨 B🟨 C🟩 D🟩 E🟩 F🟦 G🟦 H🟨 I🟦 J🟨 K❔ L❔ M❔ N❔ 
 ### Now: built, not finished
 
 - 🟨 **M5** Placement and repair
-- 🟨 **M7** Daemon, CLI, synced folder
+- 🟨 **M8** Three-device bring-up
 - 🟨 **M10** Pack files
 - 🟨 **M12** Android shell
 - 🟨 **M13** One-click install
 
 ### Not started
 
-- ⬜ **M8** Three-device bring-up
 - ⬜ The `dataSync` budget and Doze, measured rather than remembered
 
 ### Deferred beyond v1
