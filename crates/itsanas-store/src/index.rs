@@ -2169,6 +2169,20 @@ impl Index {
         Ok(!txn.open_table(ROSTER)?.is_empty()?)
     }
 
+    /// Whether `device` was withdrawn from this account: its roster row says
+    /// revoked, for good.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn is_revoked(&self, device: &DeviceId) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(ROSTER)?
+            .get(device.as_bytes().as_slice())?
+            .is_some_and(|row| row.value() == 0))
+    }
+
     /// The live members of this account's roster.
     ///
     /// # Errors
