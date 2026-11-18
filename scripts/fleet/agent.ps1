@@ -98,6 +98,54 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
         Room-For-One-More
         Kit $w[0] write $folder
     }
+    'placement measured' {
+        # As agent.sh: `measured` on the test node for a week before it is ever
+        # the default (HANDOVER section 8 7(a)), then a restart asked through its home.
+        if ($n -ne 2) { Refuse 'usage: placement measured' }
+        $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+        if (-not $test) { Refuse 'no test account on this machine' }
+        $config = Join-Path ([string] $test.Value) 'config'
+        if (-not (Test-Path -LiteralPath $config -PathType Leaf)) { Refuse "the test node has no configuration at $config" }
+        $lines = @(Get-Content -LiteralPath $config)
+        if ($lines -ccontains 'placement = measured') {
+            Write-Output 'PLACEMENT measured, already'
+            exit 0
+        }
+        $kept = @($lines | Where-Object { $_ -notmatch '^placement *=' }) + 'placement = measured'
+        Set-Content -LiteralPath $config -Value $kept -Encoding ascii
+        $pending = Join-Path ([string] $test.Value) 'lifecycle.new'
+        Set-Content -LiteralPath $pending -Value 'restart' -Encoding ascii
+        Move-Item -LiteralPath $pending -Destination (Join-Path ([string] $test.Value) 'lifecycle') -Force
+        Write-Output 'PLACEMENT measured, set: the test node restarts on it'
+        exit 0
+    }
+    'convert packs' {
+        # M10: a store made before pack files, converted on a real node, which
+        # had never been done. `itsanas convert-packs` hands it to the running
+        # daemon (it stops its run, converts with the store closed, starts
+        # again); a store already in packs is left alone, so a nightly run
+        # converts once.
+        if ($n -ne 2) { Refuse 'usage: convert packs' }
+        $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+        if (-not $test) { Refuse 'no test account on this machine' }
+        $testHome = [string] $test.Value
+        $store = Join-Path $testHome 'store'
+        $packed = Test-Path -LiteralPath (Join-Path (Join-Path $store 'packs') 'index.redb')
+        $blobs = @(Get-ChildItem -LiteralPath (Join-Path $store 'blobs') -Recurse -File -Filter '*.blob' -ErrorAction SilentlyContinue).Count
+        if ($packed -and $blobs -eq 0) {
+            Write-Output 'PACKS already: the test node keeps its chunks in pack files'
+            exit 0
+        }
+        $itsanas = Get-Command itsanas -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $itsanas) { Refuse 'no itsanas program on this machine' }
+        $said = @(& $itsanas.Source --home $testHome convert-packs 2>&1 | ForEach-Object { "$_" })
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "FAILED $($said | Select-Object -Last 1)"
+            exit 1
+        }
+        Write-Output "PACKS converted: $($said | Select-Object -Last 1)"
+        exit 0
+    }
     'C plant' {
         if ($n -ne 2) { Refuse 'usage: C plant' }
         Room-For-One-More
@@ -143,8 +191,15 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             $copies = if ($lines[0] -match ' copies (\d+ of \d+( since \d+)?)') { $Matches[1] } else { 'none' }
             Write-Output "copies $copies"
             $lines | Where-Object { $_ -match '^  (username|device|files|live chunks)' }
+            # The figures `measured` places by (HANDOVER section 8 7(a)), as agent.sh.
+            $in = $false
+            foreach ($line in $lines) {
+                if ($line -ceq 'availability, as this machine measured it') { $in = $true; continue }
+                if (-not $in) { continue }
+                if ($line.StartsWith('  ')) { Write-Output "figure $($line.Substring(2))" } else { break }
+            }
             exit 0
         }
-        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status)"
+        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status, placement measured, convert packs)"
     }
 }
