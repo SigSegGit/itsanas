@@ -146,6 +146,52 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
         Write-Output "PACKS converted: $($said | Select-Object -Last 1)"
         exit 0
     }
+    { $_ -in 'T ready', 'T trash', 'T held', 'T purge', 'T gone' } {
+        # As agent.sh: a file of `test` deleted here waits in the account's
+        # trash, then a delete for good reaches every machine (HANDOVER
+        # section 8 10h).
+        $step = $w[1]
+        if ($step -eq 'ready') { if ($n -ne 2) { Refuse 'usage: T ready' } }
+        elseif ($n -ne 3 -or -not (Is-KitName $w[2])) { Refuse "usage: T $step <kit file>" }
+        $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+        if (-not $test) { Refuse 'no test account on this machine' }
+        $testHome = [string] $test.Value
+        $store = Join-Path $testHome 'store'
+        if (-not (Test-Path -LiteralPath $store -PathType Container)) { Refuse "the test node has no store at $store" }
+        $itsanas = Get-Command itsanas -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $itsanas) { Refuse 'no itsanas program on this machine: T is not offered by this agent' }
+        $days = Join-Path $store 'trash-days'
+        switch ($step) {
+            'ready' { Write-Output "TREADY the test node's trash can be driven here"; exit 0 }
+            'trash' {
+                # On for this delete, so it waits in the trash rather than being
+                # written at once as F's are.
+                Set-Content -LiteralPath $days -Value '30' -Encoding ascii
+                Kit F delete $folder $w[2]
+            }
+            'purge' {
+                $said = @(& $itsanas.Source --home $testHome trash delete -- $w[2] 2>&1 | ForEach-Object { "$_" })
+                $status = $LASTEXITCODE
+                # Off again whatever happened: the next night's F must not wait 30 days.
+                Set-Content -LiteralPath $days -Value '0' -Encoding ascii
+                if ($status -ne 0) { Write-Output "FAILED $($said | Select-Object -Last 1)"; exit 1 }
+                Write-Output "PURGED $($said | Select-Object -Last 1)"
+                exit 0
+            }
+            default {
+                $said = @(& $itsanas.Source --home $testHome trash list 2>&1 | ForEach-Object { "$_" })
+                if ($LASTEXITCODE -ne 0) { Write-Output "FAIL  T $step  itsanas trash list: $($said | Select-Object -Last 1)"; exit 1 }
+                # A word of a line equal to the name, so a longer name never matches.
+                $listed = @($said | Where-Object { ($_ -split '\s+') -ccontains $w[2] }).Count -gt 0
+                if ($step -eq 'held') {
+                    if ($listed) { Write-Output "PASS  T held  $($w[2]) waits in the trash"; exit 0 }
+                    Write-Output "FAIL  T held  $($w[2]) is not in the trash: the delete was not held"; exit 1
+                }
+                if (-not $listed) { Write-Output "PASS  T gone  $($w[2]) left the trash"; exit 0 }
+                Write-Output "FAIL  T gone  $($w[2]) is still in the trash"; exit 1
+            }
+        }
+    }
     'C plant' {
         if ($n -ne 2) { Refuse 'usage: C plant' }
         Room-For-One-More
@@ -200,6 +246,6 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             }
             exit 0
         }
-        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status, placement measured, convert packs)"
+        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, T ready|trash|held|purge|gone, status, placement measured, convert packs)"
     }
 }

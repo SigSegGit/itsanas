@@ -76,6 +76,36 @@ MAX_FILES=${MAX_FILES:-50}
 EOF
 }
 
+# A native `itsanas` for T (HANDOVER §8 10h), named by agent.conf: its trash
+# lists every file the kit deleted on this machine (the receipt's F delete
+# lines) that was not yet deleted for good. TRASH_HOLDS=0: a delete never
+# waits there; TRASH_PURGES=0: a delete for good leaves it listed.
+trash_bin() {
+    local name=$1 bin="$WORK/$1/itsanas"
+    mkdir -p "$WORK/$name/test/store"
+    : >"$WORK/$name/purged"
+    cat >"$bin" <<EOF
+#!/bin/sh
+echo "\$*" >>"$WORK/$name/asked"
+[ "\$1" = --home ] && [ "\$3" = trash ] || { echo "stand-in itsanas: \$*" >&2; exit 2; }
+case "\$4" in
+    list)
+        [ "${TRASH_HOLDS:-1}" = 1 ] || { echo "the trash is empty"; exit 0; }
+        awk '\$1 == "PASS" && \$2 == "F" && \$3 == "delete" { print \$4 }' "$WORK/$name/receipts/acceptance.txt" 2>/dev/null |
+            grep -vxFf "$WORK/$name/purged" | sed 's/^/  30 days  shared     /'
+        ;;
+    delete)
+        [ "\$5" = -- ] || { echo "stand-in itsanas: no -- before the path" >&2; exit 2; }
+        [ "${TRASH_PURGES:-1}" = 1 ] && echo "\$6" >>"$WORK/$name/purged"
+        echo "\$6 is deleted for good."
+        ;;
+    *) echo "stand-in itsanas: \$*" >&2; exit 2 ;;
+esac
+EOF
+    chmod +x "$bin"
+    echo "ITSANAS_BIN=\"$bin\"" >>"$WORK/$name/agent.conf"
+}
+
 agent() {
     local name=$1
     shift
@@ -94,6 +124,10 @@ B write \$(touch $WORK/pwned)
 B write \`touch $WORK/pwned\`
 B write | sh
 F delete ../../etc/passwd
+T trash ../../etc/passwd
+T purge notes.txt
+T held -rf
+T ready now
 F delete notes.txt
 F delete -rf
 F delete acceptance-B-20261023T000000Z-1.bin/../notes.txt
@@ -142,6 +176,45 @@ agent trashy F delete "$fname" >/dev/null 2>&1
 [ "$(cat "$WORK/trashy/test/store/trash-days" 2>/dev/null)" = 0 ] && [ ! -e "$WORK/trashy-folder/$fname" ] &&
     ok "F delete turns the test home's trash off, then deletes" ||
     bad "F delete left the trash on, or deleted nothing: the delete would wait 30 days on the writer"
+
+# T holds a delete in the trash, then deletes it for good: the trash on for
+# that delete, off again after, whatever the purge said; and a container's
+# agent, with no native program, refuses rather than reaching docker.
+machine tlone "$WORK/tlone-folder"
+mkdir -p "$WORK/tlone/test/store"
+out=$(agent tlone T ready 2>&1)
+case "$out" in
+    REFUSED*"no native itsanas"*) ok "an agent with no native itsanas does not offer T" ;;
+    *) bad "an agent with no native itsanas offered T: $out" ;;
+esac
+trash_bin tlone
+read -r _ _ _ tname _ <<<"$(agent tlone B write 2>&1)"
+agent tlone T trash "$tname" >/dev/null 2>&1
+[ "$(cat "$WORK/tlone/test/store/trash-days" 2>/dev/null)" = 30 ] && [ ! -e "$WORK/tlone-folder/$tname" ] &&
+    ok "T trash turns the test home's trash on, then deletes" ||
+    bad "T trash left the trash off, or deleted nothing: the delete would not wait in the trash"
+out=$(agent tlone T held "$tname" 2>&1)
+case "$out" in PASS*) ok "T held finds the file in the trash" ;; *) bad "T held: $out" ;; esac
+out=$(agent tlone T purge "$tname" 2>&1)
+case "$out" in
+    PURGED*) grep -qxF -- "--home $WORK/tlone/test trash delete -- $tname" "$WORK/tlone/asked" &&
+        ok "T purge asks itsanas to delete exactly that file for good" ||
+        bad "T purge said purged without asking itsanas for $tname: $(cat "$WORK/tlone/asked")" ;;
+    *) bad "T purge: $out" ;;
+esac
+[ "$(cat "$WORK/tlone/test/store/trash-days")" = 0 ] &&
+    ok "and turns the trash off again for the next night's F" ||
+    bad "T purge left the trash on: the next night's F delete would wait 30 days"
+out=$(agent tlone T gone "$tname" 2>&1)
+case "$out" in PASS*) ok "T gone: the file left the trash" ;; *) bad "T gone: $out" ;; esac
+printf '30\n' >"$WORK/tlone/test/store/trash-days"
+mv "$WORK/tlone/itsanas" "$WORK/tlone/itsanas.real"
+printf '#!/bin/sh\necho "the store is locked" >&2\nexit 1\n' >"$WORK/tlone/itsanas"
+chmod +x "$WORK/tlone/itsanas"
+out=$(agent tlone T purge "$tname" 2>&1)
+[ "${out%% *}" = FAILED ] && [ "$(cat "$WORK/tlone/test/store/trash-days")" = 0 ] &&
+    ok "a purge that fails says FAILED and still turns the trash off" ||
+    bad "a failed purge said '$out', trash-days $(cat "$WORK/tlone/test/store/trash-days")"
 
 # `measured` for a week on the fleet's test accounts (HANDOVER §8 7(a)): the
 # line set once, the daemon asked to restart on it once, nothing else of the
@@ -225,6 +298,30 @@ expect pass "two machines that share the file: S, B, F and C pass" "" "$status"
 for scenario in "PASS  V: every machine that says runs 0.1.13" "PASS  S pi" "PASS  B pi -> vm" "PASS  F pi -> vm" "PASS  F vm: still absent" "PASS  C vm:other" "PASS  L pi: the test node counts 2 of 2 copies elsewhere: safe"; do
     grep -qF "$scenario" "$WORK/run.log" || bad "the passing run has no '$scenario'"
 done
+
+grep -qF "note  T: no agent here drives a trash" "$WORK/run.log" ||
+    bad "a fleet of containers' agents ran no T and did not say so"
+
+machine tpi "$WORK/tsynced"
+trash_bin tpi
+machine tvm "$WORK/tsynced"
+fleet "tpi tvm" ""
+expect pass "a trash that holds a delete and lets it go: T passes" "" $?
+for scenario in "PASS  T tpi: the delete waits in the trash" "PASS  T tpi: deleted for good, out of the trash" "PASS  T tpi -> tvm: the purge reached it" "PASS  T tvm: still absent"; do
+    grep -qF "$scenario" "$WORK/run.log" || bad "the passing T run has no '$scenario'"
+done
+
+machine tleaky "$WORK/tsynced2"
+TRASH_HOLDS=0 trash_bin tleaky
+machine tvm2 "$WORK/tsynced2"
+fleet "tleaky tvm2" ""
+expect fail "a delete the trash does not hold is FAIL T" "^FAIL  T tleaky: the delete was not held in the trash" $?
+
+machine tsticky "$WORK/tsynced3"
+TRASH_PURGES=0 trash_bin tsticky
+machine tvm3 "$WORK/tsynced3"
+fleet "tsticky tvm3" ""
+expect fail "a delete for good that stays in the trash is FAIL T" "^FAIL  T tsticky: deleted for good, yet still in the trash" $?
 
 VERSION=0.1.12 machine behind "$WORK/synced"
 fleet "pi behind" ""
@@ -684,6 +781,23 @@ if command -v pwsh >/dev/null 2>&1; then
             ok "agent.ps1 converts the test node to pack files" || bad "agent.ps1 said converted without asking itsanas" ;;
         *) bad "agent.ps1 convert packs: $out" ;;
     esac
+    # T on the laptop: trash on for the delete, then the purge through
+    # itsanas, and the trash off again.
+    read -r _ _ _ wname _ <<<"$(winagent "B write" 2>&1)"
+    printf '#!/bin/sh\necho "$*" >>"%s/asked"\ncase "$3 $4" in "trash list") echo "  30 days  shared     %s" ;; *) echo "deleted for good." ;; esac\n' "$WORK" "$wname" >"$WORK/winbin/itsanas"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "T held $wname" 2>&1)
+    case "$out" in
+        "PASS  T held"*) ok "agent.ps1 finds a file in the test node's trash" ;;
+        *) bad "agent.ps1 T held: $out" ;;
+    esac
+    out=$(PATH="$WORK/winbin:$PATH" winagent "T purge $wname" 2>&1)
+    case "$out" in
+        PURGED*) grep -q -- "trash delete -- $wname" "$WORK/asked" && [ "$(tr -d '\r' <"$WORK/winhome/store/trash-days")" = 0 ] &&
+            ok "agent.ps1 deletes it for good through itsanas and turns the trash off" ||
+            bad "agent.ps1 T purge did not ask itsanas, or left the trash on" ;;
+        *) bad "agent.ps1 T purge: $out" ;;
+    esac
+    printf '#!/bin/sh\necho "$*" >>"%s/asked"\necho "3 chunks moved into pack files, across 2 stores"\n' "$WORK" >"$WORK/winbin/itsanas"
     rm -rf "$WORK/winhome/store/blobs" "$WORK/asked"
     mkdir -p "$WORK/winhome/store/packs" && : >"$WORK/winhome/store/packs/index.redb"
     out=$(PATH="$WORK/winbin:$PATH" winagent "convert packs" 2>&1)
