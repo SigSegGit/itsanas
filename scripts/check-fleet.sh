@@ -787,6 +787,18 @@ if command -v pwsh >/dev/null 2>&1; then
     # itsanas, and the trash off again.
     read -r _ _ _ wname _ <<<"$(winagent "B write" 2>&1)"
     printf '#!/bin/sh\necho "$*" >>"%s/asked"\ncase "$3 $4" in "trash list") echo "  30 days  shared     %s" ;; *) echo "deleted for good." ;; esac\n' "$WORK" "$wname" >"$WORK/winbin/itsanas"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "T ready" 2>&1)
+    case "$out" in TREADY*) ok "agent.ps1 offers T where itsanas is" ;; *) bad "agent.ps1 T ready: $out" ;; esac
+    out=$(PATH="$WORK/winbin:$PATH" winagent "T trash $wname" 2>&1)
+    [ "${out%% *}" = PASS ] && [ ! -e "$WORK/wall-folder/$wname" ] &&
+        [ "$(tr -d '\r' <"$WORK/winhome/store/trash-days")" = 30 ] &&
+        ok "agent.ps1 T trash turns the trash on, then deletes" ||
+        bad "agent.ps1 T trash: $out (trash-days $(cat "$WORK/winhome/store/trash-days" 2>/dev/null))"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "T gone $wname" 2>&1)
+    case "$out" in
+        "FAIL  T gone"*) ok "agent.ps1 T gone fails while the file is still in the trash" ;;
+        *) bad "agent.ps1 T gone passed with the file in the trash: $out" ;;
+    esac
     out=$(PATH="$WORK/winbin:$PATH" winagent "T held $wname" 2>&1)
     case "$out" in
         "PASS  T held"*) ok "agent.ps1 finds a file in the test node's trash" ;;
