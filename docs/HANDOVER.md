@@ -22,6 +22,15 @@ left the trash and every other machine, then a round later. Only an agent with a
 (`agent.ps1`, or `agent.sh` with `ITSANAS_BIN`) offers it; the containers' would need docker.
 `check-fleet.sh` passes under WSL with a stand-in `itsanas`; its `pwsh` cases run in CI only,
 and `agent.ps1`'s T was run by hand here with pwsh. Not yet run on the fleet.
+**2026-11-17 (late): a withdrawal travels between the account's machines.** `device forget` (and
+the phone's withdraw) sent the revoked claim to the coordinator alone; a machine that reads none
+went on admitting the withdrawn device. It is now kept on the machine that signs it first
+(`Node::withdrawn_here`: roster revoked, claim in the vault), so the siblings' existing claims
+exchange carries it, and a host keeps it over the old live claim the withdrawn machine presents
+(`service.rs`, `Store::is_revoked`). Hosts of other accounts too: `Node::introduce` passes the
+account's kept withdrawals on to every host it meets, and `ClaimBook::take` records a withdrawal
+signed with the account's key whoever hands it over (sticky `Withdrawn`, at most ten an account
+besides its live devices). Sabotage plan `withdrawals.json`, four defences.
 
 **2026-11-17 (night): an automatic update where the program cannot be replaced is told, not
 failed.** Under a `--prefix` the service's account cannot write, `updates = auto` failed its
@@ -4329,10 +4338,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
   removed when a device is forgotten; never on the wire or at the
   coordinator. Still, a copied store says which networks a member's hosts
   live on.
-- **A withdrawn device keeps its old claim.** Revocation reaches a node only
-  when it sees the revoked claim (a session, a host, the coordinator). On a
-  network with no coordinator a withdrawn machine that keeps its old claim is
-  still admitted where the withdrawal never arrived.
+- 🟨 **A withdrawn device keeps its old claim.** Revocation reaches a node only
+  when it sees the revoked claim (a session, a host, the coordinator). Since
+  2026-11-17 the machine that withdraws keeps the revoked claim and hands it to
+  its siblings with the others (`Node::withdrawn_here`, `Request::Claims`), and a
+  host keeps it over the old live claim the withdrawn machine still presents
+  (`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`). Left: a
+  machine of the account that meets none of its siblings after the withdrawal,
+  and no coordinator, still admits it. A host of another account learns it from
+  any machine of the account that introduces itself there (`Node::withdrawals`,
+  `ClaimBook::withdrawn`,
+  `red_team_a_host_of_another_account_learns_a_withdrawal_from_a_sibling`).
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 
