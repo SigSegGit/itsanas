@@ -431,6 +431,8 @@ grep -qE '^SKIP  C night:other: ' "$WORK/run.log" ||
     bad "a PASS in between did not restart the count: $(grep 'C night' "$WORK/run.log")"
 # Planned: seven nights and more, still SKIP, and it says which item.
 printf 'C night:other\t1\n' >>"$WORK/planned"
+# These stand-ins drive no trash, so T is SKIP every night as well.
+printf 'T\t1\n' >>"$WORK/planned"
 rm -f "$WORK/skips"
 for n in 8 7 6 5 4 3 2 1; do nights "$n" >/dev/null; done
 nights 0
