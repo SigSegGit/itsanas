@@ -1604,6 +1604,11 @@ fn a_peer_asking_about_an_unknown_user_gets_an_empty_answer() {
 /// that never answered.
 #[test]
 fn a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one() {
+    // A wildcard bind on a developer's Windows asks the firewall at every new
+    // test binary (Nicolas, 2026-11-18: a window per build); CI runs it.
+    if cfg!(windows) && std::env::var_os("CI").is_none() {
+        return;
+    }
     if std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_err() {
         // No IPv6 on this runner: nothing to dial it with.
         return;

@@ -58,8 +58,11 @@ use std::time::{Duration, Instant};
 /// Used to tell "the process died during key derivation" from "the process
 /// died mid-write", which is the difference between this test meaning
 /// something and not.
-fn count_blobs(root: &Path) -> usize {
-    fn walk(directory: &Path, found: &mut usize) {
+/// The bytes of chunks on disk under a store, in blob files or pack files: a
+/// store starts in packs since 2026-11-17, where a write grows a file instead
+/// of adding one.
+fn count_blobs(root: &Path) -> u64 {
+    fn walk(directory: &Path, found: &mut u64) {
         let Ok(entries) = std::fs::read_dir(directory) else {
             return;
         };
@@ -67,8 +70,8 @@ fn count_blobs(root: &Path) -> usize {
             let path = entry.path();
             if path.is_dir() {
                 walk(&path, found);
-            } else if path.extension().is_some_and(|e| e == "blob") {
-                *found += 1;
+            } else if path.extension().is_some_and(|e| e == "blob" || e == "pack") {
+                *found += entry.metadata().map_or(0, |metadata| metadata.len());
             }
         }
     }
@@ -300,7 +303,7 @@ fn a_store_killed_mid_write_never_lists_a_file_it_cannot_read() {
 
     let (payload, whole_write) = calibrate(&home, dir.path());
 
-    let blobs = home.join("store").join("blobs");
+    let blobs = home.join("store");
     let mut saw_partial_work = false;
 
     for (round, fraction) in KILL_AT.iter().enumerate() {

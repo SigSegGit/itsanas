@@ -48,6 +48,39 @@ use itsanas_discover::{
 /// waited a full announce interval to be noticed would look like a hang.
 const POLL: Duration = Duration::from_millis(500);
 
+/// The least time between two answers to machines asking who is here
+/// ([`answer_if_asked`]): a replayed beacon of the account cannot turn this
+/// node into a stream of packets.
+const ANSWER_EVERY: Duration = Duration::from_secs(2);
+
+/// Answer `announcement`, heard from `from`, with this node's own, sent to
+/// `from` alone, when it is one of the account's machines asking: it came from
+/// another port than the discovery port, which every daemon broadcasts from.
+/// A phone runs no daemon and cannot listen for 30 s at each sync; it asks
+/// and hears its machines within a second (`rounds::nearby`). Says whether it
+/// answered.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn answer_if_asked(
+    lan: &Lan,
+    device: &DeviceKeys,
+    household: &HouseholdKey,
+    service_port: u16,
+    discovery_port: u16,
+    heard: (&itsanas_discover::Announcement, std::net::SocketAddr),
+    last: &mut Option<Instant>,
+) -> bool {
+    let (announcement, from) = heard;
+    let asking = announcement.is_mine(household)
+        && announcement.device != device.device_id()
+        && from.port() != discovery_port;
+    if !asking || last.is_some_and(|at| at.elapsed() < ANSWER_EVERY) {
+        return false;
+    }
+    *last = Some(Instant::now());
+    lan.announce_to(device, household, service_port, from)
+        .is_ok()
+}
+
 /// How often the "packets failed to verify" summary is allowed to print.
 const COMPLAINT_INTERVAL: Duration = Duration::from_secs(300);
 
@@ -215,6 +248,8 @@ pub fn run(
     // other adapters than at start.
     let mut nets = LocalNets::of_this_machine();
     neighbourhood.listening();
+    let discovery_port = lan.local_addr().map_or(0, |at| at.port());
+    let mut answered: Option<Instant> = None;
 
     while !shutdown.load(Ordering::Relaxed) {
         if Instant::now() >= next_announce {
@@ -236,17 +271,26 @@ pub fn run(
             next_announce = Instant::now() + ANNOUNCE_INTERVAL;
         }
 
-        match lan.receive(POLL) {
+        match lan.receive_from(POLL) {
             Ok(Some((announcement, from))) => {
                 if announcement.device == device.device_id() {
                     // Our own broadcast, heard back. Not news.
                     continue;
                 }
+                answer_if_asked(
+                    lan,
+                    device,
+                    household,
+                    service_port,
+                    discovery_port,
+                    (&announcement, from),
+                    &mut answered,
+                );
                 report_via(
                     neighbourhood,
                     &announcement,
-                    from,
-                    nets.via_virtual(from),
+                    from.ip(),
+                    nets.via_virtual(from.ip()),
                     household,
                 );
             }

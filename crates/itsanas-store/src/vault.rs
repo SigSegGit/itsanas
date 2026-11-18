@@ -314,7 +314,16 @@ pub struct Vault {
     /// The disk check's cursor between writes ([`CHECK_CURSOR_STEP`]);
     /// `None` until the first check of this process, which reads it from disk.
     check_cursor: std::sync::Mutex<Option<CursorMemo>>,
+    /// Each owner's chunk store, opened once ([`Self::blobs_for`]): in pack
+    /// files an open is a database and a replay, and every chunk a peer sent
+    /// paid one (14 ms a put on the laptop against 3 in blob files). At most
+    /// [`OWNERS_KEPT_OPEN`].
+    stores: std::sync::Mutex<std::collections::BTreeMap<UserId, BlobStore>>,
 }
+
+/// How many owners' chunk stores a vault keeps open: a host holds a few
+/// accounts, and each open pack index holds a file and its cache.
+const OWNERS_KEPT_OPEN: usize = 64;
 
 /// Marks the vault suspect unless defused: held across a blob write or
 /// unlink and the commit that indexes it, so an early return or a panic in
@@ -534,6 +543,7 @@ impl Vault {
             // vault is dropped here and must leave the mark as it found it.
             suspect: std::sync::atomic::AtomicBool::new(true),
             check_cursor: std::sync::Mutex::new(None),
+            stores: std::sync::Mutex::new(std::collections::BTreeMap::new()),
         };
         vault.reconcile_chunks_if_needed()?;
         vault.backfill_segment_bytes()?;
@@ -589,7 +599,19 @@ impl Vault {
                 ),
             ));
         }
-        BlobStore::open(self.root.join("owners").join(owner.to_hex()))
+        let mut stores = self
+            .stores
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(store) = stores.get(&owner) {
+            return Ok(store.clone());
+        }
+        let store = BlobStore::open(self.root.join("owners").join(owner.to_hex()))?;
+        if stores.len() >= OWNERS_KEPT_OPEN {
+            stores.clear();
+        }
+        stores.insert(owner, store.clone());
+        Ok(store)
     }
 
     // ---------------------------------------------------------------- chunks
@@ -956,6 +978,11 @@ impl Vault {
         // The owner's own blob directory, now empty of chunks: left behind it
         // keeps the owner in `owners()`, and every later round asks about it.
         let directory = self.root.join("owners").join(owner.to_hex());
+        // Closed first: an open pack index is a file Windows will not delete.
+        self.stores
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&owner);
         match std::fs::remove_dir_all(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -2540,6 +2567,15 @@ mod tests {
             ChunkId::from_bytes([2; 32]),
             ChunkId::from_bytes([3; 32]),
         );
+        // A vault made before packs, one file per chunk: what this test is
+        // about. A shard directory makes the owner's store not new.
+        let shard = dir
+            .path()
+            .join("owners")
+            .join(owner.to_hex())
+            .join("blobs")
+            .join("00");
+        std::fs::create_dir_all(&shard).unwrap();
         let vault = Vault::open(dir.path()).unwrap();
         vault.put_chunk(owner, &a, &[1u8; 400]).unwrap();
         vault.put_chunk(owner, &b, &[2u8; 200]).unwrap();
@@ -2910,6 +2946,29 @@ mod tests {
              never reached"
         );
         assert!(!vault.chunks_for(owner).unwrap().contains(&chunks[2]));
+    }
+
+    /// Every chunk a peer sent opened its owner's pack index again, a database
+    /// and a replay: 4106 one-byte chunks took a minute in packs against 13 s
+    /// in blob files. Sabotage: do not keep the owner's store.
+    #[test]
+    fn red_team_a_vault_opens_an_owners_packs_once_not_once_a_chunk() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(1).user_id();
+        std::fs::create_dir_all(dir.path().join("owners").join(owner.to_hex())).unwrap();
+        drop(BlobStore::open_packed(dir.path().join("owners").join(owner.to_hex())).unwrap());
+        let vault = Vault::open(dir.path()).unwrap();
+        let before = crate::pack::OPENED.with(std::cell::Cell::get);
+        for index in 0..20u8 {
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes([index; 32]), &[index])
+                .unwrap();
+        }
+        let opened = crate::pack::OPENED.with(std::cell::Cell::get) - before;
+        assert!(
+            opened <= 1,
+            "twenty chunks for one owner opened its pack index {opened} times: every chunk a host receives pays a database open and a replay"
+        );
     }
 
     #[test]

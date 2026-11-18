@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_a_phone_hears"
+  ],
+  "defences": {
+    "lan: a daemon answers nobody who asks": {
+      "file": "crates/itsanas-cli/src/discovery.rs",
+      "live": "    lan.announce_to(device, household, service_port, from)\n        .is_ok()\n",
+      "dead": "    let _ = (lan, service_port, from);\n    false\n"
+    }
+  }
+}

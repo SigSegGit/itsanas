@@ -195,12 +195,8 @@ struct Farewell {
 fn tell_machines(node: &Node, targets: &[(String, Option<DeviceId>)]) -> usize {
     let mut told = 0;
     for (target, pinned) in targets {
-        if let Ok(mut client) = itsanas_net::PeerClient::connect(
-            itsanas_net::AddressList(target.as_str()),
-            &node.device,
-            node.store.owner(),
-            *pinned,
-        ) && client.leaving().is_ok()
+        if let Ok(mut client) = crate::rounds::connect(node, target, *pinned)
+            && client.leaving().is_ok()
         {
             told += 1;
         }
