@@ -299,7 +299,7 @@ for scenario in "PASS  V: every machine that says runs 0.1.13" "PASS  S pi" "PAS
     grep -qF "$scenario" "$WORK/run.log" || bad "the passing run has no '$scenario'"
 done
 
-grep -qF "note  T: no agent here drives a trash" "$WORK/run.log" ||
+grep -qF "SKIP  T: no agent here drives a trash" "$WORK/run.log" ||
     bad "a fleet of containers' agents ran no T and did not say so"
 
 machine tpi "$WORK/tsynced"

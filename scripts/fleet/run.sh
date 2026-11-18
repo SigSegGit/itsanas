@@ -429,7 +429,8 @@ else
     # it on (the default for every member), a delete waits in the account's
     # trash and `itsanas trash delete` sends it later: that purge had never
     # run across real machines (HANDOVER §8 10h). Only an agent that drives a
-    # native program offers it; a container's says so, a note.
+    # native program offers it; a container's says so in a note, and a run
+    # where none does is a SKIP.
     t_writer=""
     for host in "${up[@]}"; do
         [ "$host" != runner ] || continue
@@ -441,7 +442,9 @@ else
         esac
     done
     if [ -z "$t_writer" ]; then
-        say "note  T: no agent here drives a trash, so the purge across machines was not run"
+        # A SKIP, not a note: counted, it turns FAIL on its seventh night, so
+        # the laptop's agent losing T cannot leave the purge untested for good.
+        row SKIP "T: no agent here drives a trash, so the purge across machines was not run"
     else
         t_others=()
         for host in "${up[@]}"; do [ "$host" = "$t_writer" ] || t_others+=("$host"); done
