@@ -317,6 +317,9 @@ pub struct PeerService<'a> {
     disk_room: Option<&'a (dyn Fn() -> Option<u64> + Sync)>,
     /// The newest protocol this service admits to in `Hello`.
     protocol: u16,
+    /// Set to the time a machine of this node's own account last presented a
+    /// claim here ([`Self::noting_siblings`]).
+    sibling_seen: Option<&'a std::sync::atomic::AtomicU64>,
     /// Held across "is there room" and "store it".
     ///
     /// The listener serves connections concurrently, and the pledge check is a
@@ -351,6 +354,7 @@ impl<'a> PeerService<'a> {
             own_claim: None,
             disk_room: None,
             protocol: PROTOCOL_VERSION,
+            sibling_seen: None,
             storing: std::sync::Mutex::new(()),
         }
     }
@@ -384,6 +388,16 @@ impl<'a> PeerService<'a> {
 
     /// Bound what this host stores per account by `owners` (§8 1c). Without
     /// it only the host's own pledge applies, as before.
+    /// Note in `seen` when a live machine of this node's own account presents
+    /// its claim here: a contact it made, which a stranger cannot (the claim
+    /// is signed with the account's key). A public machine the others only
+    /// dial in to read `isolated` though they reached it at every round.
+    #[must_use]
+    pub const fn noting_siblings(mut self, seen: &'a std::sync::atomic::AtomicU64) -> Self {
+        self.sibling_seen = Some(seen);
+        self
+    }
+
     #[must_use]
     pub fn with_owners(mut self, owners: &'a dyn Owners) -> Self {
         self.owners = Some(owners);
@@ -810,6 +824,14 @@ impl<'a> PeerService<'a> {
                         // ever pushed to learns its siblings here.
                         if owner == self.store.owner() {
                             let _ = self.store.admit_member(&caller, false);
+                            if let Some(seen) = self.sibling_seen
+                                && self.store.is_member(&caller).unwrap_or(false)
+                            {
+                                seen.fetch_max(
+                                    itsanas_store::now_unix(),
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                            }
                         }
                     }
                     self.claim_answer()
