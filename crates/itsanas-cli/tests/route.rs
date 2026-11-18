@@ -116,9 +116,13 @@ fn free_port() -> u16 {
 
 /// Bytes `home` keeps for owners other than its own account.
 fn hosted_for_others(home: &Path) -> u64 {
+    // A database is not a chunk: since packs are the default, a vault opens
+    // an empty pack index (megabytes, preallocated) for an owner it has
+    // stored nothing for, and counting it read as hosting (CI, 2026-11-18).
     fn size(path: &Path) -> u64 {
         match std::fs::read_dir(path) {
             Ok(entries) => entries.flatten().map(|entry| size(&entry.path())).sum(),
+            Err(_) if path.extension().is_some_and(|ext| ext == "redb") => 0,
             Err(_) => std::fs::metadata(path).map_or(0, |m| m.len()),
         }
     }
