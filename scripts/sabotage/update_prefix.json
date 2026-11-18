@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_an_auto_update_where"
+  ],
+  "defences": {
+    "update: auto installs whatever the directory allows": {
+      "file": "crates/itsanas-cli/src/update.rs",
+      "live": "        Found::Available(manifest) if setting == Updates::Auto && updater.can_replace_itself() => {\n",
+      "dead": "        Found::Available(manifest) if setting == Updates::Auto => {\n"
+    }
+  }
+}

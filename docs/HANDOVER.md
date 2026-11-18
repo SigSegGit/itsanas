@@ -15,6 +15,23 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-17 (night): an automatic update where the program cannot be replaced is told, not
+failed.** Under a `--prefix` the service's account cannot write, `updates = auto` failed its
+install every day, said only in a log. `daily` now asks `can_replace_itself` first and, when it
+cannot, writes the notice as `notify` does; `install` refuses with the command to type. Plan
+`update_prefix.json`.
+
+**2026-11-17 (late): a noisy chunk is asked for once a round.** `apply_replaying` wraps its
+source in `AskedOnce` (`source.rs`): an address is fetched at most once per application of a
+round's segments, so a host serving noise for a chunk five files share costs one download, not
+five (ROADMAP, the integrity pass's residues). Plan `replay.json`, its second defence.
+
+**2026-11-17 (late): a machine the others dial in to is no longer `isolated`.** Only a round this
+node dialled out on counted as a contact, so the VM or the Pi, which the laptop dials, could read
+orange while synced. A live sibling presenting its claim to the listener counts now
+(`PeerService::noting_siblings`, the daemon's `SIBLING_SEEN` and `last_contact`); a stranger's
+claim, or another account's, does not. Plan `inbound_contact.json`.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits
@@ -4189,9 +4206,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    c. 🟨 **Small residues.** Done 2026-11-03: a device list cut at `MAX_PEERS_RETURNED` is not
       called complete, and the phone says when its vault takes no write. **Left, on purpose:**
       the desktop `show_words` debt needs a native window per platform, which nothing here can
-      test before a release; `isolated` on a public machine others only dial in to needs an
-      inbound contact a stranger cannot earn (`note_seen_if_known_at` is not that, since a dial
-      makes any peer known).
+      test before a release. ✅ 2026-11-17: `isolated` on a public machine others only dial in
+      to: a sibling presenting its claim, signed with the account's key, is the inbound contact a
+      stranger cannot earn (`PeerService::noting_siblings`,
+      `red_team_a_sibling_presenting_here_is_a_contact_and_a_stranger_is_not`).
 
 8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
    (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`
@@ -4233,7 +4251,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
   `--prefix` the daemon's account cannot write (`/usr/local`), the install
   fails there; the daily check no longer does (2026-11-16: its manifests
   fall back to a private directory with a random name,
-  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`).
+  `red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`),
+  and since 2026-11-17 `updates = auto` there tells the release as `notify`
+  does instead of failing every day, and `itsanas update` says to run it as
+  the account that installed it
+  (`red_team_an_auto_update_where_the_program_cannot_be_replaced_is_told_not_failed`).
 - ✅ **Fixed 2026-10-13: a source build is no longer told of an update it will refuse** (`check` runs `installed_from_release` when a newer release exists). Was: **A source build is told of an update it will refuse.** Since the key is
   pinned, a binary built from source outside `target/` (every machine
   installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,
