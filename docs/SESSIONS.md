@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-18 ~01:30 | ~25 min | fenêtre 5 h 28 % → 34 % ; hebdo 45 % → 46 % ; contexte ~690 k | §8 7(a) | au bout | 🟨 | la flotte passe ses comptes `test` en placement `measured` et en imprime les chiffres à chaque run ; la semaine de lecture commence au premier run | branche feat/fleet-measured |
 | 2026-11-18 ~00:10 | ~20 min | fenêtre 5 h 58 % → ~5 % (remise à zéro) ; hebdo 40 % → 41 % ; contexte ~520 k | hors §8 (§9 « A withdrawn device ») | au bout | ✅ | un hôte d'un autre compte apprend un retrait d'appareil de n'importe quelle machine du compte qui se présente chez lui | branche feat/withdrawals-to-hosts |
 | 2026-11-17 ~23:15 | ~25 min | fenêtre 5 h 41 % → 48 % ; hebdo 38 % → 39 % ; contexte ~430 k | hors §8 (§9 « A withdrawn device ») | au bout | 🟨 | un retrait d'appareil voyage entre les machines du compte sans coordinateur ; un hôte d'un autre compte ne l'apprend encore que du coordinateur ; #409 : l'iPhone demande « qui est là » une fois l'alerte précédente fermée | branche feat/withdrawals-travel |
 | 2026-11-18 ~00:20 | ~25 min | fenêtre 5 h ~2 % → ~6 % (remise à zéro) ; hebdo 41 % ; contexte ~560 k | hors §8 (§9 self-update) | au bout | ✅ | une mise à jour automatique là où le programme ne peut être remplacé est annoncée au lieu d'échouer chaque jour ; #432 et #433 fondues ici | branche feat/night-batch |
