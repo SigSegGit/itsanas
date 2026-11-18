@@ -61,6 +61,9 @@ machine() {
     printf 'snapshot %s every 300 version %s%s\naccount\n  username        test\nyour data\n  files           %s\n' \
         "$(($(date +%s) - age))" "${VERSION:-0.1.13}" "${copies:+ copies $copies}" "${FILES:-3}" \
         >"$WORK/$name/test/status.snapshot"
+    # Every node has a configuration; `placement measured` edits its one line.
+    [ -e "$WORK/$name/test/config" ] || printf 'placement = everyone
+' >"$WORK/$name/test/config"
     cat >"$WORK/$name/agent.conf" <<EOF
 FOLDER="$folder"
 KIT="$PWD/scripts/acceptance.sh"
@@ -139,6 +142,34 @@ agent trashy F delete "$fname" >/dev/null 2>&1
 [ "$(cat "$WORK/trashy/test/store/trash-days" 2>/dev/null)" = 0 ] && [ ! -e "$WORK/trashy-folder/$fname" ] &&
     ok "F delete turns the test home's trash off, then deletes" ||
     bad "F delete left the trash on, or deleted nothing: the delete would wait 30 days on the writer"
+
+# `measured` for a week on the fleet's test accounts (HANDOVER §8 7(a)): the
+# line set once, the daemon asked to restart on it once, nothing else of the
+# configuration touched, and the figures read back from the snapshot.
+machine placed "$WORK/placed-folder"
+printf 'pledge_bytes = 100\nplacement = everyone\n' >"$WORK/placed/test/config"
+out=$(agent placed placement measured 2>&1)
+if [ "${out%% *}" = PLACEMENT ] && grep -qx 'placement = measured' "$WORK/placed/test/config" &&
+    ! grep -qx 'placement = everyone' "$WORK/placed/test/config" &&
+    grep -qx 'pledge_bytes = 100' "$WORK/placed/test/config" &&
+    [ "$(cat "$WORK/placed/test/lifecycle" 2>/dev/null)" = restart ]; then
+    ok "placement measured sets the line and asks the daemon to restart"
+else
+    bad "placement measured did not set measured alone, or asked no restart: $out"
+fi
+rm -f "$WORK/placed/test/lifecycle"
+out=$(agent placed placement measured 2>&1)
+[ "$out" = "PLACEMENT measured, already" ] && [ ! -e "$WORK/placed/test/lifecycle" ] &&
+    ok "set already, it restarts nothing" || bad "set already, it asked a restart again: $out"
+printf 'availability, as this machine measured it\n  6c6c  up 97 %%\n  placement       measured\nvault\n' >>"$WORK/placed/test/status.snapshot"
+out=$(agent placed status test 2>&1)
+printf '%s\n' "$out" | grep -qx 'figure 6c6c  up 97 %' && printf '%s\n' "$out" | grep -qx 'figure placement       measured' &&
+    ! printf '%s\n' "$out" | grep -q '^figure vault' &&
+    ok "status reads the placement figures back" || bad "status did not read the placement figures: $out"
+for request in "placement everyone" "placement measured now" "placement"; do
+    out=$(agent placed "$request" 2>&1)
+    [ $? -eq 64 ] && [ "${out%% *}" = REFUSED ] && ok "refused: $request" || bad "not refused: $request -> $out"
+done
 
 MAX_FILES=1 machine capped "$WORK/capped-folder"
 agent capped B write >/dev/null 2>&1
@@ -641,6 +672,23 @@ if command -v pwsh >/dev/null 2>&1; then
     read -r _ _ _ _ _ _ _ wcode _ <<<"$out"
     out=$(winagent "B check $wcode" 2>&1)
     case "$out" in PASS*) ok "agent.ps1 writes and checks by code" ;; *) bad "agent.ps1 B: $out" ;; esac
+    # M10 on the laptop: convert-packs through the daemon, once. A stand-in
+    # `itsanas` says what the real one says and notes it was asked.
+    mkdir -p "$WORK/winbin" "$WORK/winhome/store/blobs/00"
+    : >"$WORK/winhome/store/blobs/00/one.blob"
+    printf '#!/bin/sh\necho "$*" >>"%s/asked"\necho "3 chunks moved into pack files, across 2 stores"\n' "$WORK" >"$WORK/winbin/itsanas"
+    chmod +x "$WORK/winbin/itsanas"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "convert packs" 2>&1)
+    case "$out" in
+        "PACKS converted: 3 chunks moved"*) grep -q "convert-packs" "$WORK/asked" 2>/dev/null &&
+            ok "agent.ps1 converts the test node to pack files" || bad "agent.ps1 said converted without asking itsanas" ;;
+        *) bad "agent.ps1 convert packs: $out" ;;
+    esac
+    rm -rf "$WORK/winhome/store/blobs" "$WORK/asked"
+    mkdir -p "$WORK/winhome/store/packs" && : >"$WORK/winhome/store/packs/index.redb"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "convert packs" 2>&1)
+    [ "${out%% *}" = PACKS ] && [ ! -e "$WORK/asked" ] &&
+        ok "a store in packs already is left alone" || bad "agent.ps1 converted a store already in packs: $out"
     if command -v flock >/dev/null 2>&1; then
         flock -s "$WORK/winreceipts/agent.lock" sleep 6 &
         sleep 0.5

@@ -32,6 +32,16 @@ orange while synced. A live sibling presenting its claim to the listener counts 
 (`PeerService::noting_siblings`, the daemon's `SIBLING_SEEN` and `last_contact`); a stranger's
 claim, or another account's, does not. Plan `inbound_contact.json`.
 
+**2026-11-18: `measured` runs on the fleet (§8 7(a)).** Both agents take `placement measured`:
+the `test` node's config gets the one line and its daemon a restart asked through `lifecycle`,
+once; `status` hands back the placement figures (`figure` lines), which `run.sh` prints as notes
+of row P. `check-fleet.sh` (under WSL) covers the line, the single restart, the figures and the
+refusals; plan `fleet-placement.json`. The week starts with the first nightly run after merge.
+Row Q: the laptop's agent converts its `test` node to pack files once (`convert packs`,
+`itsanas convert-packs` through the daemon), M10's first conversion on a real node; the
+containers' agent has no such request (a note). The PowerShell cases of `check-fleet.sh` run
+only where `pwsh` is (CI): not run here.
+
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled
 each host it names at every round, a connect timeout each when the machine was off. It now waits
@@ -4072,10 +4082,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 7. ✅ **Availability-aware placement.** Built 2026-10-19 (see §0; spec v3,
    ROADMAP "reachable copies" three steps). `placement = everyone | measured`,
-   default `everyone`; peer protocol 10 `MayEvict`. Left, in order: (a) ⬜ run
+   default `everyone`; peer protocol 10 `MayEvict`. Left, in order: (a) 🟨 run
    `measured` on the fleet before it is ever the default, and read the
    `status` figures (`up N %`, `longest absence`, chunks short) for a week
-   first; (b) ✅ a test that fails when a coordinator type reaches the roster
+   first: started 2026-11-18 (Nicolas: "fais-le, toi"), every fleet run sets it
+   on the `test` accounts (row P, `placement measured` in both agents) and
+   prints the figures as notes; the week counts from the first run that sets
+   it, then the default changes in `config.rs`; (b) ✅ a test that fails when a coordinator type reaches the roster
    builder (`red_team_no_coordinator_crate_can_reach_the_roster_builder`,
    2026-10-19); (c) ✅ the "same network" proxy for correlated hosts
    (2026-10-19, `itsanas-placement/src/network.rs`; hosts seen lately from one

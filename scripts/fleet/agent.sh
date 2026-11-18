@@ -32,6 +32,10 @@
 #   status snapshot;
 # * one request at a time: a second one while one runs is refused, so a
 #   leaked key cannot pile scans onto a Pi that also runs other services;
+# * set the `test` node's placement to `measured` and restart its daemon on it
+#   (`placement measured`, Nicolas 2026-11-18: a week on the fleet before it is
+#   ever the default, HANDOVER §8 7(a)); the one line, nothing else of the
+#   configuration, and only that value;
 # * bring this machine to the latest published release (`update`, update.sh),
 #   asked for by Nicolas on 2026-11-03 so that a run tests that release. It
 #   restarts the containers, and only when a new release exists. That request
@@ -139,6 +143,22 @@ case "$*" in
         room_for_one_more
         kit C plant "$FOLDER"
         ;;
+    "placement measured")
+        home=$(account_home test) || refuse "no test account on this machine"
+        conf="$home/config"
+        [ -f "$conf" ] && [ -w "$conf" ] || refuse "the test node has no configuration at $conf"
+        if grep -qx 'placement = measured' "$conf"; then
+            echo "PLACEMENT measured, already"
+        else
+            # The configuration is read at start: the line, then a restart
+            # asked through the home (lifecycle.rs), which the containers'
+            # restart policy and the Windows wrapper both answer.
+            { grep -v '^placement *=' "$conf"; echo 'placement = measured'; } >"$conf.new" &&
+                mv "$conf.new" "$conf" || refuse "could not write $conf"
+            printf 'restart\n' >"$home/lifecycle.new" && mv "$home/lifecycle.new" "$home/lifecycle"
+            echo "PLACEMENT measured, set: the test node restarts on it"
+        fi
+        ;;
     update | "update status")
         [ -n "${CHECKOUT:-}" ] && [ -r "$HERE/update.sh" ] || refuse "this agent cannot update: run setup.sh again"
         # 9>&-: the work outlives this request, and must not keep its lock.
@@ -226,9 +246,14 @@ case "$*" in
                 copies=$(sed -n '1s/.* copies \([0-9][0-9]* of [0-9][0-9]*\( since [0-9][0-9]*\)*\).*/\1/p' "$snapshot")
                 printf 'copies %s\n' "${copies:-none}"
                 grep -E '^  (username|device|files|live chunks)' "$snapshot"
+                # The figures `measured` places by, to read for a week before
+                # it is the default (HANDOVER §8 7(a)): one line each.
+                awk '/^availability, as this machine measured it/ { f = 1; next }
+                     f && /^  / { print "figure " substr($0, 3); next }
+                     f { exit }' "$snapshot"
                 ;;
             *)
-                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, status, update)"
+                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, status, placement measured, update)"
                 ;;
         esac
         ;;

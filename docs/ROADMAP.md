@@ -17,12 +17,12 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M4b Local discovery | `itsanas-discover` | ✅ **done** |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **placement by measured availability built behind `placement = measured` (default `everyone`); not run on the fleet** |
 | M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** |
-| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** |
-| M8 Three-device bring-up | — | ⬜ not started |
+| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | ✅ **done** (2026-11-18): a folder that syncs, alerts that fire when copies run short or rounds reach nobody, and no command refused while the service runs |
+| M8 Three-device bring-up | — | 🟨 the fleet runs every night since 2026-10-24 (`FLEET-CI.md`): the laptop, the VM and a runner away from home; the Pi skipped on its host key, and no power cut of all three yet |
 | M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
 | M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
-| M10 Pack files | `itsanas-store` | 🟨 built 2026-10-13, opt-in for new stores (`ITSANAS_PACKS=1`); never on Windows hardware, no conversion of existing stores |
+| M10 Pack files | `itsanas-store` | 🟨 built 2026-10-13, opt-in for new stores (`ITSANAS_PACKS=1`); `itsanas convert-packs` converts an existing store, run on the laptop's fleet node by the nightly run since 2026-11-18 (`FLEET-CI.md` row Q) |
 | M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
 
 This table used to carry a per-milestone test count. Those numbers were a second
@@ -1053,7 +1053,7 @@ below the floor — but nothing runs that plan yet.
 
 ---
 
-### M7 — Daemon, CLI and synced folder 🟨 (`itsanas-cli`, `itsanas-folder`)
+### M7 — Daemon, CLI and synced folder ✅ (`itsanas-cli`, `itsanas-folder`)
 
 The **CLI** landed early, because without it none of the layers below could be
 exercised by a human. See [QUICKSTART.md](QUICKSTART.md) for a walkthrough whose
@@ -1221,6 +1221,15 @@ Still to build:
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round
 stops completing.
+
+**Met 2026-11-18.** The folder syncs both ways on the fleet every night; the tray
+and `status` say `exposed` when a write has fewer copies than wanted past its
+grace (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`) and
+`isolated` when rounds reach nobody
+(`red_team_a_node_that_never_reached_anybody_turns_isolated`); and no command refuses while the service runs
+(`red_team_a_command_that_opens_the_store_stops_the_daemon_first`). Left, and not
+in the criteria: the phone does not say `unwritable`; no real disk was filled to
+watch `lowdisk`.
 
 ---
 

@@ -57,13 +57,16 @@ final class HandTest: E2eCase {
         try deleteFromList(row)
         app.buttons["files-trash"].tap()
         try waitFor("a file deleted again is not in the trash") { trashed.exists }
+        // A finger enrolled before the lock is asked: with none, the
+        // simulator's lock asks a passcode, which no simulated touch answers
+        // (CI, 2026-11-18: the sheet stayed and the file stayed in the trash).
+        enrol(true)
         trashed.swipeLeft()
         app.tables.buttons["Delete"].tap()
         let sure = app.alerts.firstMatch.buttons["Delete"]
         try waitFor("deleting from every machine asked nothing") { sure.exists }
         sure.tap()
-        try proveIdentity()
-        try waitFor("deleting from every machine left the file in the trash", seconds: 60) { !trashed.exists }
+        try proveIdentity { !trashed.exists }
         back()
         // The round that tells the computer.
         app.buttons["files-sync"].tap()
@@ -83,15 +86,26 @@ final class HandTest: E2eCase {
     /// "Cancel" nobody could see, the trash's rows unchanged). So a finger
     /// answers whatever is asking when no passphrase field came, and the
     /// caller checks the outcome: the file gone from the trash.
-    private func proveIdentity() throws {
+    private func proveIdentity(_ proved: () -> Bool) throws {
         let typed = app.alerts.firstMatch.secureTextFields["identity-pass"]
-        if typed.waitForExistence(timeout: 5) {
-            typed.tap()
-            typed.typeText(passphrase)
-            app.alerts.firstMatch.buttons["Confirm"].tap()
-        } else {
-            touch(matching: true)
+        // Polled, not `waitForExistence`: a wait that fails spends a minute
+        // collecting debug information while the lock's sheet waits.
+        let end = Date().addingTimeInterval(60)
+        var typedOnce = false
+        while Date() < end {
+            if proved() { return }
+            if typed.exists && !typedOnce {
+                typedOnce = true
+                typed.tap()
+                typed.typeText(passphrase)
+                app.alerts.firstMatch.buttons["Confirm"].tap()
+            } else if !typedOnce {
+                // A sheet drawn late misses a touch sent before it: touch again.
+                touch(matching: true)
+            }
+            Thread.sleep(forTimeInterval: 2)
         }
+        try fail("deleting from every machine left the file in the trash")
     }
 
     private func deleteFromList(_ row: XCUIElement) throws {

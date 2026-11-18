@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-18 ~01:30 | ~25 min | fenêtre 5 h 28 % → 34 % ; hebdo 45 % → 46 % ; contexte ~690 k | §8 7(a) | au bout | 🟨 | la flotte passe ses comptes `test` en placement `measured` et en imprime les chiffres à chaque run ; la semaine de lecture commence au premier run | branche feat/fleet-measured |
 | 2026-11-18 ~00:20 | ~25 min | fenêtre 5 h ~2 % → ~6 % (remise à zéro) ; hebdo 41 % ; contexte ~560 k | hors §8 (§9 self-update) | au bout | ✅ | une mise à jour automatique là où le programme ne peut être remplacé est annoncée au lieu d'échouer chaque jour ; #432 et #433 fondues ici | branche feat/night-batch |
 | 2026-11-17 ~23:50 | ~15 min | fenêtre 5 h 51 % → 55 % ; hebdo 39 % → 40 % ; contexte ~480 k | hors §8 (§8 9c, M7) | au bout | ✅ | une machine que les autres appellent ne se dit plus `isolated` : un appareil du compte qui présente sa revendication compte comme un contact | branche feat/inbound-contact |
 | 2026-11-17 ~23:35 | ~10 min | fenêtre 5 h 48 % → 51 % ; hebdo 39 % ; contexte ~450 k | hors §8 (ROADMAP, résidu d'intégrité) | au bout | ✅ | un morceau bruité partagé par plusieurs fichiers n'est plus demandé qu'une fois par tour | branche feat/noise-once |
