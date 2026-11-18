@@ -214,6 +214,38 @@ while [ ${#updating[@]} -gt 0 ]; do
     sleep "$POLL"
 done
 
+# ----------------------------- P: the test accounts place by measurement
+# HANDOVER §8 7(a), Nicolas 2026-11-18: `measured` runs on the fleet's test
+# accounts for a week before it is ever the default. Each run sets it (the
+# first one restarts the daemon on it); row S below prints the figures.
+for host in "${up[@]}"; do
+    [ "$host" != runner ] || continue
+    out=$(ask "$host" placement measured 2>&1)
+    case "$out" in
+        PLACEMENT*) row PASS "P $host: ${out#PLACEMENT }" ;;
+        REFUSED*"unknown request"*)
+            say "note  P $host: its agent cannot set the placement (run scripts/fleet/setup.sh there again)"
+            ;;
+        *) row FAIL "P $host: $(printf '%s' "$out" | head -1)" ;;
+    esac
+done
+
+# ------------------------------ Q: a store made before packs converts (M10)
+# `convert-packs` had never run on a real node. The laptop's agent runs it on
+# its test node, through the daemon, once; afterwards it says so. The
+# containers' agent has no such request yet: a note, not a row.
+for host in "${up[@]}"; do
+    [ "$host" != runner ] || continue
+    out=$(ask "$host" convert packs 2>&1)
+    case "$out" in
+        PACKS*) row PASS "Q $host: ${out#PACKS }" ;;
+        REFUSED*"unknown request"*)
+            say "note  Q $host: its agent does not convert to pack files (a container's, or older than this row)"
+            ;;
+        *) row FAIL "Q $host: $(printf '%s' "$out" | head -1)" ;;
+    esac
+done
+
 if [ ${#up[@]} -lt 2 ]; then
     row FAIL "fewer than two machines answered (${up[*]:-none}): nothing crossed a network, so nothing was tested"
 else
@@ -234,6 +266,10 @@ else
         version_of[$host]=$(printf '%s\n' "$out" | sed -n 's/^version //p' | head -1)
         every_of[$host]=$every
         now_of[$host]=$now
+        # What `measured` reads, for the week before it is the default.
+        while IFS= read -r figure; do
+            [ -n "$figure" ] && say "note  P $host: $figure"
+        done <<<"$(printf '%s\n' "$out" | sed -n 's/^figure //p')"
         # The runner (member.sh) runs this checkout, not a release: only the
         # machines' own daemons are compared below.
         if [ "$host" != runner ]; then
