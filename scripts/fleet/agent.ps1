@@ -119,6 +119,33 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
         Write-Output 'PLACEMENT measured, set: the test node restarts on it'
         exit 0
     }
+    'convert packs' {
+        # M10: a store made before pack files, converted on a real node, which
+        # had never been done. `itsanas convert-packs` hands it to the running
+        # daemon (it stops its run, converts with the store closed, starts
+        # again); a store already in packs is left alone, so a nightly run
+        # converts once.
+        if ($n -ne 2) { Refuse 'usage: convert packs' }
+        $test = $conf.Homes.PSObject.Properties | Where-Object { $_.Name -ceq 'test' } | Select-Object -First 1
+        if (-not $test) { Refuse 'no test account on this machine' }
+        $testHome = [string] $test.Value
+        $store = Join-Path $testHome 'store'
+        $packed = Test-Path -LiteralPath (Join-Path (Join-Path $store 'packs') 'index.redb')
+        $blobs = @(Get-ChildItem -LiteralPath (Join-Path $store 'blobs') -Recurse -File -Filter '*.blob' -ErrorAction SilentlyContinue).Count
+        if ($packed -and $blobs -eq 0) {
+            Write-Output 'PACKS already: the test node keeps its chunks in pack files'
+            exit 0
+        }
+        $itsanas = Get-Command itsanas -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $itsanas) { Refuse 'no itsanas program on this machine' }
+        $said = @(& $itsanas.Source --home $testHome convert-packs 2>&1 | ForEach-Object { "$_" })
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "FAILED $($said | Select-Object -Last 1)"
+            exit 1
+        }
+        Write-Output "PACKS converted: $($said | Select-Object -Last 1)"
+        exit 0
+    }
     'C plant' {
         if ($n -ne 2) { Refuse 'usage: C plant' }
         Room-For-One-More
@@ -173,6 +200,6 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             }
             exit 0
         }
-        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status, placement measured)"
+        Refuse "unknown request '$request' (hello, B|E write|check, C plant, F delete|check, status, placement measured, convert packs)"
     }
 }

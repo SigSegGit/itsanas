@@ -37,6 +37,10 @@ the `test` node's config gets the one line and its daemon a restart asked throug
 once; `status` hands back the placement figures (`figure` lines), which `run.sh` prints as notes
 of row P. `check-fleet.sh` (under WSL) covers the line, the single restart, the figures and the
 refusals; plan `fleet-placement.json`. The week starts with the first nightly run after merge.
+Row Q: the laptop's agent converts its `test` node to pack files once (`convert packs`,
+`itsanas convert-packs` through the daemon), M10's first conversion on a real node; the
+containers' agent has no such request (a note). The PowerShell cases of `check-fleet.sh` run
+only where `pwsh` is (CI): not run here.
 
 **2026-11-17 (evening): a host of another account that is off is no longer dialled every
 round.** The coordinator keeps an address a week (`PRESENCE_TTL`) and `dial_introduced` dialled

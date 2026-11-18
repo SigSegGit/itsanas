@@ -672,6 +672,23 @@ if command -v pwsh >/dev/null 2>&1; then
     read -r _ _ _ _ _ _ _ wcode _ <<<"$out"
     out=$(winagent "B check $wcode" 2>&1)
     case "$out" in PASS*) ok "agent.ps1 writes and checks by code" ;; *) bad "agent.ps1 B: $out" ;; esac
+    # M10 on the laptop: convert-packs through the daemon, once. A stand-in
+    # `itsanas` says what the real one says and notes it was asked.
+    mkdir -p "$WORK/winbin" "$WORK/winhome/store/blobs/00"
+    : >"$WORK/winhome/store/blobs/00/one.blob"
+    printf '#!/bin/sh\necho "$*" >>"%s/asked"\necho "3 chunks moved into pack files, across 2 stores"\n' "$WORK" >"$WORK/winbin/itsanas"
+    chmod +x "$WORK/winbin/itsanas"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "convert packs" 2>&1)
+    case "$out" in
+        "PACKS converted: 3 chunks moved"*) grep -q "convert-packs" "$WORK/asked" 2>/dev/null &&
+            ok "agent.ps1 converts the test node to pack files" || bad "agent.ps1 said converted without asking itsanas" ;;
+        *) bad "agent.ps1 convert packs: $out" ;;
+    esac
+    rm -rf "$WORK/winhome/store/blobs" "$WORK/asked"
+    mkdir -p "$WORK/winhome/store/packs" && : >"$WORK/winhome/store/packs/index.redb"
+    out=$(PATH="$WORK/winbin:$PATH" winagent "convert packs" 2>&1)
+    [ "${out%% *}" = PACKS ] && [ ! -e "$WORK/asked" ] &&
+        ok "a store in packs already is left alone" || bad "agent.ps1 converted a store already in packs: $out"
     if command -v flock >/dev/null 2>&1; then
         flock -s "$WORK/winreceipts/agent.lock" sleep 6 &
         sleep 0.5

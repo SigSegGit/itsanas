@@ -230,6 +230,22 @@ for host in "${up[@]}"; do
     esac
 done
 
+# ------------------------------ Q: a store made before packs converts (M10)
+# `convert-packs` had never run on a real node. The laptop's agent runs it on
+# its test node, through the daemon, once; afterwards it says so. The
+# containers' agent has no such request yet: a note, not a row.
+for host in "${up[@]}"; do
+    [ "$host" != runner ] || continue
+    out=$(ask "$host" convert packs 2>&1)
+    case "$out" in
+        PACKS*) row PASS "Q $host: ${out#PACKS }" ;;
+        REFUSED*"unknown request"*)
+            say "note  Q $host: its agent does not convert to pack files (a container's, or older than this row)"
+            ;;
+        *) row FAIL "Q $host: $(printf '%s' "$out" | head -1)" ;;
+    esac
+done
+
 if [ ${#up[@]} -lt 2 ]; then
     row FAIL "fewer than two machines answered (${up[*]:-none}): nothing crossed a network, so nothing was tested"
 else
