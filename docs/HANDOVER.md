@@ -15,6 +15,15 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-18: a phone finds its machines on the local network (M12).** A phone runs no daemon,
+so it heard beacons only by listening through their 30 s interval, and with no coordinator to read
+it reached no machine at home. `sync_node` now asks first when no address is typed in
+(`rounds::nearby`: a beacon from an ephemeral port, 1.5 s of listening), and a daemon answers a
+beacon of its account that comes from another port than the discovery port with its own, sent
+back to it, at most every 2 s (`discovery::answer_if_asked`, `Lan::receive_from`,
+`Lan::announce_to`). Plan `lan_probe.json`. Not seen on a real Wi-Fi; an iPhone cannot broadcast
+without Apple's multicast entitlement, so it hears nothing yet (the send fails, nothing else).
+
 **2026-11-17 (night): a new store starts in pack files; a phone dials like a computer.** Packs
 (M10) are the default for a store with nothing in it yet: 2.2 times faster to write on Windows
 with Defender on, no file per chunk (`blob.rs`, `ITSANAS_PACKS=0` keeps blob files;

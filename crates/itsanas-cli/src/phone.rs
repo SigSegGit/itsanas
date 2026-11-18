@@ -428,7 +428,17 @@ pub fn sync_node(node: &Node, metadata_only: bool, now: u64) -> Answer {
     let _ = itsanas_node::coordinator::ensure_enrolled(node, now);
     let _ = itsanas_node::coordinator::refresh_others_pledged(node);
 
-    let targets = targets(node);
+    let mut targets = targets(node);
+    // The account's machines on this network, asked, ahead of the rest: a
+    // phone runs no daemon to hear their beacons, and at home with no
+    // coordinator to read it reached none. Not when an address was typed in:
+    // the person said where.
+    if node.config.peers.is_empty() {
+        let mut near = crate::rounds::nearby(node);
+        near.retain(|(at, _)| !targets.iter().any(|(known, _)| known == at));
+        near.append(&mut targets);
+        targets = near;
+    }
     if targets.is_empty() {
         // The wait starts here: a phone with no machine yet is reaching nobody.
         crate::note_phone_contact(&node.home, false, now);

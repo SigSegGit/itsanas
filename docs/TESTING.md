@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1685 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 632 are red-team tests.**
+**Last updated: 2026-11-16 — 1686 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 633 are red-team tests.**
 
-**1569 of the 1685 tests have an entry of their own on this page** — an *entry*,
+**1570 of the 1686 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 372 |
+| `itsanas-cli` unit | 373 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 19 |
 | `itsanas-drive` unit | 21 |
@@ -224,7 +224,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 39 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 219 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 220 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1267,7 +1267,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (372)
+# `itsanas-cli` — unit tests (373)
 
 ## `bench` — measuring this machine (4)
 
@@ -1670,10 +1670,11 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
 
-## `rounds` — one round per machine, a parked machine through its relay (2)
+## `rounds` — one round per machine, a parked machine through its relay, the machines on this network (3)
 
 | Test | What it proves |
 |---|---|
+| **`red_team_a_phone_hears_its_accounts_machine_on_the_local_network`** | ROADMAP M12: a phone asks on its network (a beacon from its own port) and a daemon of its account answers it at once, so it hears the machine in a second rather than through a 30 s beacon interval; a phone of another account hears nothing. Sabotaged (the daemon answering nobody): red. |
 | **`red_team_a_machine_listed_at_two_addresses_gets_one_round`** | A machine listed at two addresses that both answer gets one round from a phone, not one at each: the phone pushed and pulled twice for one machine. Sabotaged (every address dialled): red. |
 | **`red_team_a_phone_dials_a_parked_machine_through_its_relay`** | A machine of the account the coordinator lists at `relay:<relay>@<address>` is among a phone's targets, pinned, in the form the relayed dial takes; the phone's own list dropped it, so away from home a phone reached no parked machine. Sabotaged (`relay:` dropped): red. |
 

@@ -21,6 +21,67 @@ pub fn targets(node: &Node) -> Vec<(String, Option<DeviceId>)> {
     crate::account_targets(node, None)
 }
 
+/// How long a phone listens for its machines on the local network.
+pub const NEARBY_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// The account's machines on this local network, asked: a beacon from an
+/// ephemeral port, which their daemons answer at once
+/// (`discovery::answer_if_asked`). A phone runs no daemon, so without asking
+/// it would hear one only by listening through a 30 s beacon interval; with
+/// no coordinator to read (none reachable, no internet at home) it reached
+/// none of them (ROADMAP M12). Empty when the network allows no broadcast.
+pub fn nearby(node: &Node) -> Vec<(String, Option<DeviceId>)> {
+    itsanas_discover::Lan::announcer(itsanas_discover::DEFAULT_PORT)
+        .map(|lan| heard_nearby(node, &lan, NEARBY_WAIT))
+        .unwrap_or_default()
+}
+
+/// [`nearby`] on `lan`, for `wait`.
+pub fn heard_nearby(
+    node: &Node,
+    lan: &itsanas_discover::Lan,
+    wait: std::time::Duration,
+) -> Vec<(String, Option<DeviceId>)> {
+    let household = itsanas_discover::HouseholdKey::of(&node.user);
+    // The beacon names a port; a phone that hosts listens there, and one that
+    // does not is dialled there for nothing and backed off.
+    let port = node
+        .config
+        .listen
+        .rsplit(':')
+        .next()
+        .and_then(|port| port.parse::<u16>().ok())
+        .filter(|port| *port != 0)
+        .unwrap_or(9797);
+    if lan.announce(&node.device, &household, port).is_err() {
+        return Vec::new();
+    }
+    let mine = node.store.device_id();
+    let until = std::time::Instant::now() + wait;
+    let mut heard = std::collections::BTreeMap::new();
+    while let Some(left) = until
+        .checked_duration_since(std::time::Instant::now())
+        .filter(|left| !left.is_zero())
+    {
+        match lan.receive_from(left) {
+            Ok(Some((announcement, from)))
+                if announcement.is_mine(&household) && announcement.device != mine =>
+            {
+                heard.insert(
+                    announcement.device,
+                    std::net::SocketAddr::new(from.ip(), announcement.port).to_string(),
+                );
+            }
+            Ok(None) => break,
+            _ => {}
+        }
+    }
+    heard
+        .into_iter()
+        .map(|(device, at)| (at, Some(device)))
+        .collect()
+}
+
 /// Dial `target`, through its relay when it is parked (`connect_peer`).
 ///
 /// # Errors
@@ -124,6 +185,64 @@ mod tests {
                 "a machine listed at two addresses got a round at each: a phone's sync pushes and pulls twice for one machine ({totals:?})"
             );
         });
+    }
+
+    /// ROADMAP M12: a phone with no coordinator to read reached none of its
+    /// machines on the same Wi-Fi, since it runs no daemon to hear beacons.
+    /// It asks now, and a machine of the account answers it at once; a
+    /// machine of another account does not. Sabotage: the daemon answers
+    /// nobody.
+    #[test]
+    fn red_team_a_phone_hears_its_accounts_machine_on_the_local_network() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nowhere: std::net::SocketAddr = "127.0.0.1:9".parse().expect("address");
+        let (nas, phrase) =
+            crate::testing::phone(&dir.path().join("nas"), nowhere, "camille", None);
+        let (phone, _) =
+            crate::testing::phone(&dir.path().join("phone"), nowhere, "camille", Some(&phrase));
+        let (stranger, _) =
+            crate::testing::phone(&dir.path().join("stranger"), nowhere, "bob", None);
+        let loopback: std::net::SocketAddr = "127.0.0.1:0".parse().expect("address");
+        let daemon = itsanas_discover::Lan::bind_to(loopback, Vec::new()).expect("bind");
+        let at = daemon.local_addr().expect("address");
+        let answering = |node: &itsanas_node::Node| {
+            let household = itsanas_discover::HouseholdKey::of(&node.user);
+            let mut last = None;
+            if let Ok(Some((announcement, from))) =
+                daemon.receive_from(std::time::Duration::from_secs(5))
+            {
+                crate::discovery::answer_if_asked(
+                    &daemon,
+                    &node.device,
+                    &household,
+                    9811,
+                    at.port(),
+                    (&announcement, from),
+                    &mut last,
+                );
+            }
+        };
+        let asking = |node: &itsanas_node::Node| {
+            let lan = itsanas_discover::Lan::bind_to(loopback, vec![at]).expect("bind");
+            heard_nearby(node, &lan, std::time::Duration::from_secs(2))
+        };
+        let heard = std::thread::scope(|scope| {
+            scope.spawn(|| answering(&nas));
+            asking(&phone)
+        });
+        assert_eq!(
+            heard,
+            vec![("127.0.0.1:9811".to_owned(), Some(nas.store.device_id()))],
+            "a phone asking on the local network did not hear its account's machine"
+        );
+        let heard = std::thread::scope(|scope| {
+            scope.spawn(|| answering(&nas));
+            asking(&stranger)
+        });
+        assert!(
+            heard.is_empty(),
+            "a machine answered a phone of another account: {heard:?}"
+        );
     }
 
     /// A machine parked on a relay (§8 0v) is a phone's target, pinned and in
