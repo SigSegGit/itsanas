@@ -321,7 +321,40 @@ pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>
     crate::path::validate(path)?;
     let owner = store.owner();
     let mine = store.device_id();
-    let mut bodies = Vec::new();
+    let current = walk_vault(store, vault, owner, mine)?
+        .latest
+        .remove(path)
+        .and_then(|latest| latest.file.map(|file| file.version));
+    let held = store.stat(path)?.map(|entry| entry.version);
+    // Kept as read, segment by segment: only this path's writes stay in
+    // memory, not the account's whole history.
+    let mut found: Vec<Version> = Vec::new();
+    let mut keep = |entries: Vec<crate::oplog::LogEntry>| {
+        for entry in entries {
+            let Operation::Upsert {
+                path: written,
+                entry,
+            } = entry.operation
+            else {
+                continue;
+            };
+            if written != path
+                || found
+                    .iter()
+                    .any(|known| known.entry.version == entry.version)
+            {
+                continue;
+            }
+            found.push(Version {
+                modified_unix: entry.modified_unix,
+                size: entry.size,
+                author: entry.author,
+                here: entry.chunks.iter().all(|chunk| store.has_chunk(chunk)),
+                current: Some(&entry.version) == held.as_ref().or(current.as_ref()),
+                entry,
+            });
+        }
+    };
     for (device, _, _) in vault.heads_for(owner)? {
         if device == mine {
             continue;
@@ -329,45 +362,14 @@ pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>
         for envelope in vault.segments_for(owner, device, None, MAX_SEGMENTS_WALKED)? {
             // A chain that does not open is left out here as in the listing.
             if let Ok(body) = store.open_segment(&envelope) {
-                bodies.extend(body.entries);
+                keep(body.entries);
             }
         }
     }
     for envelope in store.segments()? {
-        bodies.extend(store.open_segment(&envelope)?.entries);
+        keep(store.open_segment(&envelope)?.entries);
     }
-    bodies.extend(store.unsealed_entries()?);
-
-    let current = walk_vault(store, vault, owner, mine)?
-        .latest
-        .remove(path)
-        .and_then(|latest| latest.file.map(|file| file.version));
-    let held = store.stat(path)?.map(|entry| entry.version);
-    let mut found: Vec<Version> = Vec::new();
-    for entry in bodies {
-        let Operation::Upsert {
-            path: written,
-            entry,
-        } = entry.operation
-        else {
-            continue;
-        };
-        if written != path
-            || found
-                .iter()
-                .any(|known| known.entry.version == entry.version)
-        {
-            continue;
-        }
-        found.push(Version {
-            modified_unix: entry.modified_unix,
-            size: entry.size,
-            author: entry.author,
-            here: entry.chunks.iter().all(|chunk| store.has_chunk(chunk)),
-            current: Some(&entry.version) == held.as_ref().or(current.as_ref()),
-            entry,
-        });
-    }
+    keep(store.unsealed_entries()?);
     found.sort_by(|a, b| {
         b.modified_unix
             .cmp(&a.modified_unix)
