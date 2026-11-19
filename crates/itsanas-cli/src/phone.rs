@@ -711,6 +711,64 @@ mod tests {
         });
     }
 
+    /// HANDOVER §9, "Tail truncation": a host can serve a consistent prefix
+    /// of a sibling's chain, every segment genuine and the last ones withheld,
+    /// and a machine that met only that host listed the account as complete.
+    /// The laptop writes twice, the Pi met it after the first only, and the
+    /// VM syncs through the Pi alone; the laptop's signed presence says two
+    /// segments, so the VM's listing says it is short and names the laptop.
+    /// Sabotage: the listing ignores what devices signed.
+    #[test]
+    fn red_team_a_host_serving_the_start_of_a_chain_is_caught() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (mut laptop, phrase) =
+                crate::testing::phone(&dir.path().join("laptop"), coordinator, "camille", None);
+            let (mut pi, _) = crate::testing::phone(
+                &dir.path().join("pi"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (mut vm, _) = crate::testing::phone(
+                &dir.path().join("vm"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            itsanas_node::coordinator::register_with(&laptop, None, unix_now())
+                .expect("the laptop enrols");
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"the first file").expect("source");
+            put_file(&laptop, "first.txt", source.to_str().expect("utf-8")).expect("put");
+            crate::testing::serving(&laptop, |at| {
+                pi.config.peers.push(at.to_string());
+                sync_node(&pi, false, unix_now()).expect("the Pi's round");
+            });
+            std::fs::write(&source, b"the second file").expect("source");
+            put_file(&laptop, "second.txt", source.to_str().expect("utf-8")).expect("put");
+            laptop.config.announce = Some("127.0.0.1:9".to_owned());
+            itsanas_node::coordinator::announce(&laptop, "127.0.0.1:9", unix_now())
+                .expect("the laptop publishes where it is, and how long its log is");
+
+            pi.config.peers.clear();
+            crate::testing::serving(&pi, |at| {
+                vm.config.peers.push(at.to_string());
+                sync_node(&vm, true, unix_now()).expect("the VM's round");
+            });
+            let listing = itsanas_store::catalogue(&vm.store, &vm.vault).expect("listing");
+            assert!(
+                listing.files.iter().any(|file| file.path == "first.txt"),
+                "the fixture's Pi did not hand the VM the laptop's first file"
+            );
+            assert!(
+                !listing.complete && listing.behind.contains(&laptop.store.device_id()),
+                "a host served only the start of the laptop's log and the VM's listing reads as the whole account: {:?}",
+                listing.behind
+            );
+        });
+    }
+
     /// A round's report names what arrived, what changed and what left, and
     /// counts past the few it names. Sabotage: compare paths only, so an edit
     /// made on a computer goes unreported.

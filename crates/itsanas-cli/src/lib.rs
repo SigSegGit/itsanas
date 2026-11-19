@@ -2893,6 +2893,18 @@ fn listing(node: &Node) -> Result<String> {
     if let Some(left_out) = describe_left_out(&known) {
         let _ = writeln!(out, "note: {left_out}");
     }
+    if !known.behind.is_empty() {
+        let _ = writeln!(
+            out,
+            concat!(
+                "note: {} machine(s) of this account wrote more than has reached this one{}: ",
+                "their last files and deletes are not in this list yet (a host serving only ",
+                "the start of their log, or the rest not pushed anywhere this machine reached)"
+            ),
+            known.behind.len(),
+            name_devices(&known.behind, known.behind.len())
+        );
+    }
 
     if known.files.is_empty() {
         let _ = writeln!(out, "(no files)");
@@ -6384,6 +6396,7 @@ mod tests {
             files: Vec::new(),
             complete: true,
             left_out: Vec::new(),
+            behind: Vec::new(),
         };
         assert_eq!(super::describe_left_out(&whole), None);
 
@@ -6392,6 +6405,7 @@ mod tests {
             files: Vec::new(),
             complete: false,
             left_out: vec![device],
+            behind: Vec::new(),
         };
         let line = super::describe_left_out(&short).unwrap_or_default();
         assert!(

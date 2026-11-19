@@ -348,6 +348,11 @@ pub struct Contact {
     /// they are not dialled ([`Self::introduced_due`]). At most
     /// [`MAX_DEVICES`]; not kept on disk, as `quiet` is not.
     host_quiet: BTreeMap<DeviceId, (u32, Instant)>,
+    /// The longest chain each machine of the account signed in a presence a
+    /// sibling relayed this round ([`Self::relayed`]), for the store to keep
+    /// ([`Self::take_relayed_heads`]): how a machine learns how long the
+    /// others' logs are with no coordinator at all.
+    relayed_heads: BTreeMap<DeviceId, u64>,
 }
 
 /// How long a host found by [`Contact::hosts_reached`] stays a relay
@@ -1086,6 +1091,10 @@ impl Contact {
                 outcome.forged += 1;
                 continue;
             }
+            // Signed by the device itself: whoever relays it cannot make it
+            // longer, and a shorter one changes nothing kept.
+            let longest = self.relayed_heads.entry(device).or_default();
+            *longest = (*longest).max(row.presence.presence.head);
             let Some(held) = self.book.get(&device) else {
                 outcome.unknown += 1;
                 continue;
@@ -1112,6 +1121,11 @@ impl Contact {
             outcome.kept += 1;
         }
         outcome
+    }
+
+    /// The chain lengths [`Self::relayed`] gathered since the last call.
+    pub fn take_relayed_heads(&mut self) -> BTreeMap<DeviceId, u64> {
+        std::mem::take(&mut self.relayed_heads)
     }
 
     /// What this node answers a machine of its account that asks where the
@@ -2384,6 +2398,7 @@ mod tests {
             device: keys.device_id(),
             address: address.to_owned(),
             at_unix: 0,
+            head: 0,
         }
         .sign(&keys)
     }
@@ -2462,6 +2477,7 @@ mod tests {
                 device: keys.device_id(),
                 address: "192.168.1.20:9797".to_owned(),
                 at_unix,
+                head: 0,
             }
             .sign(&keys)
         };
@@ -2743,6 +2759,7 @@ mod tests {
                 device: keys.device_id(),
                 address: address.to_owned(),
                 at_unix: at,
+                head: 0,
             }
             .sign(&keys),
             claim: NodeClaim {
@@ -2754,6 +2771,38 @@ mod tests {
             }
             .sign(account),
         }
+    }
+
+    /// HANDOVER §9, "Tail truncation", with no coordinator: a sibling
+    /// relaying where the account's machines are hands on how long each one
+    /// signed its log, and only a row that verifies counts. Sabotage: keep no
+    /// relayed head.
+    #[test]
+    fn red_team_a_relayed_presence_says_how_long_its_devices_log_is() {
+        let account = owner(1);
+        let pi = dated(&account, 2, HOME, 100, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([2; 32]));
+        let mut longer = pi.clone();
+        longer.presence = Presence {
+            device: keys.device_id(),
+            address: HOME.to_owned(),
+            at_unix: 200,
+            head: 7,
+        }
+        .sign(&keys);
+        let mut forged = longer.clone();
+        forged.presence.presence.head = 99;
+        contact.relayed(&encoded(&[forged, longer]), me(), this_machine(), NOW);
+        assert_eq!(
+            contact.take_relayed_heads().get(&keys.device_id()),
+            Some(&7),
+            "a sibling's relayed presence said nothing of how long the Pi's log is, or a forged length counted"
+        );
+        assert!(
+            contact.take_relayed_heads().is_empty(),
+            "the heads were handed over twice"
+        );
     }
 
     fn encoded(rows: &[ClaimedPresence]) -> Vec<Vec<u8>> {

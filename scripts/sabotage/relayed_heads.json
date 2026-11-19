@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-node",
+    "--lib",
+    "red_team_a_relayed_presence_says"
+  ],
+  "defences": {
+    "heads: a relayed presence's length is not kept": {
+      "file": "crates/itsanas-node/src/contact.rs",
+      "live": "            *longest = (*longest).max(row.presence.presence.head);\n",
+      "dead": "            let _ = &longest;\n"
+    }
+  }
+}
