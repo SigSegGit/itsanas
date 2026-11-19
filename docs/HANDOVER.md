@@ -15,6 +15,12 @@ WRITTEN-AT: 2026-11-17
 BASE: 25720ae
 -->
 
+**2026-11-19: #409's iPhone run, the end check.** Every UI test passed; then the computer still
+listed `to-trash.txt`, deleted for good on the phone, after about 160 s. The core is not the cause:
+`a_file_deleted_for_good_on_a_phone_leaves_the_computer` (phone.rs) passes once the computer runs
+`drain_vault`, as its daemon does at each beat, and fails without it. So on the Mac the daemon did
+not apply the phone's push (refused chain, or a round holding its loop). `iphone-e2e.sh` now waits
+for its `pushed to us:` line and prints `computer.log` when the check fails: read that first.
 **2026-11-18: the fleet runs the trash's purge (§8 10h, row T).** F turns the trash off to test a
 delete reaching everyone at once; T keeps it on: a file deleted on the laptop waits in the
 account's trash (`T held`), `itsanas trash delete` sends it (`T purge`), and the run checks it

@@ -117,7 +117,17 @@ fi
 # Step 3's end, on the computer: read once its daemon has let the store go.
 if [ "$status" = 0 ] && [ -z "$only" ]; then
     echo "== what the computer holds after the phone's delete"
-    sleep 6
+    # The daemon applies what the phone pushed at the top of its loop
+    # (`drain_vault`) and says "pushed to us:" when that changed anything.
+    # Waited for, up to 30 s, rather than a fixed six seconds; its absence is
+    # said, and the computer's log is shown below when the check fails.
+    for _ in $(seq 30); do
+        grep -q '^pushed to us:' "$out/computer.log" 2>/dev/null && break
+        sleep 1
+    done
+    if ! grep -q '^pushed to us:' "$out/computer.log" 2>/dev/null; then
+        echo "the computer applied nothing the phone pushed (no 'pushed to us:' in its log)" >&2
+    fi
     kill "$daemon" 2>/dev/null || true
     wait "$daemon" 2>/dev/null || true
     listing="$(desk ls 2>&1)" || { printf '%s\n' "$listing" >&2; status=1; }
@@ -125,6 +135,8 @@ if [ "$status" = 0 ] && [ -z "$only" ]; then
     if printf '%s\n' "$listing" | grep -q 'to-trash.txt'; then
         echo "to-trash.txt, deleted from every machine on the phone, is still on the computer" >&2
         status=1
+        echo "== the computer's last lines" >&2
+        tail -n 40 "$out/computer.log" >&2 || true
     fi
     if ! printf '%s\n' "$listing" | grep -q 'from-computer.txt'; then
         echo "from-computer.txt left the computer, and nobody deleted it" >&2

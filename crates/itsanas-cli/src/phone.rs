@@ -659,6 +659,52 @@ mod tests {
         });
     }
 
+    /// IOS.md hand test step 3, end to end over sockets: a file of the
+    /// computer, deleted on the phone, put back, deleted again and then deleted
+    /// for good from the phone's trash, leaves the computer at the next round.
+    /// The iPhone run found it still listed there (CI, 2026-11-18); this
+    /// shows the phone's side and the computer's drain are not the cause.
+    #[test]
+    fn a_file_deleted_for_good_on_a_phone_leaves_the_computer() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (desk, phrase) =
+                crate::testing::phone(&dir.path().join("desk"), coordinator, "camille", None);
+            let (mut phone, _) = crate::testing::phone(
+                &dir.path().join("phone"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"to be deleted from the phone").expect("source");
+            put_file(&desk, "to-trash.txt", source.to_str().expect("utf-8")).expect("put");
+
+            crate::testing::serving(&desk, |at| {
+                phone.config.peers.push(at.to_string());
+                sync_node(&phone, false, unix_now()).expect("the phone's first round");
+                trash_put(&phone, "to-trash.txt", 30).expect("delete");
+                trash_restore_in(&phone, "to-trash.txt").expect("restore");
+                trash_put(&phone, "to-trash.txt", 30).expect("delete again");
+                trash_delete(&phone, "to-trash.txt").expect("delete for good");
+                sync_node(&phone, false, unix_now()).expect("the round that tells the computer");
+            });
+            // What the computer's daemon does at each beat with what was pushed to it.
+            itsanas_net::session::drain_vault(&desk.store, &desk.vault).expect("the drain");
+            let listed =
+                itsanas_store::catalogue(&desk.store, &desk.vault).expect("the computer's listing");
+            assert!(
+                !listed.files.iter().any(|file| file.path == "to-trash.txt"),
+                "a file deleted for good on the phone is still on the computer: the person was told it left every machine ({:?})",
+                listed
+                    .files
+                    .iter()
+                    .map(|file| &file.path)
+                    .collect::<Vec<_>>()
+            );
+        });
+    }
+
     /// HANDOVER §9, "A withdrawn device keeps its old claim": a withdrawal
     /// reached the coordinator alone, so a machine of the account that reads
     /// none went on admitting the withdrawn one. The laptop withdraws the old
