@@ -35,6 +35,9 @@ final class TrashViewController: UITableViewController {
                 switch outcome {
                 case .success(let list):
                     self.rows = list["trashed"] as? [[String: Any]] ?? []
+                    // Which entry a row is (shared, here, protected): a restore
+                    // that leaves a row says which record it did not clear.
+                    NSLog("ITSaNAS trash rows: %@", self.rows.map { "\($0["path"] ?? "")=\($0["kind"] ?? "")" }.joined(separator: ", "))
                     self.now = (list["now"] as? NSNumber)?.doubleValue ?? 0
                     self.askAuth = list["ask_auth"] as? Bool ?? true
                     self.confirm = list["confirm"] as? Bool ?? true
@@ -56,6 +59,7 @@ final class TrashViewController: UITableViewController {
         let days = max(0, Int(((due - now) / 86_400).rounded(.up)))
         let format = NSLocalizedString("%@ (%d days)", comment: "")
         cell.textLabel?.text = String(format: format, path(indexPath), days)
+        cell.accessibilityIdentifier = "trash:" + path(indexPath)
         return cell
     }
 
@@ -63,13 +67,29 @@ final class TrashViewController: UITableViewController {
         rows[indexPath.row]["path"] as? String ?? ""
     }
 
+    // A cell that leaves the table waits, hidden, to be reused, and still
+    // carries its row's name: a restored file then read as still in the trash
+    // to anything that looks for it by name (the hand test's step 3, three CI
+    // runs on 2026-11-17, the trash's rows already empty each time).
+    override func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        cell.accessibilityIdentifier = nil
+    }
+
     override func tableView(
         _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
         let file = path(indexPath)
         let restore = UIContextualAction(style: .normal, title: NSLocalizedString("Restore", comment: "")) { _, _, done in
-            self.act { try Core.trashRestore(file) }
+            // The row leaves with the swipe, as Apple's lists do it: reloaded
+            // once the swipe had closed, the table kept it drawn (the hand
+            // test's step 3, 2026-11-16 and 17, the trash's rows already
+            // empty). A restore that fails brings it back with the reload.
+            if let at = self.rows.firstIndex(where: { $0["path"] as? String == file }) {
+                self.rows.remove(at: at)
+                self.tableView.deleteRows(at: [IndexPath(row: at, section: 0)], with: .automatic)
+            }
             done(true)
+            self.act { try Core.trashRestore(file) }
         }
         let delete = UIContextualAction(style: .destructive, title: NSLocalizedString("Delete", comment: "")) { _, _, done in
             self.deleteForGood([file])
@@ -126,22 +146,41 @@ final class TrashViewController: UITableViewController {
                 }
             }
         })
-        present(alert, animated: true)
+        presentWhenFree(alert)
     }
 
     private func act(_ body: @escaping () throws -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let outcome = Result { try body() }
             DispatchQueue.main.async {
-                if case .failure(let error) = outcome { self.show(error.localizedDescription) }
+                if case .failure(let error) = outcome {
+                    // An alert shown while a swipe action closes can be lost:
+                    // the log keeps what failed (scripts/iphone-e2e.sh prints it).
+                    NSLog("ITSaNAS trash: %@", error.localizedDescription)
+                    self.show(error.localizedDescription)
+                }
                 self.reload()
             }
+        }
+    }
+
+    /// Present `shown` once nothing else is: an alert presented while the
+    /// one before it is still closing is dropped without a word, and "who is
+    /// there" comes right after "are you sure" (the hand test's step 3,
+    /// 2026-11-17: the delete asked nothing and deleted nothing).
+    private func presentWhenFree(_ shown: UIViewController, tries: Int = 25) {
+        if presentedViewController == nil || tries == 0 {
+            present(shown, animated: true)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.presentWhenFree(shown, tries: tries - 1)
         }
     }
 
     private func show(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        presentWhenFree(alert)
     }
 }

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1701 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 642 are red-team tests.**
+**Last updated: 2026-11-16 — 1707 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 647 are red-team tests.**
 
-**1585 of the 1701 tests have an entry of their own on this page** — an *entry*,
+**1591 of the 1707 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -166,7 +166,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 69 |
+| `itsanas-net` unit | 70 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 75 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -181,9 +181,9 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 379 |
+| `itsanas-cli` unit | 381 |
 | `itsanas-android` unit | 26 |
-| `itsanas-ios` unit | 19 |
+| `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 182 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -219,12 +219,12 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 83 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 75 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 76 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 42 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 224 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 228 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -938,7 +938,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (69)
+# `itsanas-net` — unit tests (70)
 
 ## `protocol` — messages and challenges (14)
 
@@ -959,7 +959,7 @@ about reading.
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (33)
+## `service` — what a peer may obtain (34)
 
 | Test | What it proves |
 | --- | --- |
@@ -972,6 +972,7 @@ about reading.
 | **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
 | **`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`** | The listener serves connections concurrently since 2026-09-17, and the pledge check is a read before a write. Sixteen offers released at the same instant all saw the same free space and all were stored: a host took on four times its pledge. The check and the write now happen under one lock. Fails when the lock is removed. |
 | **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
+| **`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`** | A host at pledge 0 stores its account's segment from a member of its roster, and refuses the same segment from a device outside it, on a service with no claim book to refuse it later. #409's iPhone run: a computer at pledge 0 refused its own phone's delete for good. Sabotaged (the pledge asked of siblings too; the roster not asked): red each. |
 | **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
 | **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
 | `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
@@ -1274,7 +1275,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (379)
+# `itsanas-cli` — unit tests (381)
 
 ## `bench` — measuring this machine (4)
 
@@ -1671,7 +1672,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a chain served short (5)
+## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a chain served short, a delete for good reaching the computer, even one that pledges nothing (7)
 
 | Test | What it proves |
 |---|---|
@@ -1680,6 +1681,8 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`** | HANDOVER §9: the laptop withdraws the old phone, the old phone still presents its live claim to the laptop, and the VM, with no coordinator, learns the withdrawal from the laptop at its next round: revoked in its roster, its chain no longer applied. Sabotaged (the withdrawal not kept on the laptop; the live claim replacing it there): red both. |
 | **`red_team_a_host_serving_the_start_of_a_chain_is_caught`** | HANDOVER §9, tail truncation: the laptop writes twice, the Pi met it after the first only, the VM syncs through the Pi alone; the laptop's signed presence says two segments, so the VM's listing is incomplete and names the laptop. Sabotaged (the listing ignoring the heads; heads not kept from the coordinator's read; a presence saying 0): red each. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
+| `a_file_deleted_for_good_on_a_phone_leaves_the_computer` | IOS.md step 3 over sockets: a file of the computer, deleted on the phone, put back, deleted again and deleted for good from the phone's trash, is gone from the computer's listing once the computer applies what was pushed to it (`drain_vault`, as its daemon does at every beat). Written when the iPhone run found the file still there, to tell the core from the harness. Sabotaged (the phone's delete for good does nothing): red. |
+| **`red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete`** | The same over sockets with the computer at pledge 0, as a new one is: the phone's delete for good reaches it, and a device of another account offering the phone's segment is refused (by the claim book). Sabotaged (the pledge asked of the account's own segments): red. |
 
 ## `rounds` — one round per machine, a parked machine through its relay, the machines on this network (3)
 
@@ -2198,13 +2201,36 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (19)
+# `itsanas-ios` — the C boundary (22)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
 tests above exercise it; what is tested here is the boundary itself. **The Swift
 is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
-(`scripts/build-ios.sh ci`), against the core linked into the app ([IOS.md](IOS.md)).
+(`scripts/build-ios.sh ci`), against the core linked into the app ([IOS.md](IOS.md)),
+**and by the hand test's UI tests, `ios/ITSaNASUITests`** (`scripts/iphone-e2e.sh`,
+run by the same job after the unit tests): the debug app on a simulator, pinned
+to a coordinator the script starts, logs in to an account a computer made (a
+node on the Mac, `register --recovery`, holding two files), and does steps 1 to
+4, 8 and 9 of the hand test as a person would (step 5 is a person's: the
+simulator's enrolment change seals nothing away). Each scenario starts from a phone
+with nothing on it; a failure stops with its consequence, the screen's texts
+and a screenshot in `result.xcresult`.
+
+| UI test (`HandTest`, `FreeTest`) | What it establishes |
+| --- | --- |
+| `test1_anExistingAccountOpensOnThePhone` | Step 1: Welcome, "I already have an account", the name, the passphrase in the native question, and the file list opens. |
+| `test2_aFileFromAComputerIsListedAndOpens` | Step 2: a file the computer holds is listed after Sync, and tapping it fetches it and opens the share sheet. |
+| `test3_theTrashRestoresAndDeletesForGoodOnceTheOwnerConfirms` | Step 3: a deleted file leaves the list for the trash with its days, Restore brings it back, and a delete from every machine asks who is there (the passphrase, or a finger) before it leaves the trash and the list after a round; the script then finds it gone from the computer, and the other file still there. |
+| **`test4_touchIDOpensForTheRightFingerOnly`** | Step 4: with the fingerprint on, coming back from the home screen asks a finger; one that is not enrolled leaves the passphrase field, which opens; the enrolled one opens. Fingers are the simulator's (`notify_post` of BiometricKit's notifications). |
+| `test8_settingsHidesWhatAnIPhoneDoesNotDo` | Step 8: Settings, its sections opened, shows no Disks, no USB key, no Advanced, no lending of space, and no empty section where that would be. |
+| **`test9_signingOutLocksTheAppUntilThePassphrase`** | Step 9: Sign out asks, then locks the app; opened again, it asks for the passphrase. It found that the page's `window.confirm` answered "no" unseen on an iPhone (the web view had no `WKUIDelegate`), so Sign out did nothing. |
+| **`FreeTest.testFreeUpKeepsAFileNoOtherMachineHasProvedItHolds`** | Free up, as Android's `FreeTest`: the file from the computer, fetched and freed on the phone, stays, and the line above the list says it was kept, since the account has one computer and a file goes only once two machines have proved they hold it. |
+
+The UI tests run on the Mac job only, so their sabotages cannot be plans in
+`scripts/sabotage/` (that job runs on Linux): the core's side of them is the
+red-team test `red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator`
+below, and the app's side is read in the Mac job's log.
 
 | Test | What it establishes |
 | --- | --- |
@@ -2213,17 +2239,20 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 | `a_remembered_passphrase_comes_back_until_it_is_forgotten` | The Keychain side of the service keeps the passphrase and forgets it at Sign out; refusing to keep it failed a step of setup, and the new account with it. |
 | **`red_team_a_passphrase_that_does_not_open_is_not_remembered`** | A mistyped passphrase is not kept, one that opened is, the kept one opens the account again, and a forgotten one opens nothing. Sabotaged (kept before the check): red. |
 | `a_background_pass_runs_with_touch_id_on` | The finger locks the screen, so a round iOS grants still opens the account. Sabotaged (reads as the engine does): red. |
+| **`red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then`** | Turning Touch ID on seals an item to the fingers enrolled then, which iOS deletes when one is added (the unlock screen reads it after the finger); turning it off or signing out removes it. Sabotaged (nothing sealed, or the item left behind): red. |
 | **`red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing`** | The first finger after Touch ID is turned on records which are enrolled; the same set opens again, another set or none does not. Sabotaged (any set opens): red. |
 | **`red_team_touch_id_on_makes_the_unlock_screen_ask_for_a_finger`** | With Touch ID on the screen is told to ask for a finger, and with it off it is not; otherwise the app opens for whoever holds the phone. Sabotaged (never asks): red. |
 | `a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round` | Nothing kept: no round. A kept passphrase opens the account, the round is tried, and the node is left to the app to close. |
 | `a_background_pass_deletes_what_the_trash_has_held_long_enough` | A file past its days is deleted in the pass, with the app closed. Sabotaged (no trash): red. |
 | **`red_team_a_left_pages_news_does_not_close_the_next_page`** | A `closed` left in the mailbox by the last page is not read by the next one, which would close as it opens. Sabotaged (old news kept): red. |
+| **`red_team_free_up_on_an_iphone_keeps_a_file_no_other_machine_holds`** | `itsanas_release` on a file only this phone has answers `freed: false` and "Kept here", and the store still reads the file: Free up on an iPhone never loses the only copy. Sabotaged (`freed` answered without asking the store): red. |
 | `a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted` | Through the C entry points against a real node: a file in the trash is not listed, the trash shows it, restoring brings it back, and a delete from the trash does not come back. |
 | **`red_team_touch_id_keeps_the_passphrase_from_the_engine`** | With Touch ID on, the engine is told no passphrase is remembered and a passphrase the page changes is kept; turning it off keeps the passphrase; Sign out turns it off. Sabotaged (the engine reads it; Sign out leaves it on): red. |
 | **`red_team_touch_id_with_nothing_remembered_stays_off_and_says_so`** | With no passphrase to guard, Touch ID reads as off and the app is told. Sabotaged (an empty passphrase guarded): red. |
 | `a_page_with_no_such_name_is_refused` | Only `setup` and `settings` start a page. |
 | `a_reply_to_nobody_is_not_taken` | The app is told a reply to no question was not taken. |
 | `the_header_declares_exactly_what_the_crate_exports` | `include/itsanas.h`, all Swift sees, names exactly the `extern "C"` functions of `src/lib.rs`. |
+| **`red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator`** | `itsanas_use_coordinator_for_tests`, which the UI tests need, is what the official network forbids a phone: the shim passes `cfg!(debug_assertions)`, no node of the crate is made or opened on anything but `network()`, a phone nobody pinned is on the official coordinator, and a refused pin moves nothing. Sabotaged twice (the shim says debug; `open` on the official network directly): red. |
 | `a_question_reaches_the_app_and_its_answer_reaches_the_engine` | A passphrase asked by the page's engine reaches the app through the mailbox, and what the app answers is what the engine gets. |
 | **`red_team_a_stray_reply_cannot_answer_the_next_question`** | A reply to a question nobody asked, or a second reply to one already answered, is dropped and left nowhere: the next passphrase asked cannot be a secret its owner never typed. Sabotaged (a second reply taken; a reply to nobody kept): red. |
 | **`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`** | Once its page is left, an engine is told the screen was closed instead of waiting, and its question is taken off the app's screen. Sabotaged (the question left in the mailbox): red. |

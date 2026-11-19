@@ -1,5 +1,6 @@
 import Foundation
 import LocalAuthentication
+import Security
 
 /// A fault the core reported: the sentence the command line prints for it.
 struct CoreError: LocalizedError {
@@ -45,6 +46,12 @@ enum Core {
     }
 
     static func exists() -> Bool { itsanas_exists(home) }
+
+    /// Debug builds only, for the UI tests: every node is pinned to their
+    /// coordinator. A release build refuses it.
+    static func useCoordinatorForTests(_ address: String, device: String) throws {
+        _ = try take(itsanas_use_coordinator_for_tests(address, device))
+    }
     static func open(passphrase: String) throws { _ = try take(itsanas_open(home, passphrase)) }
     /// Whether the Keychain's passphrase opened the account.
     static func openRemembered() throws -> Bool {
@@ -58,7 +65,26 @@ enum Core {
     static func listAt(_ folder: String) throws -> [String: Any] { try object(itsanas_list_at(folder)) }
     static func get(_ path: String, to destination: String) throws { _ = try take(itsanas_get(path, destination)) }
     static func put(_ path: String, from source: String) throws { _ = try take(itsanas_put(path, source)) }
+    /// Let this phone's copy go once other machines prove they hold it:
+    /// `freed`, and the sentence to show.
+    static func release(_ path: String) throws -> [String: Any] { try object(itsanas_release(path)) }
     static func sync() throws -> [String: Any] { try object(itsanas_sync(false)) }
+
+    /// What a round brought, named: "2 new: a, b · 1 changed: c", or nil
+    /// when nothing changed. Android's `changesLine`, from the same answer.
+    static func changesLine(_ answer: [String: Any]) -> String? {
+        let kinds = [("new", "%d new"), ("changed", "%d changed"), ("gone", "%d removed")]
+        let parts = kinds.compactMap { key, label -> String? in
+            guard let part = answer[key] as? [String: Any],
+                  let count = part["count"] as? Int, count > 0
+            else { return nil }
+            let names = (part["names"] as? [String] ?? []).map { ($0 as NSString).lastPathComponent }
+            let more = count > names.count ? ", …" : ""
+            return String(format: NSLocalizedString(label, comment: ""), count)
+                + ": " + names.joined(separator: ", ") + more
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
     static func status() throws -> [String: Any] { try object(itsanas_status()) }
     static func backgroundPass(metadataOnly: Bool) throws -> [String: Any] {
         try object(itsanas_background_pass(home, metadataOnly))
@@ -73,6 +99,23 @@ enum Core {
 
     /// Whether the fingers enrolled now are those Touch ID was turned on with.
     static func fingerMatches(_ state: String) -> Bool { itsanas_finger_matches(state) }
+
+    /// Whether the item the core sealed to the fingers when Touch ID was turned
+    /// on is still readable: iOS deletes it itself when a finger is added, where
+    /// the fingers' state may not change (the simulator keeps it). Read with the
+    /// context the finger was just asked through, so no second sheet appears.
+    static func fingersUnchanged(_ context: LAContext) -> OSStatus {
+        context.interactionNotAllowed = true
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "fr.ngas.itsanas",
+            kSecAttrAccount as String: "fingers",
+            kSecReturnData as String: true,
+            kSecUseAuthenticationContext as String: context,
+        ]
+        var found: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &found)
+    }
 
     /// Delete as this phone's rules say (Settings, Trash): the days are the
     /// rules' too, so the count passed is not used.

@@ -155,6 +155,8 @@ r = pr(["ios/ITSaNAS/Core.swift"])
 check("the_swift_side_belongs_to_itsanas_ios",
       r["affected"] == ["itsanas-ios"], r["affected"])
 check("a_swift_change_runs_the_iphone_app", r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])
+r = pr(["scripts/iphone-e2e.sh"])
+check("an_iphone_e2e_script_change_runs_the_iphone_app", r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])
 r = pr(["crates/itsanas-cli/src/phone.rs"])
 check("a_change_to_what_both_phones_call_runs_the_iphone_app",
       r["jobs"]["ios-app"]["run"], r["jobs"]["ios-app"])

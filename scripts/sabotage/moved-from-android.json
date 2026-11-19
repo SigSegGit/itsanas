@@ -43,7 +43,7 @@
       "dead": ""
     },
     "release: no debug_build test": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "    if !debug_build {\n",
       "dead": "    if false && !debug_build {\n"
     },
@@ -58,7 +58,7 @@
       "dead": "let node = Node::open(home, passphrase)?;"
     },
     "pin: another network by default": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-cli/src/phone.rs",
       "live": "Ok(test.clone().unwrap_or_else(Network::official))",
       "dead": "Ok(test.clone().unwrap_or(Network { address: \"evil.test:1\".to_owned(), device: None }))"
     },

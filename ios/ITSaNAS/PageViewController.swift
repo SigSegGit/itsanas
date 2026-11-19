@@ -5,7 +5,7 @@ import WebKit
 /// 127.0.0.1 and shown in a web view, as the Android app does. Its secrets
 /// are never typed in the page: the engine asks for them, and this screen
 /// answers from a native alert.
-final class PageViewController: UIViewController {
+final class PageViewController: UIViewController, WKUIDelegate {
     private let mode: String
     private let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
     private var poll: Timer?
@@ -23,6 +23,11 @@ final class PageViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "ITSaNAS"
+        web.accessibilityIdentifier = "page"
+        // Without a delegate a web view answers every window.confirm with
+        // false, unseen: Sign out and every "are you sure" of the page did
+        // nothing on an iPhone.
+        web.uiDelegate = self
         do {
             web.load(URLRequest(url: try Core.pageStart(mode: mode)))
         } catch {
@@ -104,6 +109,24 @@ final class PageViewController: UIViewController {
             Core.reply(id, "")
             self.asking = false
         })
+        present(alert, animated: true)
+    }
+
+    /// The page's window.confirm, as a native alert.
+    func webView(
+        _ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void
+    ) {
+        // Something already on screen (a question of the engine): no.
+        guard presentedViewController == nil else {
+            completionHandler(false)
+            return
+        }
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel) { _ in
+            completionHandler(false)
+        })
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
         present(alert, animated: true)
     }
 

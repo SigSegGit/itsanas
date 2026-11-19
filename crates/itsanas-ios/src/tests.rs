@@ -127,6 +127,11 @@ fn a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted() {
     drop(node);
     take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));
     assert!(listed("photo"), "a restored file did not come back");
+    let trash = take(itsanas_trash_list());
+    assert!(
+        !trash["ok"].as_str().expect("ok").contains("photo"),
+        "a restored file stays in the trash, where its days would delete it: {trash}"
+    );
     take(itsanas_trash_put(file.as_ptr(), 30));
     take(itsanas_trash_delete(file.as_ptr()));
     take(itsanas_trash_restore(c_home.as_ptr(), file.as_ptr()));
@@ -135,6 +140,38 @@ fn a_trashed_file_leaves_the_list_comes_back_and_can_be_deleted() {
         "a file deleted from the trash came back when its record was taken out"
     );
     take(itsanas_close());
+}
+
+/// Free up on an iPhone lets go of nothing no other machine has proved it
+/// holds. Sabotage: the C entry answers `freed` without asking the store.
+#[test]
+fn red_team_free_up_on_an_iphone_keeps_a_file_no_other_machine_holds() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    open_into(&NODE, &home, "a passphrase", &nowhere(), NOW).expect("open");
+    let source = dir.path().join("only");
+    std::fs::write(&source, b"the only copy").expect("source");
+    let c_source = std::ffi::CString::new(source.to_str().expect("utf-8")).expect("path");
+    take(itsanas_put(c"only".as_ptr(), c_source.as_ptr()));
+
+    let said = take(itsanas_release(c"only".as_ptr()));
+    let answer: serde_json::Value =
+        serde_json::from_str(said["ok"].as_str().expect("ok")).expect("json");
+    let node = NODE.lock().expect("node").clone().expect("open");
+    let kept = node.store.read_file("only").expect("read").is_some();
+    drop(node);
+    take(itsanas_close());
+    assert_eq!(answer["freed"], false, "{said}");
+    assert!(
+        kept && answer["said"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("Kept here")),
+        "the iPhone let go of the only copy anybody can prove: {said}"
+    );
 }
 
 const NOW: u64 = 1_000_000;
@@ -259,6 +296,33 @@ fn red_team_a_finger_enrolled_after_touch_id_was_turned_on_opens_nothing() {
 }
 
 #[test]
+fn red_team_touch_id_on_seals_an_item_to_the_fingers_enrolled_then() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    keychain::forget();
+    keychain::set("a passphrase").expect("kept");
+    assert!(keychain::set_guarded(true), "Touch ID did not turn on");
+    let sealed = keychain::fingers_sealed();
+    assert!(keychain::set_guarded(false), "Touch ID did not turn off");
+    let after_off = keychain::fingers_sealed();
+    assert!(
+        keychain::set_guarded(true),
+        "Touch ID did not turn on again"
+    );
+    keychain::forget();
+    let after_sign_out = keychain::fingers_sealed();
+    assert!(
+        sealed,
+        "Touch ID on sealed nothing to the fingers: where their state stays the same, a new finger opens the app"
+    );
+    assert!(
+        !after_off && !after_sign_out,
+        "the fingers' item outlived the lock: turned on again, the old fingers would decide"
+    );
+}
+
+#[test]
 fn a_background_pass_opens_with_what_is_remembered_and_goes_for_a_round() {
     let _turn = host::tests::SERIAL
         .lock()
@@ -352,5 +416,41 @@ fn the_header_declares_exactly_what_the_crate_exports() {
     assert_eq!(
         declared, exported,
         "include/itsanas.h and src/lib.rs disagree on what Swift can call"
+    );
+}
+
+/// The UI tests pin the app to a coordinator of their own, and that call is
+/// exactly what the official network forbids a phone (`Network::pin`). So the
+/// shim tells it what kind of build it is, a release build is refused, and no
+/// node of this crate is made or opened anywhere but on [`network`]. Sabotage:
+/// the shim says debug; `open` goes back to the official network directly.
+#[test]
+fn red_team_a_release_iphone_build_cannot_be_pointed_at_another_coordinator() {
+    let source = include_str!("lib.rs");
+    assert!(
+        source.contains(concat!("&device?, cfg!", "(debug_assertions))")),
+        "the C shim no longer tells use_coordinator what kind of build it is"
+    );
+    assert!(
+        !source.contains(concat!("Network::", "official()")),
+        "a node is made or opened on the official coordinator while a UI test pinned another"
+    );
+    assert_eq!(
+        network().expect("the slot"),
+        Network::official(),
+        "a phone nobody pinned is not on the official coordinator"
+    );
+    let refused = take(itsanas_use_coordinator_for_tests(
+        c"localhost:9".as_ptr(),
+        c"not hex".as_ptr(),
+    ));
+    assert!(
+        refused["error"].is_string(),
+        "a device that is no device was taken for a pin: {refused}"
+    );
+    assert_eq!(
+        network().expect("the slot"),
+        Network::official(),
+        "a refused pin still moved the phone off the official coordinator"
     );
 }

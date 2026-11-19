@@ -64,8 +64,8 @@
     },
     "touch id: on with nothing": {
       "file": "crates/itsanas-ios/src/keychain.rs",
-      "live": "        unlock().is_some() && system::set(GUARDED, UNSEEN).is_ok()\n",
-      "dead": "        system::set(GUARDED, UNSEEN).is_ok()\n"
+      "live": "        unlock().is_some()\n            && system::seal_to_fingers(FINGERS).is_ok()\n",
+      "dead": "        system::seal_to_fingers(FINGERS).is_ok()\n"
     },
     "touch id: sign out leaves it on": {
       "file": "crates/itsanas-ios/src/keychain.rs",
@@ -76,6 +76,31 @@
       "file": "crates/itsanas-ios/src/keychain.rs",
       "live": "        Some(kept) => kept == state.as_bytes(),\n",
       "dead": "        Some(_) => true,\n"
+    },
+    "release: the iPhone shim says debug": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "use_coordinator(&TEST_NETWORK, &address?, &device?, cfg!(debug_assertions))",
+      "dead": "use_coordinator(&TEST_NETWORK, &address?, &device?, true)"
+    },
+    "pin: open goes to the official network directly": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &network()?,",
+      "dead": "        open_and_remember(\n            &NODE,\n            &home?,\n            &passphrase?,\n            &Network::official(),"
+    },
+    "free up: freed without asking the store": {
+      "file": "crates/itsanas-ios/src/lib.rs",
+      "live": "        with_node(|node| itsanas_cli::freeing::release_here(node, &path))\n",
+      "dead": "        with_node(|_| Ok(serde_json::json!({ \"freed\": true, \"said\": path }).to_string()))\n"
+    },
+    "touch id: nothing sealed to the fingers": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "        unlock().is_some()\n            && system::seal_to_fingers(FINGERS).is_ok()\n            && system::set(GUARDED, UNSEEN).is_ok()\n",
+      "dead": "        unlock().is_some() && system::set(GUARDED, UNSEEN).is_ok()\n"
+    },
+    "touch id: the fingers' item outlives the lock": {
+      "file": "crates/itsanas-ios/src/keychain.rs",
+      "live": "        system::forget(GUARDED);\n        system::forget(FINGERS);\n        true\n",
+      "dead": "        system::forget(GUARDED);\n        true\n"
     }
   }
 }

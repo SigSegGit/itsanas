@@ -23,6 +23,48 @@ pub fn passphrase_rule() -> String {
     .to_string()
 }
 
+/// The coordinator a phone's nodes belong to: the official one, unless a test
+/// set `slot` through [`use_coordinator`].
+pub fn network_in(slot: &Mutex<Option<Network>>) -> Result<Network, Failure> {
+    let test = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    Ok(test.clone().unwrap_or_else(Network::official))
+}
+
+/// What a phone's debug build is told by its end-to-end tests: every node the
+/// process creates, restores or opens is pinned to `address` instead of the
+/// official coordinator, through `slot`. Android's `useCoordinatorForTests`
+/// and iOS's `itsanas_use_coordinator_for_tests` pass `cfg!(debug_assertions)`.
+///
+/// Only a debug build takes it: the reason a phone cannot name its coordinator
+/// (see [`Network::pin`]) is exactly what a call that could reach a release
+/// build would undo, whoever made it.
+pub fn use_coordinator(
+    slot: &Mutex<Option<Network>>,
+    address: &str,
+    device: &str,
+    debug_build: bool,
+) -> Answer {
+    if !debug_build {
+        return Err(Failure::Usage(
+            "this build joins the official coordinator and no other".to_owned(),
+        ));
+    }
+    let device = (!device.is_empty()).then(|| device.to_owned());
+    if let Some(device) = &device {
+        itsanas_node::coordinator::parse_device(device)?;
+    }
+    let mut slot = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    *slot = Some(Network {
+        address: address.to_owned(),
+        device,
+    });
+    Ok(serde_json::json!({ "address": address }).to_string())
+}
+
 /// What a phone's `open` answers, for every phone shell, on the slot given.
 ///
 /// A node already open for `home` in this process is answered as it is, not
@@ -664,6 +706,117 @@ mod tests {
             assert!(
                 applied.iter().any(|path| path == "from-the-laptop.txt"),
                 "the VM never applied a file from the laptop it reaches only through the Pi: an account's machines that never meet never converge ({applied:?})"
+            );
+        });
+    }
+
+    /// IOS.md hand test step 3, end to end over sockets: a file of the
+    /// computer, deleted on the phone, put back, deleted again and then deleted
+    /// for good from the phone's trash, leaves the computer at the next round.
+    /// The iPhone run found it still listed there (CI, 2026-11-18); this
+    /// shows the phone's side and the computer's drain are not the cause.
+    #[test]
+    fn a_file_deleted_for_good_on_a_phone_leaves_the_computer() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (desk, phrase) =
+                crate::testing::phone(&dir.path().join("desk"), coordinator, "camille", None);
+            let (mut phone, _) = crate::testing::phone(
+                &dir.path().join("phone"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"to be deleted from the phone").expect("source");
+            put_file(&desk, "to-trash.txt", source.to_str().expect("utf-8")).expect("put");
+
+            crate::testing::serving(&desk, |at| {
+                phone.config.peers.push(at.to_string());
+                sync_node(&phone, false, unix_now()).expect("the phone's first round");
+                trash_put(&phone, "to-trash.txt", 30).expect("delete");
+                trash_restore_in(&phone, "to-trash.txt").expect("restore");
+                trash_put(&phone, "to-trash.txt", 30).expect("delete again");
+                trash_delete(&phone, "to-trash.txt").expect("delete for good");
+                sync_node(&phone, false, unix_now()).expect("the round that tells the computer");
+            });
+            // What the computer's daemon does at each beat with what was pushed to it.
+            itsanas_net::session::drain_vault(&desk.store, &desk.vault).expect("the drain");
+            let listed =
+                itsanas_store::catalogue(&desk.store, &desk.vault).expect("the computer's listing");
+            assert!(
+                !listed.files.iter().any(|file| file.path == "to-trash.txt"),
+                "a file deleted for good on the phone is still on the computer: the person was told it left every machine ({:?})",
+                listed
+                    .files
+                    .iter()
+                    .map(|file| &file.path)
+                    .collect::<Vec<_>>()
+            );
+        });
+    }
+
+    /// #409's iPhone run: a computer pledging nothing, as a new one does,
+    /// refused every segment its own phone pushed, so a file deleted for good
+    /// on the phone stayed on it. A pledge is room lent to other accounts; the
+    /// account's own log is taken whatever it says. And a stranger pushing
+    /// the account's segment is still refused here, by the claim book
+    /// (`service.rs` tests the roster on a service with none). Sabotage: the
+    /// pledge checked for siblings too.
+    #[test]
+    fn red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (desk, phrase) =
+                crate::testing::phone(&dir.path().join("desk"), coordinator, "camille", None);
+            let (mut phone, _) = crate::testing::phone(
+                &dir.path().join("phone"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (stranger, _) =
+                crate::testing::phone(&dir.path().join("stranger"), coordinator, "dominique", None);
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"to be deleted from the phone").expect("source");
+            put_file(&desk, "to-trash.txt", source.to_str().expect("utf-8")).expect("put");
+
+            let server = itsanas_net::PeerServer::bind("127.0.0.1:0").expect("bind");
+            let stranger_offer =
+                crate::testing::serving_pledged(&server, &desk, itsanas_net::Pledge::NONE, |at| {
+                    phone.config.peers.push(at.to_string());
+                    sync_node(&phone, false, unix_now()).expect("the phone's first round");
+                    trash_put(&phone, "to-trash.txt", 30).expect("delete");
+                    trash_delete(&phone, "to-trash.txt").expect("delete for good");
+                    sync_node(&phone, false, unix_now())
+                        .expect("the round that tells the computer");
+                    // The phone's own tip, offered by a device of another
+                    // account in the phone's account's name.
+                    let tip = phone
+                        .store
+                        .segments()
+                        .expect("the phone's chain")
+                        .pop()
+                        .expect("a segment");
+                    let mut client = itsanas_net::PeerClient::connect(
+                        at,
+                        &stranger.device,
+                        stranger.store.owner(),
+                        None,
+                    )
+                    .expect("the stranger connects");
+                    client.store_segment(&tip).expect("an answer")
+                });
+            assert!(
+                matches!(stranger_offer, itsanas_net::Offer::Refused(_)),
+                "a host at pledge 0 took a segment of its account from a device outside its roster: anybody can fill its disk in its owner's name ({stranger_offer:?})"
+            );
+            itsanas_net::session::drain_vault(&desk.store, &desk.vault).expect("the drain");
+            let listed =
+                itsanas_store::catalogue(&desk.store, &desk.vault).expect("the computer's listing");
+            assert!(
+                !listed.files.iter().any(|file| file.path == "to-trash.txt"),
+                "a computer that pledges nothing kept a file its own phone deleted for good: the phone told the person it left every machine"
             );
         });
     }

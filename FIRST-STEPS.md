@@ -216,8 +216,10 @@ It reports the free space on the disk this node actually sits on, what the
 pledge earns, and which limit binds. It changes nothing without `--apply`, and
 it refuses to apply numbers it has just said do not fit. Then run it again with
 `--apply`: **a new node pledges nothing, and a node that pledges nothing stores
-nothing for anybody -- your own other machines included.** Until then a `sync`
-towards it says `refused ... its pledge is full or zero`.
+nothing for anybody -- your own other machines' files included.** It still
+takes your account's log from them (a delete, a rename, a trash rule), so it
+follows what they did. Until it pledges, a `sync` towards it says
+`refused ... its pledge is full or zero`.
 
 ```sh
 itsanas space --pledge 100G --keep 30G --apply

@@ -583,30 +583,7 @@ impl<'a> PeerService<'a> {
                 sealed,
             } => self.store_chunk(caller, *owner, address, sealed),
 
-            Request::StoreSegment { envelope } => {
-                let _storing = self.storing_lock();
-                if self.would_exceed_pledge(envelope.sealed_body.len())? {
-                    return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
-                }
-                if let Some(refusal) =
-                    self.refused_for_owner(caller, envelope.owner, envelope.sealed_body.len())
-                {
-                    return Ok(refusal);
-                }
-                // A rejected segment is the peer's problem, not ours: refuse it
-                // and say why, rather than failing the connection.
-                //
-                // `accepted` is what `put_segment` actually did, not `Ok(_)`.
-                // Re-offering the tip is normal and stores nothing, and claiming
-                // it was stored made every idle round look like a round that had
-                // moved something -- so the daemon printed a line every five
-                // minutes on a fleet where nothing was happening, which is how an
-                // operator learns to stop reading the log.
-                match self.vault.put_segment(envelope) {
-                    Ok(accepted) => Ok(Response::Stored { accepted }),
-                    Err(error) => Ok(Response::Refused(error.to_string())),
-                }
-            }
+            Request::StoreSegment { envelope } => self.store_segment(caller, envelope),
 
             Request::Challenge {
                 owner,
@@ -724,6 +701,49 @@ impl<'a> PeerService<'a> {
     /// Store one chunk for `owner`, within the host's pledge and the
     /// account's bound, evicting the account's own marked chunks first when
     /// the bound is what refuses it.
+    /// Store a segment `caller` pushed, after the pledge and the owner allow it.
+    fn store_segment(
+        &self,
+        caller: DeviceId,
+        envelope: &itsanas_store::SegmentEnvelope,
+    ) -> Result<Response> {
+        let _storing = self.storing_lock();
+        let size = envelope.sealed_body.len();
+        // The account's own log is not lending. A sibling's segments are
+        // how a delete, a rename or a trash rule made on another machine
+        // reaches this one; a pledge is room for other accounts, and a
+        // new node pledges nothing, so a computer at pledge 0 refused
+        // the delete for good of its own phone (#409's iPhone run). Only
+        // the disk bounds them, and only for a proven member: the owner
+        // named in an envelope is the sender's word.
+        let sibling =
+            envelope.owner == self.store.owner() && self.store.is_member(&caller).unwrap_or(false);
+        let refused = if sibling {
+            self.would_exceed_disk(size)
+        } else {
+            self.would_exceed_pledge(size)?
+        };
+        if refused {
+            return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
+        }
+        if let Some(refusal) = self.refused_for_owner(caller, envelope.owner, size) {
+            return Ok(refusal);
+        }
+        // A rejected segment is the peer's problem, not ours: refuse it
+        // and say why, rather than failing the connection.
+        //
+        // `accepted` is what `put_segment` actually did, not `Ok(_)`.
+        // Re-offering the tip is normal and stores nothing, and claiming
+        // it was stored made every idle round look like a round that had
+        // moved something -- so the daemon printed a line every five
+        // minutes on a fleet where nothing was happening, which is how an
+        // operator learns to stop reading the log.
+        match self.vault.put_segment(envelope) {
+            Ok(accepted) => Ok(Response::Stored { accepted }),
+            Err(error) => Ok(Response::Refused(error.to_string())),
+        }
+    }
+
     fn store_chunk(
         &self,
         caller: DeviceId,
@@ -1045,13 +1065,18 @@ impl<'a> PeerService<'a> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// Whether `incoming` bytes would not fit on the disk itself.
+    fn would_exceed_disk(&self, incoming: usize) -> bool {
+        self.disk_room
+            .and_then(|room| room())
+            .is_some_and(|room| incoming as u64 > room)
+    }
+
     fn would_exceed_pledge(&self, incoming: usize) -> Result<bool> {
         // A running total, not `stats()`: this runs under the storing lock on
         // every offer, and a walk here let a peer sending offers it knew would
         // be refused hold up every honest store behind a pass over the disk.
-        if let Some(room) = self.disk_room.and_then(|room| room())
-            && incoming as u64 > room
-        {
+        if self.would_exceed_disk(incoming) {
             return Ok(true);
         }
         let held = self.vault.held_bytes()?;
@@ -1682,6 +1707,38 @@ mod tests {
             Response::Heads(heads) => assert_eq!(heads.len(), 1),
             other => panic!("expected heads, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn red_team_pledge_zero_takes_the_accounts_log_from_a_member_only() {
+        // A pledge is room for other accounts: a sibling's segments are taken
+        // at pledge 0 (#409's iPhone run). The owner an envelope names is the
+        // sender's word, so the roster decides who is a sibling: with no claim
+        // book to refuse a stranger later, the pledge is all that stops one
+        // filling this disk in the account's name.
+        let host = node(&alice(), 40);
+        let sibling = node(&alice(), 41);
+        let stranger = node(&MasterSecret::from_bytes([0xC7; 32]), 42);
+        sibling.store.write_file("deleted.txt", b"gone").unwrap();
+        let envelope = sibling.store.flush_segment().unwrap().unwrap();
+        host.store
+            .admit_member(&sibling.store.device_id(), false)
+            .unwrap();
+        let service = PeerService::new(&host.store, &host.vault, Pledge::NONE);
+        let offer = Request::StoreSegment {
+            envelope: Box::new(envelope),
+        };
+
+        let from_stranger = service.handle(&offer, stranger.store.device_id()).unwrap();
+        assert!(
+            matches!(from_stranger, Response::Refused(_)),
+            "a host at pledge 0 stored its account's segment for a device outside its roster: anybody can fill its disk ({from_stranger:?})"
+        );
+        let from_sibling = service.handle(&offer, sibling.store.device_id()).unwrap();
+        assert!(
+            matches!(from_sibling, Response::Stored { accepted: true }),
+            "a host at pledge 0 refused its own account's log from a member: a delete made on the phone never reaches it ({from_sibling:?})"
+        );
     }
 
     #[test]

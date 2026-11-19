@@ -11,9 +11,26 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-16
-BASE: f650518
+WRITTEN-AT: 2026-11-17
+BASE: 25720ae
 -->
+
+**2026-11-19: #409's iPhone run, the end check.** Every UI test passed; then the computer still
+listed `to-trash.txt`, deleted for good on the phone, after about 160 s. The core is not the cause:
+`a_file_deleted_for_good_on_a_phone_leaves_the_computer` (phone.rs) passes once the computer runs
+`drain_vault`, as its daemon does at each beat, and fails without it. The cause was the harness:
+its computer pledged nothing, and a host refuses past its pledge, its own account's segments
+included (FIRST-STEPS.md), so every segment the phone pushed was refused. Reproduced on Windows with
+the CLI as the phone (`refused 4 offer(s): its pledge is full or zero`); with `pledge 1G` the
+segments land, the daemon says `pushed to us:` and only `from-computer.txt` is left.
+Nicolas then asked why a pledge should decide that at all: it should not. A pledge is room lent to
+other accounts, so a host now takes its own account's segments from a member of its roster whatever
+it pledges, bounded by the free disk only (`StoreSegment` in `itsanas-net/src/service.rs`;
+`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`,
+`red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete`). The account's own files
+pushed by a sibling still count against the pledge: a 0 B computer follows the log but holds no
+copy for the phone. `iphone-e2e.sh` runs its computer unpledged on purpose, waits for
+`pushed to us:`, and prints `computer.log` when the check fails.
 
 **2026-11-19: rename and earlier versions, for 0.1.21 (§8 15).** Asked by Nicolas: more for the
 next version to test. `itsanas mv FROM TO` renames a file or moves a folder on every machine
@@ -187,6 +204,28 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-17: the iPhone PR's two red steps, read from the app's own lines.** #409 carries #406
+(close #406 with it). Step 3: the core restored the file (the trash's rows went from
+`to-trash.txt=shared` to none in 2 s) but the table kept the swiped row drawn, and ending the
+table's editing before the reload did not help (second run, same screen). The Restore action
+now removes the row itself (`deleteRows`) before it calls the swipe's completion, as Apple's
+lists do; a failed restore brings it back with the reload. Third run, same screen with the
+rows empty again: the test now reads a trash opened afresh after going back to the list, and a
+cell that leaves the table drops its identifier (`didEndDisplaying`); that run's restore
+passed. The same step's delete for good then asked nothing and deleted nothing: "who is there"
+was presented while "are you sure" was still closing, which UIKit drops without a word; it waits
+for the screen to be free now (`presentWhenFree`). The next run still showed no prompt: with a
+finger enrolled the app asks through `LAContext`, whose sheet another process draws, invisible to
+the test, which waited on its "Cancel"; the test now answers with a finger when no passphrase field
+comes and checks the file left the trash. Step 4 passed with the sealed item
+read through the finger's own context (`item 0`, no second sheet). Step 5: the simulator's
+enrolment change (`enrol(false)`, `enrol(true)`) moved neither the fingers' state (`020820`)
+nor the `.biometryCurrentSet` item (still `item 0`), so nothing on a simulator can show a
+finger added: `test5_` is gone and step 5 is a person's, on a real iPhone (`docs/IOS.md`, "The
+hand test"). The core still seals the item when the lock turns on
+(`keychain::seal_to_fingers`), for a real iPhone. If step 3 goes red again, the trash's
+`ITSaNAS trash rows` line says whether the core or the table is wrong.
 
 **2026-11-11 (night): the deferred items, and real devices.** #402: the Android trash dialog reads
 its record as it opens (an emulator left it blank for 30 s). #404: Start at login per account
@@ -4209,8 +4248,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
     proved they hold it, and Keep here fetches it back (`fetch_absent`) when it left. The bench's
     phase H frees and keeps a file across three machines. An Android phone frees a file from its
     Files screen (`file-free`, `freeing::release_here`), kept while no other machine has proved it
-    holds it (`FreeTest`). **Left:** the iPhone's Files screen; the release with real proved holders
-    has run on no fleet.
+    holds it (`FreeTest`); the iPhone does the same from a swipe on its Files screen (`itsanas_release`,
+    `ios/ITSaNASUITests/FreeTest.swift`), and both phones name what a round changed. **Left:** the
+    release with real proved holders has run on no fleet.
 
 10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
     a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`

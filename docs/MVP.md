@@ -568,9 +568,11 @@ run them in across the laptop, the Pi and the VM, with the preparation and the
 account checks, is [BRIEFING-MVP.md](BRIEFING-MVP.md) (in French).
 
 **Before anything: every machine pledges.** A host refuses to store past its
-pledge, its own account's log included (DESIGN.md, the table of what counts
-against what), and the default pledge is zero. A machine that has pledged
-nothing relays nothing. The kit's own bench failed E, F and G for that reason
+pledge (DESIGN.md, the table of what counts against what), and the default
+pledge is zero. A machine that has pledged nothing holds nothing for anybody,
+its own account's files included; only its own account's log (deletes,
+renames, trash rules) is taken whatever the pledge, from a member of the
+account. The kit's own bench failed E, F and G for that reason
 until it pledged, while every round said `sent 0 B in 0 chunks, 0 segments` —
 the line for "nothing to send". Since 2026-09-15 the round adds
 `refused N offer(s): its pledge is full or zero` instead of staying silent.
