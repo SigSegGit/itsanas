@@ -160,6 +160,7 @@ fn a_member_registers_enrols_a_device_and_is_then_findable_by_name() {
             device: laptop.device_id(),
             address: "192.168.1.20:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&laptop);
         assert!(matches!(
@@ -407,6 +408,7 @@ fn red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own() {
             device: victim.device_id(),
             address: "10.0.0.66:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&victim);
 
@@ -604,6 +606,7 @@ fn red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_lat
             device: dev.device_id(),
             address: "203.0.113.9:9797".to_owned(),
             at_unix: heard,
+            head: 0,
         }
         .sign(dev);
         directory.announce(&presence, heard).expect("announce");
@@ -899,6 +902,7 @@ fn a_member_s_device_list_includes_a_machine_that_has_gone_quiet() {
             device: laptop.device_id(),
             address: "192.168.1.20:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&laptop);
         assert!(matches!(
@@ -1075,6 +1079,7 @@ fn the_peer_list_is_bounded_however_many_devices_a_user_enrols() {
                         device: extra.device_id(),
                         address: format!("10.1.0.{seed}:9797"),
                         at_unix: NOW,
+                        head: 0,
                     }
                     .sign(&extra),
                 )))

@@ -21,6 +21,24 @@ listed `to-trash.txt`, deleted for good on the phone, after about 160 s. The cor
 `drain_vault`, as its daemon does at each beat, and fails without it. So on the Mac the daemon did
 not apply the phone's push (refused chain, or a round holding its loop). `iphone-e2e.sh` now waits
 for its `pushed to us:` line and prints `computer.log` when the check fails: read that first.
+
+**2026-11-19: rename and earlier versions, for 0.1.21 (§8 15).** Asked by Nicolas: more for the
+next version to test. `itsanas mv FROM TO` renames a file or moves a folder on every machine
+(`itsanas_store::rename_known`): the same chunks under the new name and a delete of the old, in one
+segment, never over a taken name; a phone moves a file it has not downloaded. `itsanas versions
+PATH [--restore N]` lists every version the logs hold and makes one the file again
+(`versions`, `bring_back_version`), a file deleted for good included, from a machine that still has
+its chunks: nothing but `itsanas gc` collects them. Android: Rename and Versions on the chosen-files
+bar (one file chosen), run by `RenameTest` and `VersionsTest` on the emulator only; the iPhone has
+the C functions and no screen yet.
+
+**2026-11-18: tail truncation is caught (§9).** Every presence a device signs carries its chain
+length (`Presence::head`, in the signed payload; old coordinators and clients can no longer read
+new presences, decided by Nicolas). Heads are kept from the coordinator's read (`peers`,
+`contact`) and from siblings' relayed presences (`Contact::take_relayed_heads`, noted in
+`dial_listed`). `Store::behind` compares them with the vault's chain lengths; the catalogue is
+then incomplete and `ls` names the machines. Plans `chain_heads.json` (three defences) and
+`relayed_heads.json`. The daemon's wiring of relayed heads into the store has no test of its own.
 **2026-11-18: the fleet runs the trash's purge (§8 10h, row T).** F turns the trash off to test a
 delete reaching everyone at once; T keeps it on: a file deleted on the laptop waits in the
 account's trash (`T held`), `itsanas trash delete` sends it (`T purge`), and the run checks it
@@ -4148,6 +4166,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
+15. 🟨 **Rename, and earlier versions** (asked by Nicolas, 2026-11-19: more for the next version to
+    test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
+    `rename`, `versions_of`, `bring_back`, and Android's chosen-files bar. Proved by the six tests
+    of `two_nodes.rs` named `*rename*`, `*version*` and `*comes_back*`, two in `lib.rs`, and
+    `RenameTest`, `VersionsTest`. **Left:** the iPhone's screens for both; the desktop page has
+    neither (a terminal or a synced folder's own rename does it there); a version is brought back
+    only from a machine that holds every chunk of it (fetching it from hosts is not built); a
+    rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
+
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
     link to thousands, but send a file to someone, and take in what any app shares). Android: each
     file of the Files screen has Share (`file-share`), the system's share sheet with the file
@@ -4323,9 +4350,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 9. Known gaps, deliberately open
 
-- **Tail truncation.** A host can serve an internally consistent *prefix* of a
-  segment chain. Detecting it needs signed, timestamped head records gossiped
-  between peers. Documented at the top of `store/src/oplog.rs`.
+- ✅ **Fixed 2026-11-18: tail truncation is caught.** A host can serve an
+  internally consistent *prefix* of a segment chain. Every presence now carries
+  the length of its device's chain, signed (`Presence::head`); a machine keeps
+  the longest each sibling signed, from the coordinator's list and from the
+  presences siblings relay (`Store::note_known_head`, `Contact::relayed`), and a
+  chain it holds less of makes its listing incomplete and names the device
+  (`Store::behind`, `Catalogue::behind`, `itsanas ls`'s note;
+  `red_team_a_host_serving_the_start_of_a_chain_is_caught`,
+  `red_team_a_relayed_presence_says_how_long_its_devices_log_is`). Not covered:
+  a machine that never read a presence of the device (no coordinator and no
+  sibling met); the length a presence carries is at most an hour old. Presence
+  bytes changed: a coordinator and its clients must run the same release.
 - **Usage is self-reported.** A member who under-reports gains entitlement they
   have not earned. Verifiable usage needs hosts to report what they hold.
 - **Storage challenges prove possession at a moment**, not continuously, and a

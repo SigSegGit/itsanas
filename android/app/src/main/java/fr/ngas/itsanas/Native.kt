@@ -96,6 +96,15 @@ object Native {
 
     external fun trashPut(path: String, days: String): String
 
+    /** A new name for a file, or a new place for a folder, on every machine: {"moved": n}. */
+    external fun rename(from: String, to: String): String
+
+    /** Every version of a file, newest first: {"versions": [{modified, size, current, here, mine}]}. */
+    external fun versions(path: String): String
+
+    /** Version [at] (0 is the newest) made the file again, on every machine. */
+    external fun bringBack(path: String, at: Int): String
+
     external fun trashList(): String
 
     external fun trashRecord(home: String): String

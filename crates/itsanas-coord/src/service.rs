@@ -804,6 +804,7 @@ mod tests {
                     device: device.device_id(),
                     address: address.to_owned(),
                     at_unix: NOW,
+                    head: 0,
                 }
                 .sign(device),
                 NOW,
@@ -1297,6 +1298,7 @@ mod tests {
                     device: laptop.device_id(),
                     address: "203.0.113.7:9797".to_owned(),
                     at_unix: past_it,
+                    head: 0,
                 }
                 .sign(&laptop),
                 past_it,

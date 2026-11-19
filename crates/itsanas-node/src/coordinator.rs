@@ -677,6 +677,7 @@ pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
         device: node.store.device_id(),
         address: address.clone(),
         at_unix: presence_time(node, now),
+        head: node.store.chain_length().unwrap_or(0),
     }
     .sign(&node.device);
 
@@ -781,9 +782,27 @@ pub fn accepted_deletions(
         .collect()
 }
 
+/// Keep the chain length each sibling signed in its presence (`head`), every
+/// presence here already checked against its device. Failing to keep one
+/// costs a warning that a listing is short, never the read.
+pub fn note_heads(node: &Node, presences: &[SignedPresence]) {
+    for signed in presences {
+        let presence = &signed.presence;
+        if presence.device != node.store.device_id() {
+            let _ = node.store.note_known_head(&presence.device, presence.head);
+        }
+    }
+}
+
 /// Where the other devices of `user` say they are.
 pub fn peers(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
-    let mut found: Vec<(DeviceId, String)> = devices(node, user)?
+    let mut client = dial(node)?;
+    let read = located(&mut client, &node.config, &node.device, user, true)?;
+    if user == node.store.owner() {
+        note_heads(node, &read.presences);
+    }
+    let mut found: Vec<(DeviceId, String)> = read
+        .found
         .into_iter()
         .filter(|(device, _)| *device != node.store.device_id())
         .collect();
@@ -1253,6 +1272,7 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
             device: node.store.device_id(),
             address: address.clone(),
             at_unix: presence_time(node, now),
+            head: node.store.chain_length().unwrap_or(0),
         }
         .sign(&node.device);
         match client.ask(&Request::Announce(Box::new(presence)))? {
@@ -1273,6 +1293,7 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
         );
         match read {
             Ok(read) => {
+                note_heads(node, &read.presences);
                 let mut found = read
                     .found
                     .into_iter()
@@ -2279,6 +2300,7 @@ fe800000000000000000000000000001 02 40 20 80 eth0
             device: pi.device_id(),
             address: "192.168.1.20:9797".to_owned(),
             at_unix: 0,
+            head: 0,
         }
         .sign(&pi);
 
@@ -2288,6 +2310,7 @@ fe800000000000000000000000000001 02 40 20 80 eth0
             device: stranger.device_id(),
             address: "203.0.113.67:9797".to_owned(),
             at_unix: 0,
+            head: 0,
         }
         .sign(&stranger);
         borrowed.presence.device = pi.device_id();
@@ -2316,6 +2339,7 @@ fe800000000000000000000000000001 02 40 20 80 eth0
                     device: machine.device_id(),
                     address: address.to_owned(),
                     at_unix: 0,
+                    head: 0,
                 }
                 .sign(&machine),
                 claim: NodeClaim {

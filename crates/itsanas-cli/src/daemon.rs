@@ -416,7 +416,9 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
         | Kind::Get
         | Kind::Remove { .. }
         | Kind::Trash
-        | Kind::Free { .. } => crate::file_job(node, &job),
+        | Kind::Free { .. }
+        | Kind::Move
+        | Kind::Versions => crate::file_job(node, &job),
         Kind::ConvertPacks => {
             jobs::report(
                 &node.home,
@@ -2373,6 +2375,13 @@ fn dial_listed(
         node.store.owner(),
         node.store.device_id(),
     );
+    // How long each sibling signed its log, as the others relayed it: what
+    // tells a listing it is short with no coordinator (`Store::behind`).
+    for (device, head) in contact.take_relayed_heads() {
+        if device != node.store.device_id() {
+            let _ = node.store.note_known_head(&device, head);
+        }
+    }
 }
 
 /// What [`dial_book`] needs from the world, so what a round learns from the
@@ -4274,6 +4283,7 @@ mod tests {
                 device: keys.device_id(),
                 address: address.to_owned(),
                 at_unix: at,
+                head: 0,
             }
             .sign(&keys),
             claim: itsanas_coord::claim::NodeClaim {

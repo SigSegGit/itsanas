@@ -103,7 +103,8 @@ pub const REPLICATION_TARGET: usize = 3;
 
 pub use blob::BlobStore;
 pub use catalogue::{
-    Known, Presence, absent_count, catalogue, chunks_for, chunks_for_all, remove_known,
+    Known, Presence, Renamed, Version, absent_count, bring_back_version, catalogue, chunks_for,
+    chunks_for_all, remove_known, rename_known, versions,
 };
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};

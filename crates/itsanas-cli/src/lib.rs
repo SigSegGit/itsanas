@@ -365,6 +365,28 @@ enum Command {
         #[arg(long)]
         now: bool,
     },
+    /// Every version of a file the account still knows, newest first, and
+    /// whether this machine can bring it back.
+    ///
+    /// A version stays on a machine that held it until `itsanas gc` collects
+    /// it, so a file deleted for good can come back too.
+    Versions {
+        /// The file, as `itsanas ls` named it.
+        path: String,
+        /// Make version N of the list the file again, on every machine.
+        #[arg(long, value_name = "N")]
+        restore: Option<usize>,
+    },
+    /// Give a file a new name, or a folder a new place, on every machine.
+    ///
+    /// Nothing is uploaded again, and a file not on this machine moves too.
+    /// A name the account already uses is never replaced.
+    Mv {
+        /// The file or folder, as `itsanas ls` names it.
+        from: String,
+        /// Its new name.
+        to: String,
+    },
     /// Free this machine of a file of the synced folder: it stays in the
     /// account, on its other machines, and only its copy here goes.
     ///
@@ -992,6 +1014,8 @@ fn command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> 
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path, now } => remove(&home, &path, now),
         Command::Free { path, keep } => free(&home, path.as_deref(), keep),
+        Command::Mv { from, to } => rename(&home, &from, &to),
+        Command::Versions { path, restore } => versions(&home, &path, restore),
         Command::Trash { action } => trash_command(&home, action),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
@@ -2893,6 +2917,18 @@ fn listing(node: &Node) -> Result<String> {
     if let Some(left_out) = describe_left_out(&known) {
         let _ = writeln!(out, "note: {left_out}");
     }
+    if !known.behind.is_empty() {
+        let _ = writeln!(
+            out,
+            concat!(
+                "note: {} machine(s) of this account wrote more than has reached this one{}: ",
+                "their last files and deletes are not in this list yet (a host serving only ",
+                "the start of their log, or the rest not pushed anywhere this machine reached)"
+            ),
+            known.behind.len(),
+            name_devices(&known.behind, known.behind.len())
+        );
+    }
 
     if known.files.is_empty() {
         let _ = writeln!(out, "(no files)");
@@ -3176,6 +3212,106 @@ fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result
     Ok(())
 }
 
+/// Between the old name and the new in a rename handed to the daemon: a path
+/// the store accepts holds no control character.
+const TAB: char = '\u{9}';
+
+fn rename(home: &Path, from: &str, to: &str) -> Result<()> {
+    let both = format!("{from}{TAB}{to}");
+    let said = match open_or_hand(home, jobs::Kind::Move, home, Some(&both))? {
+        Ok(node) => rename_in(&node, from, to)?,
+        Err(said) => said,
+    };
+    println!("{said}");
+    Ok(())
+}
+
+fn versions(home: &Path, path: &str, restore: Option<usize>) -> Result<()> {
+    let named = restore.map_or_else(|| path.to_owned(), |n| format!("{path}{TAB}{n}"));
+    let said = match open_or_hand(home, jobs::Kind::Versions, home, Some(&named))? {
+        Ok(node) => versions_in(&node, path, restore)?,
+        Err(said) => said,
+    };
+    println!("{said}");
+    Ok(())
+}
+
+/// The versions of `path`, numbered from 1, or (`restore`) version N made the
+/// file again; what `itsanas versions` says.
+fn versions_in(node: &Node, path: &str, restore: Option<usize>) -> Result<String> {
+    use std::fmt::Write as _;
+    let listed = itsanas_store::versions(&node.store, &node.vault, path)?;
+    if listed.is_empty() {
+        return Ok(format!("no version of {path} is known"));
+    }
+    if let Some(n) = restore {
+        let Some(chosen) = n.checked_sub(1).and_then(|at| listed.get(at)) else {
+            return Ok(format!(
+                "{path} has {} versions; there is no {n}",
+                listed.len()
+            ));
+        };
+        if chosen.current {
+            return Ok(format!(
+                "version {n} of {path} is the one the account has now"
+            ));
+        }
+        if !itsanas_store::bring_back_version(&node.store, &node.vault, path, n - 1)? {
+            return Ok(format!(
+                "version {n} of {path} is not on this machine; ask on one where `itsanas versions` says `here`"
+            ));
+        }
+        return Ok(format!("{path} is version {n} again, on every machine"));
+    }
+    let mine = node.store.device_id();
+    let mut text = String::new();
+    for (at, version) in listed.iter().enumerate() {
+        let when = crate::control::describe_moment(version.modified_unix).unwrap_or_default();
+        let by = if version.author == mine {
+            "this machine".to_owned()
+        } else {
+            version.author.to_hex()[..8].to_owned()
+        };
+        let mut notes = Vec::new();
+        if version.current {
+            notes.push("current");
+        }
+        notes.push(if version.here { "here" } else { "not here" });
+        let _ = writeln!(
+            text,
+            "{:>3}  {when}  {:>10}  {by}  {}",
+            at + 1,
+            format_size(version.size),
+            notes.join(", ")
+        );
+    }
+    let _ = write!(
+        text,
+        "`itsanas versions {path} --restore N` makes one the file again"
+    );
+    Ok(text)
+}
+
+/// Rename `from` to `to` on every machine; what `itsanas mv` says.
+fn rename_in(node: &Node, from: &str, to: &str) -> Result<String> {
+    use itsanas_store::Renamed;
+    Ok(
+        match itsanas_store::rename_known(&node.store, &node.vault, from, to)? {
+            Renamed::Moved(1) => format!("{from} is now {to}, on every machine"),
+            Renamed::Moved(count) => {
+                format!("{count} files moved from {from}/ to {to}/, on every machine")
+            }
+            Renamed::NoSuchFile => format!("no such file or folder: {from}"),
+            Renamed::Taken(name) => {
+                format!("{name} is already a file of the account; nothing moved")
+            }
+            Renamed::InTrash(name) => format!(
+                "{name} is in the account's trash; `itsanas trash restore {name}` puts it back, then it can move"
+            ),
+        },
+    )
+}
+
 fn free(home: &Path, path: Option<&str>, keep: bool) -> Result<()> {
     if let Some(path) = path {
         let said = match open_or_hand(home, jobs::Kind::Free { keep }, home, Some(path))? {
@@ -3270,6 +3406,26 @@ fn file_job(node: &Node, job: &jobs::Job) -> std::result::Result<String, String>
             return remove_in(node, name()?, now).map_err(|e| e.to_string());
         }
         jobs::Kind::Free { keep } => return free_in(node, name()?, keep),
+        jobs::Kind::Versions => {
+            let named = name()?;
+            let (path, restore) = match named.split_once(TAB) {
+                Some((path, n)) => (
+                    path,
+                    Some(
+                        n.parse()
+                            .map_err(|_| "a version number is a whole number".to_owned())?,
+                    ),
+                ),
+                None => (named, None),
+            };
+            return versions_in(node, path, restore).map_err(|e| e.to_string());
+        }
+        jobs::Kind::Move => {
+            let (from, to) = name()?
+                .split_once(TAB)
+                .ok_or_else(|| "a rename came without its new name".to_owned())?;
+            return rename_in(node, from, to).map_err(|e| e.to_string());
+        }
         _ => return deleting::trash_job(node, job),
     };
     done.map(|()| String::new())
@@ -5817,6 +5973,73 @@ const UNPINNED_RELAY: &str = "a relayed address needs the device it reaches";
 
 #[cfg(test)]
 mod tests {
+    /// `itsanas mv` while the daemon holds the store: the job carries both
+    /// names, and the daemon's node renames. Sabotage: split the job's name on
+    /// a space (a name with a space moves nothing, or to the wrong place).
+    #[test]
+    fn a_rename_handed_to_the_daemon_moves_the_file_with_spaces_in_its_names() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let (node, _) =
+            itsanas_node::Node::create(&base.path().join("desk"), "a passphrase", "camille")
+                .expect("create");
+        node.store
+            .write_file("my notes.txt", b"kept as they are")
+            .expect("write");
+        node.store.flush_segment().expect("flush");
+        let job = super::jobs::Job {
+            id: 1,
+            kind: super::jobs::Kind::Move,
+            path: base.path().to_owned(),
+            name: Some(format!("my notes.txt{}old notes/my notes.txt", super::TAB)),
+        };
+        let said = super::file_job(&node, &job).expect("the daemon's rename");
+        assert!(said.contains("is now"), "{said}");
+        assert_eq!(
+            node.store
+                .read_file("old notes/my notes.txt")
+                .expect("read"),
+            Some(b"kept as they are".to_vec()),
+            "the daemon's rename did not move the file: {said}"
+        );
+        assert_eq!(node.store.stat("my notes.txt").expect("stat"), None);
+    }
+
+    /// `itsanas versions` while the daemon holds the store: the list numbers the
+    /// versions from 1, newest first, and `--restore 2` brings back the one
+    /// before. Sabotage: count from 0 (the current version is "restored").
+    #[test]
+    fn versions_are_numbered_as_listed_and_the_second_comes_back() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let (node, _) =
+            itsanas_node::Node::create(&base.path().join("desk"), "a passphrase", "camille")
+                .expect("create");
+        node.store.write_file("plan.txt", b"before").expect("write");
+        node.store.flush_segment().expect("flush");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        node.store.write_file("plan.txt", b"after").expect("write");
+        node.store.flush_segment().expect("flush");
+        let job = |name: String| super::jobs::Job {
+            id: 1,
+            kind: super::jobs::Kind::Versions,
+            path: base.path().to_owned(),
+            name: Some(name),
+        };
+
+        let listed = super::file_job(&node, &job("plan.txt".to_owned())).expect("list");
+        let first = listed.lines().next().unwrap_or_default();
+        assert!(
+            first.trim_start().starts_with("1 ") && first.contains("current"),
+            "the newest version is not number 1, marked current:\n{listed}"
+        );
+        let said =
+            super::file_job(&node, &job(format!("plan.txt{}2", super::TAB))).expect("restore");
+        assert_eq!(
+            node.store.read_file("plan.txt").expect("read"),
+            Some(b"before".to_vec()),
+            "`--restore 2` did not bring back the version listed second: {said}"
+        );
+    }
+
     #[test]
     fn red_team_a_cold_copy_rebuilds_the_account_on_a_new_device_and_nowhere_else() {
         // A disk in a drawer: the laptop exports, a new machine recovered
@@ -6384,6 +6607,7 @@ mod tests {
             files: Vec::new(),
             complete: true,
             left_out: Vec::new(),
+            behind: Vec::new(),
         };
         assert_eq!(super::describe_left_out(&whole), None);
 
@@ -6392,6 +6616,7 @@ mod tests {
             files: Vec::new(),
             complete: false,
             left_out: vec![device],
+            behind: Vec::new(),
         };
         let line = super::describe_left_out(&short).unwrap_or_default();
         assert!(

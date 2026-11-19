@@ -23,9 +23,13 @@
 //!   sequence 40 will never silently accept a chain that stops at 30.
 //!
 //! Tail truncation by a host that serves an internally consistent prefix is
-//! *not* solved here. It needs signed, timestamped head records gossiped
-//! between peers, which is [`M3`]-and-later work. Until then a peer's guarantee
-//! is "what I have is authentic and gap-free", not "what I have is current".
+//! not caught here, from the chain alone: it is caught by the device's own
+//! word on how long its chain is. Every presence a device signs carries its
+//! chain's length (`Presence::head`), read from the coordinator and relayed by
+//! siblings; a machine that holds less of a chain than its device signed reads
+//! its listing as short and names the device (`Store::behind`). What a peer
+//! holds is "authentic and gap-free", and "as long as its device last said",
+//! which is at most an hour behind it (a presence is published hourly).
 //!
 //! [`M3`]: https://github.com/SigSegGit/itsanas/blob/main/docs/ROADMAP.md
 

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1695 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 640 are red-team tests.**
+**Last updated: 2026-11-16 — 1705 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 645 are red-team tests.**
 
-**1579 of the 1695 tests have an entry of their own on this page** — an *entry*,
+**1589 of the 1705 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,7 +167,7 @@ guarantee and is not one.
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 69 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 69 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 75 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -181,11 +181,11 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 377 |
+| `itsanas-cli` unit | 380 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 181 |
+| `itsanas-node` unit | 182 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -217,14 +217,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 82 |
+| `identity` | keys, accounts, devices, claims, invitations | 83 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 75 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 39 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 42 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 226 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 227 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1045,7 +1045,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (69)
+# `itsanas-net` — two-node tests (75)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1098,6 +1098,12 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_file_only_listed_here_can_be_deleted_from_the_account`** | A phone that holds only the listing deletes a file: it stops being listed, and the deletion reaches the machine that holds it. |
 | **`red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`** | An edit the phone had not seen survives its deletion on the laptop, and is listed on the phone again. |
 | `deleting_what_the_account_does_not_have_deletes_nothing` | A path nobody has gets no tombstone. |
+| **`red_team_a_folder_renamed_on_a_phone_that_holds_nothing_moves_on_the_laptop`** | `itsanas mv` on a phone that only lists the account: the folder's two files are listed at the new place on the phone, open there on the laptop, and the old names are gone. Sabotaged (no delete of the old name; no upsert of the new): red each. |
+| `a_rename_does_not_lose_an_edit_it_did_not_see` | A rename that met an edit it never saw keeps the edit under the old name; the new name has what was renamed. The rule is `remove_unheld`'s, sabotaged in the test above it. |
+| `a_rename_onto_a_taken_name_moves_nothing_and_a_rename_keeps_the_date` | A rename never replaces a file (the taken name is said, both files unchanged), never moves into the account's own files, answers "no such file" for nothing, and keeps the file's date. Sabotaged (no taken check; the rename's date written): red each. |
+| **`red_team_an_earlier_version_brought_back_on_a_phone_replaces_the_newest_everywhere`** | `itsanas versions --restore` on a phone that holds an earlier version and only listed the newest: the laptop then has the earlier one, with no conflict copy beside it. Sabotaged (the version advanced from what the phone holds alone, not what the log shows): red. |
+| `a_file_deleted_for_good_comes_back_from_a_machine_that_still_holds_it` | A file deleted for good lists its last version, not current, and comes back on every machine from the one that still holds its chunks: nothing collects them but `itsanas gc`. |
+| **`red_team_a_version_whose_chunks_are_gone_is_never_brought_back`** | After `itsanas gc` collected a deleted file's chunks, its version says `not here` and is never published again: every machine would list a file that opens nowhere. Sabotaged (the check that its chunks are here dropped): red. |
 | **`a_metadata_round_learns_what_changed_without_downloading_it`** | The other half: nothing is fetched, nothing is half-written, and a later round on an unmetered connection completes it. Writing this test is what found that deferred work was never retried. |
 | **`a_delete_racing_an_edit_still_leaves_the_file_listed`** | The listing applies the same asymmetry as the merge engine. A listing that hid a file the engine is about to keep would tell somebody their edit was lost. |
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
@@ -1268,7 +1274,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (377)
+# `itsanas-cli` — unit tests (380)
 
 ## `bench` — measuring this machine (4)
 
@@ -1665,13 +1671,14 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a delete for good reaching the computer (5)
+## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a chain served short, a delete for good reaching the computer (6)
 
 | Test | What it proves |
 |---|---|
 | **`red_team_a_round_names_the_files_it_brought_changed_and_removed`** | A phone's round names up to five files that arrived, changed or left and counts the rest, so a file arriving or edited on a computer is seen on the phone. Sabotaged (paths compared, not versions): red. |
 | **`red_team_a_host_of_another_account_learns_a_withdrawal_from_a_sibling`** | The laptop introduces itself to a host of another account after withdrawing the old phone; the old phone then presents its live claim there and is refused. The host learnt it from the coordinator alone before. Sabotaged (nothing passed on; the host taking no withdrawal but the caller's own): red both. |
 | **`red_team_a_withdrawal_reaches_a_machine_that_reads_no_coordinator`** | HANDOVER §9: the laptop withdraws the old phone, the old phone still presents its live claim to the laptop, and the VM, with no coordinator, learns the withdrawal from the laptop at its next round: revoked in its roster, its chain no longer applied. Sabotaged (the withdrawal not kept on the laptop; the live claim replacing it there): red both. |
+| **`red_team_a_host_serving_the_start_of_a_chain_is_caught`** | HANDOVER §9, tail truncation: the laptop writes twice, the Pi met it after the first only, the VM syncs through the Pi alone; the laptop's signed presence says two segments, so the VM's listing is incomplete and names the laptop. Sabotaged (the listing ignoring the heads; heads not kept from the coordinator's read; a presence saying 0): red each. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
 | `a_file_deleted_for_good_on_a_phone_leaves_the_computer` | IOS.md step 3 over sockets: a file of the computer, deleted on the phone, put back, deleted again and deleted for good from the phone's trash, is gone from the computer's listing once the computer applies what was pushed to it (`drain_vault`, as its daemon does at every beat). Written when the iPhone run found the file still there, to tell the core from the harness. Sabotaged (the phone's delete for good does nothing): red. |
 
@@ -1750,7 +1757,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (57)
+## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised, a rename handed to the daemon, versions numbered as listed (59)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1764,6 +1771,8 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_vault_that_cannot_be_written_is_never_drawn_green`** | ` unwritable` on the header is `unwritable 60`, never `healthy`; `status` given the probe's reason says `CANNOT KEEP    the vault at P cannot be written (why)`, and without one says no CANNOT KEEP. Sabotaged (the arm dropped; the CANNOT KEEP line dropped): red, both. |
 | **`red_team_moving_a_vault_copies_checks_switches_and_keeps_the_original`** | `itsanas vault NEW --move`: the copy holds what the original held, the node uses it from then on, the original stays until deleted by hand, no staging copy is left (the vault is closed before copying: Windows will not read a locked database, found by CI); a target that holds anything is refused and nothing switches (the early check only spares a copy: the final rename refuses an occupied target and the staging copy is removed). |
 | **`red_team_a_cold_copy_rebuilds_the_account_on_a_new_device_and_nowhere_else`** | `itsanas backup export` then `restore` on a machine recovered from the 24 words, with no peer: the file comes back, the old device admitted to the roster from the copy's claims; another account's node refuses the copy and gets nothing; a chunk swapped on the backup disk is refused, not kept; an export never overwrites a backup. |
+| `a_rename_handed_to_the_daemon_moves_the_file_with_spaces_in_its_names` | `itsanas mv` while the daemon holds the store: the job carries both names, a tab between them, and the daemon's node moves the file, spaces and all. Sabotaged (split on a space): red. |
+| `versions_are_numbered_as_listed_and_the_second_comes_back` | `itsanas versions` through the daemon numbers versions from 1, newest first and marked current, and `--restore 2` brings back the one listed second. Sabotaged (counted from 0): red. |
 | **`red_team_setting_the_vault_never_adopts_a_foreign_directory`** | `itsanas vault PATH` refuses a directory holding other files and another device's vault, saves nothing then, and marks an empty new one that the next open uses. Sabotaged (emptiness check off): red. |
 | **`red_team_delete_account_does_nothing_without_the_typed_name`** | `itsanas delete-account --confirm NAME` refuses a mistyped, differently cased or empty name at the name check itself, and an account with no coordinator; neither makes the machine leave. Sabotaged (name check off): red. |
 | **`a_panic_that_is_not_a_closed_pipe_is_never_swallowed`** | The dangerous half of the fix. A hook that exits 0 on the wrong panic turns a crash into a silent success, which is worse than the noise it removed. Five real panic messages must still reach the reader. |
@@ -1899,7 +1908,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (204)
+# `itsanas-node` — a node on disk (205)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1943,7 +1952,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all, and never this node for another device (41)
+## `contact` — when the coordinator is dialled at all, and never this node for another device (42)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1962,6 +1971,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_machine_back_on_is_dialled_at_once`** | The way out of that wait: after an hour off, the laptop is offered at the next round when discovery hears it here, when the round reached it elsewhere (`round_reached`), when it answered at its address (`worked`), or when the coordinator lists an address the book did not hold; a read repeating the same address is no news and keeps the wait. Sabotaged (each of the four doors removed in turn): red each time. |
 | **`red_team_an_introduced_host_that_is_off_is_not_dialled_every_round`** | A host of another account the coordinator still names, off for a day of 30 s rounds: dialled between 48 and 60 times (a minute doubling to the half hour), not 2880. Sabotaged (`introduced_due` ignores the wait): red. |
 | `an_introduced_host_that_answers_is_due_again_at_the_next_round` | A host with twenty misses in a row that answers in a round is due at the next one, not after the half hour. Sabotaged (`round_reached` keeps its wait): red. |
+| **`red_team_a_relayed_presence_says_how_long_its_devices_log_is`** | With no coordinator, a sibling's relayed presence hands on how long the device signed its log; a row whose signature fails counts for nothing, and the heads are handed over once. Sabotaged (no relayed head kept): red. |
 | `a_machine_that_fails_at_three_addresses_in_one_round_missed_once` | A round's failures at a LAN address, a public one and a relay are one miss, not three: counted per address, the first wait was four minutes instead of one. Sabotaged (counted per address): red. |
 | **`red_team_a_coordinator_listing_a_new_port_every_read_buys_a_dial_a_read_at_most`** | Rodin's question on #322, made a test: a coordinator listing a new port for a machine that is off at every read. The first version reset the wait on any new address, and a day of 30 s rounds cost 948 dials for 324 reads (the ramp's 1, 2, 4 minutes after each). Now news allows one dial at the next round and the wait goes on doubling: at most one dial a read plus the wait's own, and under 500 a day. Sabotaged (news resets the wait): red. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |

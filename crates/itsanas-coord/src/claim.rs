@@ -211,6 +211,12 @@ pub struct Presence {
     /// `host:port`, as the device believes it is reachable.
     pub address: String,
     pub at_unix: u64,
+    /// How many segments the device's own log held when it signed this: its
+    /// chain's length, which only grows. Signed with the rest, so a host
+    /// serving a prefix of the chain -- consistent, every segment genuine,
+    /// the last ones withheld -- is caught by any machine of the account that
+    /// read this and holds less (HANDOVER §9, "Tail truncation").
+    pub head: u64,
 }
 
 /// A [`Presence`] with the device's signature over it.
@@ -229,7 +235,7 @@ pub const MAX_ADDRESS_LEN: usize = 255;
 impl Presence {
     fn payload(&self) -> Vec<u8> {
         let address = self.address.as_bytes();
-        let mut out = Vec::with_capacity(32 + 4 + address.len() + 8);
+        let mut out = Vec::with_capacity(32 + 4 + address.len() + 16);
         out.extend_from_slice(self.device.as_bytes());
         // Length-prefixed, so an address cannot be confused with the timestamp
         // that follows it.
@@ -240,6 +246,7 @@ impl Presence {
         );
         out.extend_from_slice(address);
         out.extend_from_slice(&self.at_unix.to_le_bytes());
+        out.extend_from_slice(&self.head.to_le_bytes());
         out
     }
 
@@ -429,6 +436,7 @@ mod tests {
                 device: dev.device_id(),
                 address: "203.0.113.7:9797".to_owned(),
                 at_unix: NOW,
+                head: 0,
             }
             .sign(dev),
             claim: claim(owner, dev, NOW, revoked),
@@ -655,6 +663,7 @@ mod tests {
             device: dev.device_id(),
             address: "192.168.1.20:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&dev);
 
@@ -678,6 +687,7 @@ mod tests {
             device: honest.device_id(),
             address: "attacker.example:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&attacker);
         forged.presence.device = honest.device_id();
@@ -695,6 +705,7 @@ mod tests {
             device: dev.device_id(),
             address: "192.168.1.20:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&dev);
         assert!(
@@ -723,6 +734,7 @@ mod tests {
                 device: dev.device_id(),
                 address,
                 at_unix: NOW,
+                head: 0,
             }
             .sign(&dev);
 
@@ -746,6 +758,7 @@ mod tests {
             device: dev.device_id(),
             address: "pi.local:9797".to_owned(),
             at_unix: NOW,
+            head: 0,
         }
         .sign(&dev);
         let frame = itsanas_wire::encode(&announced).unwrap();

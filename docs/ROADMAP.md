@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1695 test functions, 20 of them `#[ignore]`d into the slow job, and 640 of
+**1705 test functions, 20 of them `#[ignore]`d into the slow job, and 645 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1961,7 +1961,8 @@ it; a hostile host stalling a round with one segment that fails any check
 above is fixed on the ordinary pull by §8 2c (next paragraph); a version vector that wins over or
 resurrects a delete needs the owner's log key, which is the identity surface,
 not this one; a coordinator is not in the integrity path for data (it hands
-out addresses; TLS pins device keys) and was not re-read; tail truncation is
+out addresses; TLS pins device keys) and was not re-read; tail truncation (caught
+since 2026-11-18 by the chain length each presence signs, `Store::behind`) is
 §9, deliberate. From `itsanas-redteam` on the noise fixes: a liar is still
 recorded as a holder if the chunk reaches this disk by another route during the
 same pull (a concurrent write of identical content), because the record is

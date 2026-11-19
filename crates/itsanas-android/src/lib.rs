@@ -58,8 +58,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    get_file, list_at, network_in, open_into, passphrase_rule, put_file, status_of, sync_node,
-    trash_delete, trash_failed, trash_keep, trash_list, trash_put, use_coordinator, write_file,
+    bring_back, get_file, list_at, network_in, open_into, passphrase_rule, put_file, rename,
+    status_of, sync_node, trash_delete, trash_failed, trash_keep, trash_list, trash_put,
+    use_coordinator, versions_of, write_file,
 };
 use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
@@ -673,6 +674,53 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_remove(
 }
 
 // -------------------------------------------------------------------- trash
+
+/// Give a file a new name, or a folder a new place, on every machine.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_rename(
+    mut env: JNIEnv,
+    _class: JClass,
+    from: JString,
+    to: JString,
+) -> jstring {
+    let from = text(&mut env, &from, "the old name");
+    let to = text(&mut env, &to, "the new name");
+    answer(&mut env, move || {
+        let (from, to) = (from?, to?);
+        with_node(|node| rename(node, &from, &to))
+    })
+}
+
+/// Every version of a file the account knows, newest first.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_versions(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let path = path?;
+        with_node(|node| versions_of(node, &path))
+    })
+}
+
+/// Make one version of a file (0 is the newest) the file again, everywhere.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_bringBack(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+    at: jni::sys::jint,
+) -> jstring {
+    let path = text(&mut env, &path, "the path");
+    answer(&mut env, move || {
+        let path = path?;
+        let at = usize::try_from(at)
+            .map_err(|_| Failure::Usage("a version is counted from 0".to_owned()))?;
+        with_node(|node| bring_back(node, &path, at))
+    })
+}
 
 /// Put a file in this phone's trash for some days.
 #[unsafe(no_mangle)]

@@ -124,6 +124,11 @@ const ROSTER: TableDefinition<'_, &[u8], u8> = TableDefinition::new("account_ros
 /// on the next round that can move content.
 const APPLIED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("applied_heads");
 
+/// device id -> the longest chain length that device signed in a presence
+/// this node read (`Presence::head`): what its log is known to hold at
+/// least, whoever served it. Only grows.
+const KNOWN_HEADS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("known_heads");
+
 /// The holder ledger read out of both of its tables, for cross-checking.
 ///
 /// A pair of vectors would do; a named type makes the two halves impossible to
@@ -428,6 +433,7 @@ impl Index {
             let _ = txn.open_table(META)?;
             let _ = txn.open_table(HOLDERS)?;
             let _ = txn.open_table(APPLIED)?;
+            let _ = txn.open_table(KNOWN_HEADS)?;
             let _ = txn.open_table(RELIABILITY)?;
             let _ = txn.open_table(DEVICE_SEEN)?;
             let _ = txn.open_table(LEDGER_REFRESHED)?;
@@ -1754,6 +1760,39 @@ impl Index {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Record that `device` signed a chain at least `length` segments long.
+    /// A shorter word than one already held changes nothing, and writes
+    /// nothing (an older presence read again every round).
+    pub fn note_known_head(&self, device: &DeviceId, length: u64) -> Result<()> {
+        let key = device.as_bytes().as_slice();
+        let held = self
+            .db
+            .begin_read()?
+            .open_table(KNOWN_HEADS)?
+            .get(key)?
+            .map_or(0, |row| row.value());
+        if length <= held {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(KNOWN_HEADS)?.insert(key, length)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Every device's chain length known from its own signed word.
+    pub fn known_heads(&self) -> Result<Vec<(DeviceId, u64)>> {
+        let txn = self.db.begin_read()?;
+        let mut out = Vec::new();
+        for row in txn.open_table(KNOWN_HEADS)?.iter()? {
+            let (key, value) = row?;
+            out.push((DeviceId::from_slice(key.value())?, value.value()));
+        }
+        Ok(out)
     }
 
     /// The head this device last applied cleanly for `device`, if any.

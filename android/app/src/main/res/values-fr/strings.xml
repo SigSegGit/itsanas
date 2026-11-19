@@ -70,6 +70,15 @@
     <string name="files_share_chosen">Partager la sélection</string>
     <string name="files_free_chosen">Libérer la sélection sur ce téléphone</string>
     <string name="files_delete_chosen">Supprimer la sélection</string>
+    <string name="files_rename_chosen">Renommer</string>
+    <string name="files_versions_chosen">Versions</string>
+    <string name="versions_title">Versions de %1$s</string>
+    <string name="versions_reading">Lecture du compte…</string>
+    <string name="versions_current">actuelle</string>
+    <string name="versions_back">Restaurer</string>
+    <string name="rename_title">Renommer %1$s</string>
+    <string name="rename_help">Une barre oblique le range dans un dossier, sur chaque machine.</string>
+    <string name="rename_confirm">Renommer</string>
     <string name="files_freed">%1$d libéré(s) · %2$d gardé(s) ici tant qu’aucune autre machine ne les a</string>
     <string name="delete_title_many">Supprimer %1$d fichiers ?</string>
     <string name="file_fetch">Récupérer et ouvrir</string>

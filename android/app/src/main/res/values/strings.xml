@@ -72,6 +72,15 @@
     <string name="files_share_chosen">Share the selected files</string>
     <string name="files_free_chosen">Free the selected files on this phone</string>
     <string name="files_delete_chosen">Delete the selected files</string>
+    <string name="files_rename_chosen">Rename</string>
+    <string name="files_versions_chosen">Versions</string>
+    <string name="versions_title">Versions of %1$s</string>
+    <string name="versions_reading">Reading the account…</string>
+    <string name="versions_current">current</string>
+    <string name="versions_back">Bring back</string>
+    <string name="rename_title">Rename %1$s</string>
+    <string name="rename_help">A slash moves it into a folder, on every machine.</string>
+    <string name="rename_confirm">Rename</string>
     <string name="files_freed">%1$d freed · %2$d kept here until another machine holds them</string>
     <string name="delete_title_many">Delete %1$d files?</string>
     <string name="file_fetch">Fetch and open</string>

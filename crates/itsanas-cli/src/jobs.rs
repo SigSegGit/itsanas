@@ -78,6 +78,11 @@ pub enum Kind {
     /// `itsanas convert-packs`: stop this run, convert with the store
     /// closed, start again, as a vault move does.
     ConvertPacks,
+    /// Rename: `name` is the old name and the new, a tab between them.
+    Move,
+    /// `itsanas versions`: `name` is the file, and the version to bring back
+    /// after a tab when there is one.
+    Versions,
     /// Free `name` from this machine, or (`keep`) bring it back.
     Free {
         /// `itsanas free --keep`.
@@ -113,6 +118,8 @@ impl Kind {
             Self::ConvertPacks => "convert-packs",
             Self::Free { keep: false } => "free",
             Self::Free { keep: true } => "free-keep",
+            Self::Move => "move",
+            Self::Versions => "versions",
         }
     }
 
@@ -131,6 +138,8 @@ impl Kind {
             "convert-packs" => Self::ConvertPacks,
             "free" => Self::Free { keep: false },
             "free-keep" => Self::Free { keep: true },
+            "move" => Self::Move,
+            "versions" => Self::Versions,
             _ => return None,
         })
     }
@@ -423,6 +432,8 @@ mod tests {
             Kind::ConvertPacks,
             Kind::Free { keep: false },
             Kind::Free { keep: true },
+            Kind::Move,
+            Kind::Versions,
         ] {
             ask(home.path(), kind, &target).expect("asked");
             assert_eq!(take(home.path()).expect("one").expect("job").kind, kind);

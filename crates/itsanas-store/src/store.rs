@@ -675,6 +675,78 @@ impl Store {
         Ok(true)
     }
 
+    /// Write `kept` under `path` as this device's newest version, keeping its
+    /// date, size and chunks: what a rename writes under the new name. The
+    /// content is the same, so it is not an edit, and nothing is read or
+    /// chunked again.
+    ///
+    /// `held` says whether the content is on this device. When it is not, as on
+    /// a phone that lists the account without downloading it, nothing enters
+    /// the index (as [`Self::remove_unheld`]): the log alone carries the name,
+    /// and the listing shows it as not here, which it is not.
+    pub(crate) fn place(&self, path: &str, kept: &FileEntry, held: bool) -> Result<FileEntry> {
+        logical_path::validate(path)?;
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+        let sequence = self.index.next_sequence()?;
+        let entry = FileEntry {
+            version: self
+                .base_version(path)?
+                .advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
+            ..kept.clone()
+        };
+        if held {
+            self.index.put_file(path, &entry)?;
+        }
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: now_unix(),
+            operation: Operation::Upsert {
+                path: path.to_owned(),
+                entry: entry.clone(),
+            },
+        })?;
+        Ok(entry)
+    }
+
+    /// Make `kept`, an earlier version of `path` whose chunks are all here, the
+    /// newest, dated now: what bringing a version back writes. Its version
+    /// advances both what this device holds and `seen`, the newest the log
+    /// shows, so it replaces the current version on every machine rather than
+    /// standing beside it as a conflict.
+    pub(crate) fn bring_back(
+        &self,
+        path: &str,
+        kept: &FileEntry,
+        seen: &crate::VersionVector,
+    ) -> Result<FileEntry> {
+        logical_path::validate(path)?;
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+        let sequence = self.index.next_sequence()?;
+        let mut base = self.base_version(path)?;
+        base.merge(seen);
+        let entry = FileEntry {
+            version: base.advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
+            modified_unix: now_unix(),
+            ..kept.clone()
+        };
+        self.index.put_file(path, &entry)?;
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: entry.modified_unix,
+            operation: Operation::Upsert {
+                path: path.to_owned(),
+                entry: entry.clone(),
+            },
+        })?;
+        Ok(entry)
+    }
+
     /// Stop holding the content of `path` on this device, without deleting it
     /// from the account.
     ///
@@ -1144,6 +1216,43 @@ impl Store {
     /// How many segments this device's chain holds.
     pub fn chain_length(&self) -> Result<u64> {
         self.index.chain_length()
+    }
+
+    /// Record that `device` signed a chain at least `length` segments long
+    /// (its presence's `head`). Only grows.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_known_head(&self, device: &DeviceId, length: u64) -> Result<()> {
+        self.index.note_known_head(device, length)
+    }
+
+    /// The account's devices whose chain this vault holds less of than they
+    /// signed, with what is held and what they said: a host served only the
+    /// start of the chain, or the rest has not reached any host this machine
+    /// met yet. Never this device.
+    ///
+    /// # Errors
+    ///
+    /// If the index or the vault cannot be read.
+    pub fn behind(&self, vault: &crate::Vault) -> Result<Vec<(DeviceId, u64, u64)>> {
+        let held: std::collections::BTreeMap<DeviceId, u64> = vault
+            .heads_for(self.owner())?
+            .into_iter()
+            .map(|(device, _, length)| (device, length))
+            .collect();
+        let mine = self.device_id();
+        Ok(self
+            .index
+            .known_heads()?
+            .into_iter()
+            .filter(|(device, _)| *device != mine)
+            .filter_map(|(device, said)| {
+                let have = held.get(&device).copied().unwrap_or(0);
+                (have < said).then_some((device, have, said))
+            })
+            .collect())
     }
 
     // --------------------------------------------------------- housekeeping

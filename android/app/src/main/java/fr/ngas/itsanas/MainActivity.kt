@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
@@ -515,6 +517,8 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     var busy by remember { mutableStateOf(false) }
     // The files a delete asks about: one from its row, or every chosen one.
     var confirmDelete by remember { mutableStateOf(emptyList<Known>()) }
+    var renaming by remember { mutableStateOf<Known?>(null) }
+    var versionsOf by remember { mutableStateOf<Known?>(null) }
     var trashOpen by remember { mutableStateOf(false) }
     // Files chosen by a long press, to share together. Only files of the folder on screen.
     var chosen by remember { mutableStateOf(emptySet<String>()) }
@@ -794,6 +798,8 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                         }
                     },
                     onDelete = { confirmDelete = level.files.filter { it.path in chosen } },
+                    onRename = level.files.singleOrNull { it.path in chosen }?.let { one -> { renaming = one } },
+                    onVersions = level.files.singleOrNull { it.path in chosen }?.let { one -> { versionsOf = one } },
                 ) {
                     val picked = level.files.filter { it.path in chosen }
                     scope.launch {
@@ -868,6 +874,62 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
 
     if (trashOpen) {
         TrashDialog({ trashOpen = false }, { refresh() }, { complain(it) })
+    }
+
+    versionsOf?.let { file ->
+        VersionsDialog(
+            file,
+            onClose = { versionsOf = null },
+            onBack = { at ->
+                versionsOf = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) { Native.bringBack(file.path, at) }
+                        chosen = emptySet()
+                        refresh()
+                    } catch (error: Throwable) {
+                        complain(error.message ?: "could not bring it back")
+                    }
+                }
+            },
+        )
+    }
+
+    renaming?.let { file ->
+        var name by remember(file.path) { mutableStateOf(file.path) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text(stringResource(R.string.rename_title, file.name)) },
+            text = {
+                androidx.compose.material3.OutlinedTextField(
+                    name,
+                    { name = it },
+                    Modifier.fillMaxWidth().testTag("rename-name"),
+                    singleLine = true,
+                    supportingText = { Text(stringResource(R.string.rename_help)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("rename-confirm"),
+                    enabled = name.isNotBlank() && name.trim() != file.path,
+                    onClick = {
+                        val to = name.trim()
+                        renaming = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) { Native.rename(file.path, to) }
+                                chosen = emptySet()
+                                refresh()
+                            } catch (error: Throwable) {
+                                complain(error.message ?: "could not rename it")
+                            }
+                        }
+                    },
+                ) { Text(stringResource(R.string.rename_confirm)) }
+            },
+            dismissButton = { TextButton({ renaming = null }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 
     confirmDelete.takeIf { it.isNotEmpty() }?.let { files ->
@@ -1028,6 +1090,54 @@ private fun FileRow(
     }
 }
 
+/** Every version of one file, newest first; one held here and not current can come back. */
+@Composable
+private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Unit) {
+    var listed by remember(file.path) { mutableStateOf<org.json.JSONArray?>(null) }
+    LaunchedEffect(file.path) {
+        listed = withContext(Dispatchers.IO) {
+            runCatching { org.json.JSONObject(Native.versions(file.path)).getJSONArray("versions") }
+                .getOrDefault(org.json.JSONArray())
+        }
+    }
+    val format = remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(stringResource(R.string.versions_title, file.name)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                val versions = listed
+                if (versions == null) {
+                    Text(stringResource(R.string.versions_reading))
+                } else {
+                    for (at in 0 until versions.length()) {
+                        val version = versions.getJSONObject(at)
+                        Row(Modifier.fillMaxWidth().testTag("version-row"), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(format.format(java.util.Date(version.getLong("modified") * 1000)))
+                                Text(
+                                    buildString {
+                                        append(humanSize(version.getLong("size")))
+                                        if (version.getBoolean("current")) append(" · ${stringResource(R.string.versions_current)}")
+                                        if (!version.getBoolean("here")) append(" · ${stringResource(R.string.file_not_here)}")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                            if (version.getBoolean("here") && !version.getBoolean("current")) {
+                                TextButton({ onBack(at) }, Modifier.testTag("version-back-$at")) {
+                                    Text(stringResource(R.string.versions_back))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClose) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
 /** The bar over the list while files are chosen: how many, drop them all, then what to do with them. */
 @Composable
 private fun ChosenBar(
@@ -1035,6 +1145,8 @@ private fun ChosenBar(
     onNone: () -> Unit,
     onFree: () -> Unit,
     onDelete: () -> Unit,
+    onRename: (() -> Unit)?,
+    onVersions: (() -> Unit)?,
     onShare: () -> Unit,
 ) {
     Row(
@@ -1051,6 +1163,17 @@ private fun ChosenBar(
         )
         IconButton(onShare, Modifier.testTag("files-share-chosen")) {
             Icon(Icons.Default.Share, stringResource(R.string.files_share_chosen))
+        }
+        // One file chosen: it can take a new name, which moves it too.
+        if (onRename != null) {
+            IconButton(onRename, Modifier.testTag("files-rename-chosen")) {
+                Icon(Icons.Default.Edit, stringResource(R.string.files_rename_chosen))
+            }
+        }
+        if (onVersions != null) {
+            IconButton(onVersions, Modifier.testTag("files-versions-chosen")) {
+                Icon(Icons.Default.History, stringResource(R.string.files_versions_chosen))
+            }
         }
         IconButton(onFree, Modifier.testTag("files-free-chosen")) {
             Icon(Icons.Default.CloudUpload, stringResource(R.string.files_free_chosen))
