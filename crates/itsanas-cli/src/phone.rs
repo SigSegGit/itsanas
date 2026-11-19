@@ -756,6 +756,71 @@ mod tests {
         });
     }
 
+    /// #409's iPhone run: a computer pledging nothing, as a new one does,
+    /// refused every segment its own phone pushed, so a file deleted for good
+    /// on the phone stayed on it. A pledge is room lent to other accounts; the
+    /// account's own log is taken whatever it says. And a stranger pushing
+    /// the account's segment is still refused here, by the claim book
+    /// (`service.rs` tests the roster on a service with none). Sabotage: the
+    /// pledge checked for siblings too.
+    #[test]
+    fn red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete() {
+        crate::testing::with_directory(|coordinator, _| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let (desk, phrase) =
+                crate::testing::phone(&dir.path().join("desk"), coordinator, "camille", None);
+            let (mut phone, _) = crate::testing::phone(
+                &dir.path().join("phone"),
+                coordinator,
+                "camille",
+                Some(&phrase),
+            );
+            let (stranger, _) =
+                crate::testing::phone(&dir.path().join("stranger"), coordinator, "dominique", None);
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"to be deleted from the phone").expect("source");
+            put_file(&desk, "to-trash.txt", source.to_str().expect("utf-8")).expect("put");
+
+            let server = itsanas_net::PeerServer::bind("127.0.0.1:0").expect("bind");
+            let stranger_offer =
+                crate::testing::serving_pledged(&server, &desk, itsanas_net::Pledge::NONE, |at| {
+                    phone.config.peers.push(at.to_string());
+                    sync_node(&phone, false, unix_now()).expect("the phone's first round");
+                    trash_put(&phone, "to-trash.txt", 30).expect("delete");
+                    trash_delete(&phone, "to-trash.txt").expect("delete for good");
+                    sync_node(&phone, false, unix_now())
+                        .expect("the round that tells the computer");
+                    // The phone's own tip, offered by a device of another
+                    // account in the phone's account's name.
+                    let tip = phone
+                        .store
+                        .segments()
+                        .expect("the phone's chain")
+                        .pop()
+                        .expect("a segment");
+                    let mut client = itsanas_net::PeerClient::connect(
+                        at,
+                        &stranger.device,
+                        stranger.store.owner(),
+                        None,
+                    )
+                    .expect("the stranger connects");
+                    client.store_segment(&tip).expect("an answer")
+                });
+            assert!(
+                matches!(stranger_offer, itsanas_net::Offer::Refused(_)),
+                "a host at pledge 0 took a segment of its account from a device outside its roster: anybody can fill its disk in its owner's name ({stranger_offer:?})"
+            );
+            itsanas_net::session::drain_vault(&desk.store, &desk.vault).expect("the drain");
+            let listed =
+                itsanas_store::catalogue(&desk.store, &desk.vault).expect("the computer's listing");
+            assert!(
+                !listed.files.iter().any(|file| file.path == "to-trash.txt"),
+                "a computer that pledges nothing kept a file its own phone deleted for good: the phone told the person it left every machine"
+            );
+        });
+    }
+
     /// HANDOVER §9, "A withdrawn device keeps its old claim": a withdrawal
     /// reached the coordinator alone, so a machine of the account that reads
     /// none went on admitting the withdrawn one. The laptop withdraws the old

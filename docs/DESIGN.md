@@ -1192,7 +1192,8 @@ enforced and is not. A node's directory holds three things:
 | | Bounded by |
 | --- | --- |
 | your own content | `keep` |
-| sealed data held for other people, and your own log relayed between your devices | `pledge` |
+| sealed data held for other people, and your own devices' content pushed to it | `pledge` |
+| your own account's log, pushed by a member of its roster | the free disk only |
 | the databases: the index, and the vault's | nothing |
 
 The third is proportional to the *number* of files and log entries rather than

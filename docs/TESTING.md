@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1705 test functions across 45 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 645 are red-team tests.**
+**Last updated: 2026-11-16 — 1707 test functions across 45 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 647 are red-team tests.**
 
-**1589 of the 1705 tests have an entry of their own on this page** — an *entry*,
+**1591 of the 1707 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -166,7 +166,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 69 |
+| `itsanas-net` unit | 70 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 75 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 380 |
+| `itsanas-cli` unit | 381 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -219,12 +219,12 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 83 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 75 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 76 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 42 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 227 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 228 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -938,7 +938,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (69)
+# `itsanas-net` — unit tests (70)
 
 ## `protocol` — messages and challenges (14)
 
@@ -959,7 +959,7 @@ about reading.
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (33)
+## `service` — what a peer may obtain (34)
 
 | Test | What it proves |
 | --- | --- |
@@ -972,6 +972,7 @@ about reading.
 | **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
 | **`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`** | The listener serves connections concurrently since 2026-09-17, and the pledge check is a read before a write. Sixteen offers released at the same instant all saw the same free space and all were stored: a host took on four times its pledge. The check and the write now happen under one lock. Fails when the lock is removed. |
 | **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
+| **`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`** | A host at pledge 0 stores its account's segment from a member of its roster, and refuses the same segment from a device outside it, on a service with no claim book to refuse it later. #409's iPhone run: a computer at pledge 0 refused its own phone's delete for good. Sabotaged (the pledge asked of siblings too; the roster not asked): red each. |
 | **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
 | **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
 | `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
@@ -1274,7 +1275,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (380)
+# `itsanas-cli` — unit tests (381)
 
 ## `bench` — measuring this machine (4)
 
@@ -1671,7 +1672,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
 | `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
-## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a chain served short, a delete for good reaching the computer (6)
+## `phone` — what a phone's round says it changed, a sibling learnt through a third, a withdrawal learnt the same way, a chain served short, a delete for good reaching the computer, even one that pledges nothing (7)
 
 | Test | What it proves |
 |---|---|
@@ -1681,6 +1682,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_host_serving_the_start_of_a_chain_is_caught`** | HANDOVER §9, tail truncation: the laptop writes twice, the Pi met it after the first only, the VM syncs through the Pi alone; the laptop's signed presence says two segments, so the VM's listing is incomplete and names the laptop. Sabotaged (the listing ignoring the heads; heads not kept from the coordinator's read; a presence saying 0): red each. |
 | **`red_team_a_machine_learns_a_sibling_it_never_met_through_a_third`** | HANDOVER §8 3f end to end over sockets: three machines of one account, the laptop meeting only the Pi and the VM only the Pi. The VM's armed roster waits on the laptop's chain until the Pi hands it the laptop's claim (`Request::Claims`), then applies the file. Asserted on the VM's index, not its listing, which reads chains from the vault whatever the roster says. Sabotaged (the Pi answers no claims): red. |
 | `a_file_deleted_for_good_on_a_phone_leaves_the_computer` | IOS.md step 3 over sockets: a file of the computer, deleted on the phone, put back, deleted again and deleted for good from the phone's trash, is gone from the computer's listing once the computer applies what was pushed to it (`drain_vault`, as its daemon does at every beat). Written when the iPhone run found the file still there, to tell the core from the harness. Sabotaged (the phone's delete for good does nothing): red. |
+| **`red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete`** | The same over sockets with the computer at pledge 0, as a new one is: the phone's delete for good reaches it, and a device of another account offering the phone's segment is refused (by the claim book). Sabotaged (the pledge asked of the account's own segments): red. |
 
 ## `rounds` — one round per machine, a parked machine through its relay, the machines on this network (3)
 

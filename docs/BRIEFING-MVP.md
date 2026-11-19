@@ -146,7 +146,8 @@ perdue là en épargne une quand les trois machines attendent.
 ### 2.4 État de départ
 
 Sur chaque machine et chaque instance :
-- `itsanas pledge` au moins 5G (un nœud à pledge 0 ne relaie rien ; le tour de
+- `itsanas pledge` au moins 5G (un nœud à pledge 0 ne garde aucun fichier, pas
+  même ceux de ses propres machines, seulement le journal du compte ; le tour de
   synchronisation affiche alors `refused N offer(s): its pledge is full or zero`
   — si tu vois cette ligne pendant les tests, c'est ce prérequis qui manque) ;
 - `itsanas status` ;

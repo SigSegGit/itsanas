@@ -23,9 +23,14 @@ its computer pledged nothing, and a host refuses past its pledge, its own accoun
 included (FIRST-STEPS.md), so every segment the phone pushed was refused. Reproduced on Windows with
 the CLI as the phone (`refused 4 offer(s): its pledge is full or zero`); with `pledge 1G` the
 segments land, the daemon says `pushed to us:` and only `from-computer.txt` is left.
-`iphone-e2e.sh` now pledges, waits for that line, and prints `computer.log` when the check fails.
-Open for Nicolas: a new computer pledges 0, so it refuses a phone's delete for good too, while the
-phone's trash says the file left every machine.
+Nicolas then asked why a pledge should decide that at all: it should not. A pledge is room lent to
+other accounts, so a host now takes its own account's segments from a member of its roster whatever
+it pledges, bounded by the free disk only (`StoreSegment` in `itsanas-net/src/service.rs`;
+`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`,
+`red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete`). The account's own files
+pushed by a sibling still count against the pledge: a 0 B computer follows the log but holds no
+copy for the phone. `iphone-e2e.sh` runs its computer unpledged on purpose, waits for
+`pushed to us:`, and prints `computer.log` when the check fails.
 
 **2026-11-19: rename and earlier versions, for 0.1.21 (§8 15).** Asked by Nicolas: more for the
 next version to test. `itsanas mv FROM TO` renames a file or moves a folder on every machine

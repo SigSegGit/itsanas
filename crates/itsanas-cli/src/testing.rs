@@ -111,8 +111,18 @@ pub fn serving_on<T>(
     host: &Node,
     body: impl FnOnce(std::net::SocketAddr) -> T,
 ) -> T {
+    serving_pledged(server, host, Pledge::gigabytes(1), body)
+}
+
+/// [`serving_on`] at `pledge`: a new node pledges nothing.
+pub fn serving_pledged<T>(
+    server: &PeerServer,
+    host: &Node,
+    pledge: Pledge,
+    body: impl FnOnce(std::net::SocketAddr) -> T,
+) -> T {
     let book = ClaimBook::new();
-    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+    let service = PeerService::new(&host.store, &host.vault, pledge)
         .with_owners(&book)
         .claiming(host.claim_bytes(itsanas_discover::now_unix()));
     let address = server.local_addr().expect("address");

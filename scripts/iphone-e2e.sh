@@ -75,11 +75,9 @@ must desk coordinator "127.0.0.1:$port" --device "$device"
 must desk listen "127.0.0.1:$desk_port"
 # What the phone deletes for good leaves this computer at once, not in 30 days.
 must desk trash days 0
-# A host refuses past its pledge, its own account's log included, and a new
-# node pledges nothing (FIRST-STEPS.md): without this the computer refused
-# every segment the phone pushed, its delete for good among them (#409's CI,
-# 2026-11-19: "refused 4 offer(s): its pledge is full or zero").
-must desk pledge 1G
+# No pledge, as a new computer: its account's log is taken whatever it
+# pledges (#409's CI, 2026-11-19: a computer at pledge 0 refused every segment
+# the phone pushed, its delete for good among them).
 printf 'written on a computer\n' >"$work/from-computer.txt"
 printf 'to be deleted from the phone\n' >"$work/to-trash.txt"
 must desk put from-computer.txt "$work/from-computer.txt"
