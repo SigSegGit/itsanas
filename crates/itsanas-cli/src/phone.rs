@@ -300,6 +300,57 @@ pub fn trash_restore_in(node: &Node, path: &str) -> Answer {
     Ok("{}".to_owned())
 }
 
+/// Give a file a new name, or a folder a new place, on every machine: what a
+/// phone's Rename does. A file the phone has not downloaded moves too. A name
+/// taken, a file in the trash or nothing at the old name is a sentence for the
+/// person, and nothing moved.
+pub fn rename(node: &Node, from: &str, to: &str) -> Answer {
+    use itsanas_store::Renamed;
+    match itsanas_store::rename_known(&node.store, &node.vault, from, to)? {
+        Renamed::Moved(count) => Ok(serde_json::json!({ "moved": count }).to_string()),
+        Renamed::NoSuchFile => Err(Failure::Usage(format!("{from} is not in the account"))),
+        Renamed::Taken(name) => Err(Failure::Usage(format!(
+            "{name} is already a file of the account; nothing moved"
+        ))),
+        Renamed::InTrash(name) => Err(Failure::Usage(format!(
+            "{name} is in the trash; put it back first"
+        ))),
+    }
+}
+
+/// Every version of `path` the account knows, newest first, for a phone's
+/// Versions list: when, how big, whether it is the file now, whether this phone
+/// can bring it back, and whether this phone wrote it.
+pub fn versions_of(node: &Node, path: &str) -> Answer {
+    let mine = node.store.device_id();
+    let listed: Vec<serde_json::Value> = itsanas_store::versions(&node.store, &node.vault, path)?
+        .into_iter()
+        .map(|version| {
+            serde_json::json!({
+                "modified": version.modified_unix,
+                "size": version.size,
+                "current": version.current,
+                "here": version.here,
+                "mine": version.author == mine,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "versions": listed }).to_string())
+}
+
+/// Make version `at` (0 is the newest) of `path` the file again, on every
+/// machine. One not on this phone is a sentence: another machine may have it.
+pub fn bring_back(node: &Node, path: &str, at: usize) -> Answer {
+    if itsanas_store::bring_back_version(&node.store, &node.vault, path, at)? {
+        Ok("{}".to_owned())
+    } else {
+        Err(Failure::Usage(
+            "that version is not on this phone; a computer that held it can bring it back"
+                .to_owned(),
+        ))
+    }
+}
+
 /// Delete a file of the trash for good: out of the account's trash and from
 /// every machine; a protected one is let go here; one waiting here is deleted
 /// from every machine.

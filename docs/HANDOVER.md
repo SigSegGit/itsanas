@@ -15,6 +15,16 @@ WRITTEN-AT: 2026-11-16
 BASE: f650518
 -->
 
+**2026-11-19: rename and earlier versions, for 0.1.21 (§8 15).** Asked by Nicolas: more for the
+next version to test. `itsanas mv FROM TO` renames a file or moves a folder on every machine
+(`itsanas_store::rename_known`): the same chunks under the new name and a delete of the old, in one
+segment, never over a taken name; a phone moves a file it has not downloaded. `itsanas versions
+PATH [--restore N]` lists every version the logs hold and makes one the file again
+(`versions`, `bring_back_version`), a file deleted for good included, from a machine that still has
+its chunks: nothing but `itsanas gc` collects them. Android: Rename and Versions on the chosen-files
+bar (one file chosen), run by `RenameTest` and `VersionsTest` on the emulator only; the iPhone has
+the C functions and no screen yet.
+
 **2026-11-18: tail truncation is caught (§9).** Every presence a device signs carries its chain
 length (`Presence::head`, in the signed payload; old coordinators and clients can no longer read
 new presences, decided by Nicolas). Heads are kept from the coordinator's read (`peers`,
@@ -4126,6 +4136,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+15. 🟨 **Rename, and earlier versions** (asked by Nicolas, 2026-11-19: more for the next version to
+    test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
+    `rename`, `versions_of`, `bring_back`, and Android's chosen-files bar. Proved by the six tests
+    of `two_nodes.rs` named `*rename*`, `*version*` and `*comes_back*`, two in `lib.rs`, and
+    `RenameTest`, `VersionsTest`. **Left:** the iPhone's screens for both; the desktop page has
+    neither (a terminal or a synced folder's own rename does it there); a version is brought back
+    only from a machine that holds every chunk of it (fetching it from hosts is not built); a
+    rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
 
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
     link to thousands, but send a file to someone, and take in what any app shares). Android: each

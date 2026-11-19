@@ -416,7 +416,9 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
         | Kind::Get
         | Kind::Remove { .. }
         | Kind::Trash
-        | Kind::Free { .. } => crate::file_job(node, &job),
+        | Kind::Free { .. }
+        | Kind::Move
+        | Kind::Versions => crate::file_job(node, &job),
         Kind::ConvertPacks => {
             jobs::report(
                 &node.home,

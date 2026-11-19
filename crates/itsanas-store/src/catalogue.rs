@@ -290,6 +290,237 @@ pub fn remove_known(store: &Store, vault: &Vault, path: &str) -> Result<bool> {
     store.remove_unheld(path, &latest.version)
 }
 
+/// One version of a file, as some device's log wrote it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Version {
+    /// When the file was written, by its writer's clock.
+    pub modified_unix: u64,
+    /// Its size in bytes.
+    pub size: u64,
+    /// The device that wrote it.
+    pub author: itsanas_crypto::DeviceId,
+    /// Whether every chunk of it is on this machine, so it can come back from
+    /// here.
+    pub here: bool,
+    /// Whether it is what the account shows now. None is, for a deleted file.
+    pub current: bool,
+    entry: FileEntry,
+}
+
+/// Every version of `path` the account's logs hold, newest first: what the
+/// file was before each edit, and before it was deleted.
+///
+/// Read from every chain in the vault and this device's own, as the listing
+/// is. A version stays *here* until `itsanas gc` collects chunks no current
+/// file uses; nothing collects them on its own.
+///
+/// # Errors
+///
+/// When the path is not valid, or the vault or the store cannot be read.
+pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>> {
+    crate::path::validate(path)?;
+    let owner = store.owner();
+    let mine = store.device_id();
+    let current = walk_vault(store, vault, owner, mine)?
+        .latest
+        .remove(path)
+        .and_then(|latest| latest.file.map(|file| file.version));
+    let held = store.stat(path)?.map(|entry| entry.version);
+    // Kept as read, segment by segment: only this path's writes stay in
+    // memory, not the account's whole history.
+    let mut found: Vec<Version> = Vec::new();
+    let mut keep = |entries: Vec<crate::oplog::LogEntry>| {
+        for entry in entries {
+            let Operation::Upsert {
+                path: written,
+                entry,
+            } = entry.operation
+            else {
+                continue;
+            };
+            if written != path
+                || found
+                    .iter()
+                    .any(|known| known.entry.version == entry.version)
+            {
+                continue;
+            }
+            found.push(Version {
+                modified_unix: entry.modified_unix,
+                size: entry.size,
+                author: entry.author,
+                here: entry.chunks.iter().all(|chunk| store.has_chunk(chunk)),
+                current: Some(&entry.version) == held.as_ref().or(current.as_ref()),
+                entry,
+            });
+        }
+    };
+    for (device, _, _) in vault.heads_for(owner)? {
+        if device == mine {
+            continue;
+        }
+        // A chain with a body that does not open under the account's key is
+        // left out whole, as the listing leaves it out: one of its segments was
+        // not written by the account, so none of its versions is believed.
+        let Ok(bodies) = vault
+            .segments_for(owner, device, None, MAX_SEGMENTS_WALKED)?
+            .iter()
+            .map(|envelope| store.open_segment(envelope))
+            .collect::<Result<Vec<_>>>()
+        else {
+            continue;
+        };
+        for body in bodies {
+            keep(body.entries);
+        }
+    }
+    for envelope in store.segments()? {
+        keep(store.open_segment(&envelope)?.entries);
+    }
+    keep(store.unsealed_entries()?);
+    found.sort_by(|a, b| {
+        b.modified_unix
+            .cmp(&a.modified_unix)
+            .then(b.current.cmp(&a.current))
+    });
+    Ok(found)
+}
+
+/// Make `version` (an index into [`versions`]) the current one, on every
+/// machine: the file's content as it was then, dated now. False when that
+/// version's chunks are not all on this machine, or there is no such version.
+///
+/// It replaces what the account shows, an edit or a delete alike, so a file
+/// deleted for good comes back from any machine that still holds it.
+///
+/// # Errors
+///
+/// When the store cannot be read or written.
+pub fn bring_back_version(
+    store: &Store,
+    vault: &Vault,
+    path: &str,
+    version: usize,
+) -> Result<bool> {
+    if crate::deletion::is_reserved(path) {
+        return Err(crate::StoreError::InvalidPath(
+            path.to_owned(),
+            "one of the account's own files, which no one brings back",
+        ));
+    }
+    let Some(chosen) = versions(store, vault, path)?.into_iter().nth(version) else {
+        return Ok(false);
+    };
+    if !chosen.here {
+        return Ok(false);
+    }
+    let seen = walk_vault(store, vault, store.owner(), store.device_id())?
+        .latest
+        .remove(path)
+        .map(|latest| latest.version)
+        .unwrap_or_default();
+    store.bring_back(path, &chosen.entry, &seen)?;
+    store.flush_segment()?;
+    Ok(true)
+}
+
+/// What [`rename_known`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Renamed {
+    /// So many files moved: one for a file, every file under it for a folder.
+    Moved(usize),
+    /// Nothing of the account is at the old name, as a file or as a folder.
+    NoSuchFile,
+    /// The account already has a file at this new name: nothing was moved,
+    /// since a rename that replaced it would delete it without a word.
+    Taken(String),
+    /// The file waits in the account's trash: it is put back first, and then
+    /// it has a name to change.
+    InTrash(String),
+}
+
+/// Give a file of the account a new name, or a folder (every file under
+/// `from/`) a new place, on every machine.
+///
+/// The same content under the new name and a delete of the old, written in one
+/// segment so a machine that applies one applies the other: a rename seen half
+/// done would show the file twice or not at all. Nothing is read or uploaded
+/// again, so a phone renames a file it has not downloaded, and the date stays
+/// the file's own.
+///
+/// Every new name is checked before anything is written: one taken name moves
+/// nothing.
+///
+/// # Errors
+///
+/// When a name is not a valid path or is one of the account's own files, or the
+/// store cannot be read or written.
+pub fn rename_known(store: &Store, vault: &Vault, from: &str, to: &str) -> Result<Renamed> {
+    let from = from.trim_end_matches('/');
+    let to = to.trim_end_matches('/');
+    for path in [from, to] {
+        crate::path::validate(path)?;
+        if crate::deletion::is_reserved(path) {
+            return Err(crate::StoreError::InvalidPath(
+                path.to_owned(),
+                "one of the account's own files, which no one renames",
+            ));
+        }
+    }
+    let listed: BTreeSet<String> = catalogue(store, vault)?
+        .files
+        .into_iter()
+        .map(|known| known.path)
+        .collect();
+    let under = format!("{from}/");
+    let moves: Vec<(String, String)> = if listed.contains(from) {
+        vec![(from.to_owned(), to.to_owned())]
+    } else {
+        listed
+            .iter()
+            .filter_map(|path| {
+                path.strip_prefix(&under)
+                    .map(|rest| (path.clone(), format!("{to}/{rest}")))
+            })
+            .collect()
+    };
+    if moves.is_empty() {
+        return Ok(Renamed::NoSuchFile);
+    }
+    if to == from || to.starts_with(&under) {
+        // Into itself: every new name is under the old one.
+        return Err(crate::StoreError::InvalidPath(
+            to.to_owned(),
+            "a folder cannot move into itself",
+        ));
+    }
+    let trashed = crate::deletion::shared(store, vault)?;
+    for (old, new) in &moves {
+        if trashed.contains_key(old) {
+            return Ok(Renamed::InTrash(old.clone()));
+        }
+        if listed.contains(new) || trashed.contains_key(new) {
+            return Ok(Renamed::Taken(new.clone()));
+        }
+        crate::path::validate(new)?;
+    }
+
+    let from_log = walk_vault(store, vault, store.owner(), store.device_id())?.latest;
+    for (old, new) in &moves {
+        if let Some(entry) = store.stat(old)? {
+            store.place(new, &entry, true)?;
+            store.remove_file(old)?;
+        } else if let Some(latest) = from_log.get(old)
+            && let Some(entry) = still_a_file(store, old, latest)?
+        {
+            store.place(new, entry, false)?;
+            store.remove_unheld(old, &latest.version)?;
+        }
+    }
+    store.flush_segment()?;
+    Ok(Renamed::Moved(moves.len()))
+}
+
 /// The chunks of many known-but-absent files, from a single walk.
 ///
 /// Paths the account does not have are silently absent from the answer rather
