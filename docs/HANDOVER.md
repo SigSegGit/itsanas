@@ -18,9 +18,14 @@ BASE: 25720ae
 **2026-11-19: #409's iPhone run, the end check.** Every UI test passed; then the computer still
 listed `to-trash.txt`, deleted for good on the phone, after about 160 s. The core is not the cause:
 `a_file_deleted_for_good_on_a_phone_leaves_the_computer` (phone.rs) passes once the computer runs
-`drain_vault`, as its daemon does at each beat, and fails without it. So on the Mac the daemon did
-not apply the phone's push (refused chain, or a round holding its loop). `iphone-e2e.sh` now waits
-for its `pushed to us:` line and prints `computer.log` when the check fails: read that first.
+`drain_vault`, as its daemon does at each beat, and fails without it. The cause was the harness:
+its computer pledged nothing, and a host refuses past its pledge, its own account's segments
+included (FIRST-STEPS.md), so every segment the phone pushed was refused. Reproduced on Windows with
+the CLI as the phone (`refused 4 offer(s): its pledge is full or zero`); with `pledge 1G` the
+segments land, the daemon says `pushed to us:` and only `from-computer.txt` is left.
+`iphone-e2e.sh` now pledges, waits for that line, and prints `computer.log` when the check fails.
+Open for Nicolas: a new computer pledges 0, so it refuses a phone's delete for good too, while the
+phone's trash says the file left every machine.
 
 **2026-11-19: rename and earlier versions, for 0.1.21 (§8 15).** Asked by Nicolas: more for the
 next version to test. `itsanas mv FROM TO` renames a file or moves a folder on every machine
