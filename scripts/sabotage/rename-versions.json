@@ -1,0 +1,35 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "two_nodes",
+    "--",
+    "rename",
+    "version"
+  ],
+  "defences": {
+    "rename: the old name is not deleted": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "            store.remove_unheld(old, &latest.version)?;\n",
+      "dead": ""
+    },
+    "rename: a taken name is replaced": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "        if listed.contains(new) || trashed.contains_key(new) {",
+      "dead": "        if false {"
+    },
+    "versions: brought back beside the newest, not over it": {
+      "file": "crates/itsanas-store/src/store.rs",
+      "live": "        base.merge(seen);\n        let entry = FileEntry {",
+      "dead": "        let entry = FileEntry {"
+    },
+    "versions: chunks gone and published anyway": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "    if !chosen.here {\n        return Ok(false);\n    }\n",
+      "dead": ""
+    }
+  }
+}

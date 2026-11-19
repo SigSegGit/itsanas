@@ -675,6 +675,78 @@ impl Store {
         Ok(true)
     }
 
+    /// Write `kept` under `path` as this device's newest version, keeping its
+    /// date, size and chunks: what a rename writes under the new name. The
+    /// content is the same, so it is not an edit, and nothing is read or
+    /// chunked again.
+    ///
+    /// `held` says whether the content is on this device. When it is not, as on
+    /// a phone that lists the account without downloading it, nothing enters
+    /// the index (as [`Self::remove_unheld`]): the log alone carries the name,
+    /// and the listing shows it as not here, which it is not.
+    pub(crate) fn place(&self, path: &str, kept: &FileEntry, held: bool) -> Result<FileEntry> {
+        logical_path::validate(path)?;
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+        let sequence = self.index.next_sequence()?;
+        let entry = FileEntry {
+            version: self
+                .base_version(path)?
+                .advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
+            ..kept.clone()
+        };
+        if held {
+            self.index.put_file(path, &entry)?;
+        }
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: now_unix(),
+            operation: Operation::Upsert {
+                path: path.to_owned(),
+                entry: entry.clone(),
+            },
+        })?;
+        Ok(entry)
+    }
+
+    /// Make `kept`, an earlier version of `path` whose chunks are all here, the
+    /// newest, dated now: what bringing a version back writes. Its version
+    /// advances both what this device holds and `seen`, the newest the log
+    /// shows, so it replaces the current version on every machine rather than
+    /// standing beside it as a conflict.
+    pub(crate) fn bring_back(
+        &self,
+        path: &str,
+        kept: &FileEntry,
+        seen: &crate::VersionVector,
+    ) -> Result<FileEntry> {
+        logical_path::validate(path)?;
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+        let sequence = self.index.next_sequence()?;
+        let mut base = self.base_version(path)?;
+        base.merge(seen);
+        let entry = FileEntry {
+            version: base.advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
+            modified_unix: now_unix(),
+            ..kept.clone()
+        };
+        self.index.put_file(path, &entry)?;
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: entry.modified_unix,
+            operation: Operation::Upsert {
+                path: path.to_owned(),
+                entry: entry.clone(),
+            },
+        })?;
+        Ok(entry)
+    }
+
     /// Stop holding the content of `path` on this device, without deleting it
     /// from the account.
     ///

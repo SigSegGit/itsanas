@@ -14,8 +14,8 @@
   "defences": {
     "delete: the tombstone ignores what was seen": {
       "file": "crates/itsanas-store/src/store.rs",
-      "live": "base.merge(seen);",
-      "dead": ""
+      "live": "        base.merge(seen);\n        let tombstone = Tombstone {",
+      "dead": "        let tombstone = Tombstone {"
     },
     "delete: an unknown path gets a tombstone": {
       "file": "crates/itsanas-store/src/catalogue.rs",

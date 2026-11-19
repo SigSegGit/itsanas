@@ -36,8 +36,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use itsanas_cli::phone::{
-    get_file, list_at, open_into, passphrase_rule, put_file, status_of, sync_node, trash_delete,
-    trash_list, trash_put, trash_restore_in,
+    bring_back, get_file, list_at, open_into, passphrase_rule, put_file, rename, status_of,
+    sync_node, trash_delete, trash_list, trash_put, trash_restore_in, versions_of,
 };
 use itsanas_cli::shell::{
     Answer, Backends, Failure, Features, Held, Mode, Network, SecretPrompt, Server, Stop,
@@ -250,6 +250,37 @@ pub extern "C" fn itsanas_trash_restore(_home: *const c_char, path: *const c_cha
     answer(move || {
         let path = path?;
         with_node(|node| trash_restore_in(node, &path))
+    })
+}
+
+/// Give a file a new name, or a folder a new place, on every machine.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_rename(from: *const c_char, to: *const c_char) -> *mut c_char {
+    let from = c::text(from, "the old name");
+    let to = c::text(to, "the new name");
+    answer(move || {
+        let (from, to) = (from?, to?);
+        with_node(|node| rename(node, &from, &to))
+    })
+}
+
+/// Every version of a file the account knows, newest first.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_versions(path: *const c_char) -> *mut c_char {
+    let path = c::text(path, "the path");
+    answer(move || {
+        let path = path?;
+        with_node(|node| versions_of(node, &path))
+    })
+}
+
+/// Make one version of a file (0 is the newest) the file again, everywhere.
+#[unsafe(no_mangle)]
+pub extern "C" fn itsanas_bring_back(path: *const c_char, at: u32) -> *mut c_char {
+    let path = c::text(path, "the path");
+    answer(move || {
+        let path = path?;
+        with_node(|node| bring_back(node, &path, usize::try_from(at).unwrap_or(usize::MAX)))
     })
 }
 

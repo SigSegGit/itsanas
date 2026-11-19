@@ -2117,6 +2117,262 @@ fn red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see() {
     );
 }
 
+/// `itsanas mv` on a phone, which lists the account and holds none of it: a
+/// folder renamed there arrives on the laptop under its new name, opens there,
+/// and the old names are gone. Sabotage: write no delete of the old name (the
+/// laptop shows both); or no upsert of the new one (the files vanish).
+#[test]
+fn red_team_a_folder_renamed_on_a_phone_that_holds_nothing_moves_on_the_laptop() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("photos/a.jpg", b"the first photograph")
+        .expect("write");
+    laptop
+        .store
+        .write_file("photos/b.jpg", b"the second photograph")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+
+    assert_eq!(
+        itsanas_store::rename_known(&phone.store, &phone.vault, "photos", "2024/photos")
+            .expect("rename"),
+        itsanas_store::Renamed::Moved(2)
+    );
+    let on_phone: Vec<String> = itsanas_store::catalogue(&phone.store, &phone.vault)
+        .expect("catalogue")
+        .files
+        .into_iter()
+        .map(|known| known.path)
+        .collect();
+    assert_eq!(
+        on_phone,
+        ["2024/photos/a.jpg", "2024/photos/b.jpg"],
+        "the phone that renamed the folder does not list it at its new place"
+    );
+
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("2024/photos/a.jpg").expect("read"),
+        Some(b"the first photograph".to_vec()),
+        "a file renamed on the phone does not open under its new name on the laptop"
+    );
+    assert_eq!(
+        laptop.store.list().expect("list"),
+        ["2024/photos/a.jpg", "2024/photos/b.jpg"],
+        "the laptop keeps the old names beside the new: every rename doubles a folder"
+    );
+}
+
+/// A rename that met an edit it never saw keeps the edit: the old name comes
+/// back with it, the new name has what was renamed. Two files where one was
+/// meant costs a second; an edit lost cannot be undone. The rule is
+/// `remove_unheld`'s, sabotaged in
+/// `red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`.
+#[test]
+fn a_rename_does_not_lose_an_edit_it_did_not_see() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("essay.txt", b"first")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+    laptop
+        .store
+        .write_file("essay.txt", b"second")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    itsanas_store::rename_known(&phone.store, &phone.vault, "essay.txt", "final.txt")
+        .expect("rename");
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"second".to_vec()),
+        "a rename made on a phone that never saw the edit destroyed it"
+    );
+    assert_eq!(
+        laptop.store.read_file("final.txt").expect("read"),
+        Some(b"first".to_vec()),
+        "the renamed file is not under its new name"
+    );
+}
+
+/// A rename never replaces a file, never touches the account's own files, and
+/// keeps the file's date: it is the same file. Sabotage: drop the taken check
+/// (b.txt is replaced and its content lost); or write the date of the rename.
+#[test]
+fn a_rename_onto_a_taken_name_moves_nothing_and_a_rename_keeps_the_date() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    laptop.store.write_file("a.txt", b"a").expect("write");
+    laptop.store.write_file("b.txt", b"b").expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    assert_eq!(
+        itsanas_store::rename_known(&laptop.store, &laptop.vault, "a.txt", "b.txt")
+            .expect("rename"),
+        itsanas_store::Renamed::Taken("b.txt".to_owned())
+    );
+    assert_eq!(
+        laptop.store.read_file("b.txt").expect("read"),
+        Some(b"b".to_vec()),
+        "a rename replaced a file that was there: its content is lost without a word"
+    );
+    assert_eq!(
+        itsanas_store::rename_known(&laptop.store, &laptop.vault, "nothing", "else")
+            .expect("rename"),
+        itsanas_store::Renamed::NoSuchFile
+    );
+    assert!(
+        itsanas_store::rename_known(&laptop.store, &laptop.vault, "a.txt", ".itsanas/a.txt")
+            .is_err(),
+        "a file was moved among the account's own files, where no listing shows it"
+    );
+
+    let before = laptop.store.stat("a.txt").expect("stat").expect("a.txt");
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    itsanas_store::rename_known(&laptop.store, &laptop.vault, "a.txt", "notes/a.txt")
+        .expect("rename");
+    let after = laptop
+        .store
+        .stat("notes/a.txt")
+        .expect("stat")
+        .expect("renamed");
+    assert_eq!(
+        after.modified_unix, before.modified_unix,
+        "a rename dated the file as edited now: sorting by date puts an old file first"
+    );
+    assert_eq!(laptop.store.stat("a.txt").expect("stat"), None);
+}
+
+/// `itsanas versions --restore` on a phone that holds an earlier version and
+/// has only listed the newest: the earlier one becomes the file on the laptop
+/// too, not a conflict copy beside the newest. Sabotage: date the version
+/// back from what this device holds alone, without what the log shows.
+#[test]
+fn red_team_an_earlier_version_brought_back_on_a_phone_replaces_the_newest_everywhere() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("essay.txt", b"the good draft")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_all(&phone, &laptop);
+    laptop
+        .store
+        .write_file("essay.txt", b"the draft that broke it")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+
+    let listed =
+        itsanas_store::versions(&phone.store, &phone.vault, "essay.txt").expect("versions");
+    assert_eq!(listed.len(), 2, "both versions are not listed: {listed:?}");
+    let good = listed
+        .iter()
+        .position(|version| version.size == 14)
+        .expect("the good draft is listed");
+    assert!(
+        listed[good].here,
+        "the version the phone holds is said not to be here"
+    );
+    assert!(
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+            .expect("bring back")
+    );
+
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"the good draft".to_vec()),
+        "the version brought back on the phone lost to the one it was meant to replace"
+    );
+    assert_eq!(
+        laptop.store.list().expect("list"),
+        ["essay.txt"],
+        "bringing a version back left a conflict copy beside it"
+    );
+}
+
+/// A file deleted for good comes back from a machine that still holds its
+/// chunks: nothing collects them but `itsanas gc`.
+#[test]
+fn a_file_deleted_for_good_comes_back_from_a_machine_that_still_holds_it() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("taxes.pdf", b"the only copy")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop.store.remove_file("taxes.pdf").expect("remove");
+    laptop.store.flush_segment().expect("flush");
+
+    let listed =
+        itsanas_store::versions(&laptop.store, &laptop.vault, "taxes.pdf").expect("versions");
+    assert_eq!(listed.len(), 1);
+    assert!(
+        !listed[0].current,
+        "a deleted file's last version is called current"
+    );
+    assert!(
+        itsanas_store::bring_back_version(&laptop.store, &laptop.vault, "taxes.pdf", 0)
+            .expect("bring back")
+    );
+    pull_all(&phone, &laptop);
+    assert_eq!(
+        phone.store.read_file("taxes.pdf").expect("read"),
+        Some(b"the only copy".to_vec()),
+        "a file brought back after its delete did not reach the other machine"
+    );
+}
+
+/// A version whose chunks were collected here is never published again:
+/// every machine would list a file that opens nowhere. Sabotage: drop the
+/// check that its chunks are here.
+#[test]
+fn red_team_a_version_whose_chunks_are_gone_is_never_brought_back() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    laptop
+        .store
+        .write_file("old.txt", b"collected since")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop.store.remove_file("old.txt").expect("remove");
+    laptop.store.flush_segment().expect("flush");
+    laptop
+        .store
+        .collect_garbage(std::time::Duration::ZERO)
+        .expect("gc");
+
+    let listed =
+        itsanas_store::versions(&laptop.store, &laptop.vault, "old.txt").expect("versions");
+    assert!(
+        !listed[0].here,
+        "a version whose chunks were collected is said to be here"
+    );
+    assert!(
+        !itsanas_store::bring_back_version(&laptop.store, &laptop.vault, "old.txt", 0)
+            .expect("bring back"),
+        "a version with no chunks here was published again"
+    );
+    assert!(
+        laptop.store.list().expect("list").is_empty(),
+        "the account lists a file whose content is nowhere"
+    );
+}
+
 #[test]
 fn deleting_what_the_account_does_not_have_deletes_nothing() {
     let master = alice();
