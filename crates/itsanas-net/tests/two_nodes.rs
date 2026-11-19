@@ -2235,6 +2235,16 @@ fn a_rename_onto_a_taken_name_moves_nothing_and_a_rename_keeps_the_date() {
             .is_err(),
         "a file was moved among the account's own files, where no listing shows it"
     );
+    for outside in ["../a.txt", "/a.txt", "notes/../../a.txt"] {
+        assert!(
+            itsanas_store::rename_known(&laptop.store, &laptop.vault, "a.txt", outside).is_err(),
+            "a rename to {outside} was accepted: a name that climbs out of the account"
+        );
+        assert!(
+            itsanas_store::versions(&laptop.store, &laptop.vault, outside).is_err(),
+            "versions of {outside} was answered"
+        );
+    }
 
     let before = laptop.store.stat("a.txt").expect("stat").expect("a.txt");
     std::thread::sleep(std::time::Duration::from_millis(1100));

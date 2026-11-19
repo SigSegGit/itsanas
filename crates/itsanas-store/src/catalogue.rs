@@ -359,11 +359,19 @@ pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>
         if device == mine {
             continue;
         }
-        for envelope in vault.segments_for(owner, device, None, MAX_SEGMENTS_WALKED)? {
-            // A chain that does not open is left out here as in the listing.
-            if let Ok(body) = store.open_segment(&envelope) {
-                keep(body.entries);
-            }
+        // A chain with a body that does not open under the account's key is
+        // left out whole, as the listing leaves it out: one of its segments was
+        // not written by the account, so none of its versions is believed.
+        let Ok(bodies) = vault
+            .segments_for(owner, device, None, MAX_SEGMENTS_WALKED)?
+            .iter()
+            .map(|envelope| store.open_segment(envelope))
+            .collect::<Result<Vec<_>>>()
+        else {
+            continue;
+        };
+        for body in bodies {
+            keep(body.entries);
         }
     }
     for envelope in store.segments()? {
