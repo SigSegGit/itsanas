@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "rounds::"
+  ],
+  "defences": {
+    "rounds: every address of a machine already met is dialled": {
+      "file": "crates/itsanas-cli/src/rounds.rs",
+      "live": "        if pinned.is_some_and(|device| met.contains(&device)) {\n",
+      "dead": "        if false && pinned.is_some_and(|device| met.contains(&device)) {\n"
+    },
+    "rounds: a parked machine is dropped from a phone's targets": {
+      "file": "crates/itsanas-cli/src/rounds.rs",
+      "live": "    crate::account_targets(node, None)\n",
+      "dead": "    crate::account_targets(node, None).into_iter().filter(|(address, _)| !address.starts_with(itsanas_node::contact::RELAY_PREFIX)).collect()\n"
+    }
+  }
+}

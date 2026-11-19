@@ -20,9 +20,9 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | ✅ **done** (2026-11-18): a folder that syncs, alerts that fire when copies run short or rounds reach nobody, and no command refused while the service runs |
 | M8 Three-device bring-up | — | 🟨 the fleet runs every night since 2026-10-24 (`FLEET-CI.md`): the laptop, the VM and a runner away from home; the Pi skipped on its host key, and no power cut of all three yet |
 | M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
-| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
+| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Local discovery since 2026-11-18: a phone asks on its network and the account's daemons answer it at once (`rounds::nearby`, `discovery::answer_if_asked`, `red_team_a_phone_hears_its_accounts_machine_on_the_local_network`; not yet seen on a real Wi-Fi, and an iPhone sends no broadcast without Apple's multicast entitlement). Still missing: the APK is **debug-signed** — sideload only, never Play |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
-| M10 Pack files | `itsanas-store` | 🟨 built 2026-10-13, opt-in for new stores (`ITSANAS_PACKS=1`); `itsanas convert-packs` converts an existing store, run on the laptop's fleet node by the nightly run since 2026-11-18 (`FLEET-CI.md` row Q) |
+| M10 Pack files | `itsanas-store` | 🟨 a new store starts in packs since 2026-11-17 (`ITSANAS_PACKS=0` keeps one file per chunk); an existing store converts with `itsanas convert-packs`, run on the laptop's fleet node by the nightly run since 2026-11-18 (`FLEET-CI.md` row Q) |
 | M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
 
 This table used to carry a per-milestone test count. Those numbers were a second
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1688 test functions, 20 of them `#[ignore]`d into the slow job, and 634 of
+**1693 test functions, 20 of them `#[ignore]`d into the slow job, and 639 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1382,7 +1382,15 @@ stats the file), so repair and the disk check treat it as a lost blob; the
 tests that lost a blob by deleting its file now go through
 `BlobStore::damage`, and every one passes in packs too -- left failing in
 packs are only the four about blob files themselves (their path, their
-staging). **Open before packs are the default:** conversion of an existing store is built (`itsanas convert-packs`, `BlobStore::convert_to_packs`: copy into a staging directory, one rename switches the layout, then the blob files go; red-team tested at each crash point) but never run on a real node; **measured on Windows 11 with Defender on (Nicolas,
+staging). **The default for new stores since 2026-11-17**
+(`red_team_a_new_store_starts_in_packs_and_an_old_one_keeps_its_blob_files`;
+`ITSANAS_PACKS=0` keeps one file per chunk), so the whole test suite now runs
+in packs but for the tests about blob files themselves, which open that layout
+(`BlobStore::open_files`). A store made before keeps its blob files. Switching found the
+vault reopening an owner's pack index for every chunk received (14 ms a put on
+the laptop against 3 in blob files): it keeps each owner's store open now
+(`red_team_a_vault_opens_an_owners_packs_once_not_once_a_chunk`).
+**Open:** conversion of an existing store is built (`itsanas convert-packs`, `BlobStore::convert_to_packs`: copy into a staging directory, one rename switches the layout, then the blob files go; red-team tested at each crash point) but never run on a real node; **measured on Windows 11 with Defender on (Nicolas,
 2026-10-14, `itsanas bench --size 256M`, three runs each): packs write 44-55
 MiB/s against 20-24 MiB/s for blob files (2.2x), read 468-534 against
 299-431 MiB/s, a 32 MiB photo burst 0.8-0.9 s against 1.5-1.75 s;** and the

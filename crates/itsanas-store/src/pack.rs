@@ -118,6 +118,13 @@ pub struct Packs {
     pending: Mutex<(u32, u64)>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread really opened a pack index (a database and
+    /// a replay), not handed back one already open.
+    pub(crate) static OPENED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Packs {
     /// Open (creating if needed) the packs under `root/packs`, shared with any
     /// other open of the same directory in this process.
@@ -131,6 +138,8 @@ impl Packs {
         if let Some(packs) = open.get(&key).and_then(Weak::upgrade) {
             return Ok(packs);
         }
+        #[cfg(test)]
+        OPENED.with(|opened| opened.set(opened.get() + 1));
         let db = Database::create(dir.join("index.redb"))?;
         let txn = db.begin_write()?;
         {

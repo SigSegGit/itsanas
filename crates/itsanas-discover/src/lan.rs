@@ -225,6 +225,20 @@ impl Lan {
     /// arriving, something foreign is, or something of ours is failing to
     /// verify — three different things to go and fix.
     pub fn receive(&self, timeout: Duration) -> Result<Option<(Announcement, IpAddr)>> {
+        Ok(self
+            .receive_from(timeout)?
+            .map(|(announcement, from)| (announcement, from.ip())))
+    }
+
+    /// [`Self::receive`], with the port the announcement came from: a daemon
+    /// broadcasts from the discovery port, so another port is a machine
+    /// asking who is here (a phone, which runs no daemon to listen for 30 s),
+    /// and the answer goes back to it ([`Self::announce_to`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::receive`].
+    pub fn receive_from(&self, timeout: Duration) -> Result<Option<(Announcement, SocketAddr)>> {
         self.socket.set_read_timeout(Some(timeout))?;
 
         let mut buffer = [0u8; RECEIVE_BUFFER];
@@ -253,7 +267,25 @@ impl Lan {
         };
 
         let announcement = Announcement::parse(&buffer[..len])?;
-        Ok(Some((announcement, from.ip())))
+        Ok(Some((announcement, from)))
+    }
+
+    /// Announce this device to `to` alone: the answer to a machine that asked
+    /// from its own port ([`Self::receive_from`]).
+    ///
+    /// # Errors
+    ///
+    /// No randomness for the nonce, or the send.
+    pub fn announce_to(
+        &self,
+        keys: &DeviceKeys,
+        household: &HouseholdKey,
+        service_port: u16,
+        to: SocketAddr,
+    ) -> Result<()> {
+        let packet = Announcement::seal(keys, household, service_port, now_unix())?;
+        self.socket.send_to(&packet, to)?;
+        Ok(())
     }
 }
 
@@ -463,6 +495,11 @@ mod tests {
 
     #[test]
     fn a_broadcasting_socket_asks_the_kernel_for_broadcast() {
+        // A wildcard bind on a developer's Windows asks the firewall at every
+        // new test binary (Nicolas, 2026-11-18); CI runs it.
+        if cfg!(windows) && std::env::var_os("CI").is_none() {
+            return;
+        }
         // Without SO_BROADCAST the socket sends nothing at all to
         // 255.255.255.255, and does so without an error: discovery would
         // silently never work while every send reported success.
@@ -475,6 +512,11 @@ mod tests {
 
     #[test]
     fn two_nodes_on_one_machine_both_hear_the_discovery_port() {
+        // A wildcard bind on a developer's Windows asks the firewall at every
+        // new test binary (Nicolas, 2026-11-18); CI runs it.
+        if cfg!(windows) && std::env::var_os("CI").is_none() {
+            return;
+        }
         // Two accounts on one machine are two daemons. The second used to fail
         // to bind 21037 and run with discovery silently off -- it synced only
         // with peers somebody typed in, which is exactly what discovery exists
