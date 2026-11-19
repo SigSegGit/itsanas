@@ -423,6 +423,82 @@ else
             ask "$writer" F delete "$file" >/dev/null 2>&1 || true
         fi
     fi
+
+    # ------------------------- T: the trash holds a delete, then lets it go
+    # F turns the trash off to test a delete reaching everyone at once. With
+    # it on (the default for every member), a delete waits in the account's
+    # trash and `itsanas trash delete` sends it later: that purge had never
+    # run across real machines (HANDOVER §8 10h). Only an agent that drives a
+    # native program offers it; a container's says so in a note, and a run
+    # where none does is a SKIP.
+    t_writer=""
+    for host in "${up[@]}"; do
+        [ "$host" != runner ] || continue
+        out=$(ask "$host" T ready 2>&1)
+        case "$out" in
+            TREADY*) t_writer=$host; break ;;
+            REFUSED*) say "note  T $host: ${out#REFUSED }" ;;
+            *) row FAIL "T $host: $(printf '%s' "$out" | head -1)" ;;
+        esac
+    done
+    if [ -z "$t_writer" ]; then
+        # A SKIP, not a note: counted, it turns FAIL on its seventh night, so
+        # the laptop's agent losing T cannot leave the purge untested for good.
+        row SKIP "T: no agent here drives a trash, so the purge across machines was not run"
+    else
+        t_others=()
+        for host in "${up[@]}"; do [ "$host" = "$t_writer" ] || t_others+=("$host"); done
+        out=$(ask "$t_writer" B write 2>&1)
+        read -r verdict _ _ t_name _ t_sha _ <<<"$(printf '%s' "$out" | head -1)"
+        t_ok=0
+        if [ "$verdict" != PASS ] || [ -z "${t_sha:-}" ]; then
+            row FAIL "T $t_writer could not write: $(printf '%s' "$out" | head -1)"
+        else
+            t_ok=1
+            for host in "${t_others[@]}"; do
+                said=$(until_pass "$host" B check "$t_name" "$t_sha") ||
+                    { row FAIL "T: $t_name never reached $host, so its purge proves nothing there: $said"; t_ok=0; }
+            done
+        fi
+        if [ "$t_ok" = 1 ]; then
+            out=$(ask "$t_writer" T trash "$t_name" 2>&1)
+            if [ "${out%% *}" != PASS ]; then
+                row FAIL "T $t_writer could not delete $t_name: $(printf '%s' "$out" | head -1)"
+            elif ! said=$(until_pass "$t_writer" T held "$t_name"); then
+                row FAIL "T $t_writer: the delete was not held in the trash: $said"
+            else
+                row PASS "T $t_writer: the delete waits in the trash: $said"
+                out=$(ask "$t_writer" T purge "$t_name" 2>&1)
+                case "$out" in
+                    PURGED*)
+                        if said=$(until_pass "$t_writer" T gone "$t_name"); then
+                            row PASS "T $t_writer: deleted for good, out of the trash: $said"
+                        else
+                            row FAIL "T $t_writer: deleted for good, yet still in the trash: $said"
+                        fi
+                        for host in "${t_others[@]}"; do
+                            if said=$(until_pass "$host" F check "$t_name"); then
+                                row PASS "T $t_writer -> $host: the purge reached it: $said"
+                            else
+                                row FAIL "T $t_writer -> $host: the purge never reached it: $said"
+                            fi
+                        done
+                        # As F: gone once is half of it, a peer that had not
+                        # heard can push the file back at its next round.
+                        sleep "$SETTLE"
+                        for host in "${t_others[@]}"; do
+                            out=$(ask "$host" F check "$t_name" 2>&1)
+                            case "$out" in
+                                PASS*) row PASS "T $host: still absent ${SETTLE}s after the purge" ;;
+                                *) row FAIL "T $host: came back within ${SETTLE}s of the purge: $(printf '%s' "$out" | head -1)" ;;
+                            esac
+                        done
+                        ;;
+                    *) row FAIL "T $t_writer could not delete $t_name for good: $(printf '%s' "$out" | head -1)" ;;
+                esac
+            fi
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------ verdict

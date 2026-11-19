@@ -15,6 +15,37 @@ WRITTEN-AT: 2026-11-17
 BASE: 25720ae
 -->
 
+**2026-11-18: the fleet runs the trash's purge (§8 10h, row T).** F turns the trash off to test a
+delete reaching everyone at once; T keeps it on: a file deleted on the laptop waits in the
+account's trash (`T held`), `itsanas trash delete` sends it (`T purge`), and the run checks it
+left the trash and every other machine, then a round later. Only an agent with a native program
+(`agent.ps1`, or `agent.sh` with `ITSANAS_BIN`) offers it; the containers' would need docker.
+`check-fleet.sh` passes under WSL with a stand-in `itsanas`; its `pwsh` cases run in CI only,
+and `agent.ps1`'s T was run by hand here with pwsh. Not yet run on the fleet.
+**2026-11-18: a phone finds its machines on the local network (M12).** A phone runs no daemon,
+so it heard beacons only by listening through their 30 s interval, and with no coordinator to read
+it reached no machine at home. `sync_node` now asks first when no address is typed in
+(`rounds::nearby`: a beacon from an ephemeral port, 1.5 s of listening), and a daemon answers a
+beacon of its account that comes from another port than the discovery port with its own, sent
+back to it, at most every 2 s (`discovery::answer_if_asked`, `Lan::receive_from`,
+`Lan::announce_to`). Plan `lan_probe.json`. Not seen on a real Wi-Fi; an iPhone cannot broadcast
+without Apple's multicast entitlement, so it hears nothing yet (the send fails, nothing else).
+
+**2026-11-17 (night): a new store starts in pack files; a phone dials like a computer.** Packs
+(M10) are the default for a store with nothing in it yet: 2.2 times faster to write on Windows
+with Defender on, no file per chunk (`blob.rs`, `ITSANAS_PACKS=0` keeps blob files;
+`red_team_a_new_store_starts_in_packs_and_an_old_one_keeps_its_blob_files`). An existing store
+keeps its blob files until `itsanas convert-packs`, never run on a real node: run it on the
+laptop's `test` node before anyone else's. The tests about blob files open that layout
+(`BlobStore::open_files`); `tests/crash.rs` counts chunk bytes in `.blob` or `.pack`. Found on the way: the vault
+reopened an owner's pack index (a database and a replay) for every chunk a peer sent, 14 ms a
+put against 3 in blob files; it keeps each owner's store open now
+(`red_team_a_vault_opens_an_owners_packs_once_not_once_a_chunk`), and the store's unit tests
+went from 59 s to 8 s. The phone's
+targets are `account_targets` now, so it dials the address book and a machine parked on a relay
+(`rounds::connect` = `connect_peer`), and a machine listed at several addresses gets one round,
+not one per address (`rounds.rs`, `phone::fetch`, `tell_machines`). Not done: local discovery on
+the phone (M12), which needs Android's multicast lock and a real Wi-Fi to test.
 **2026-11-17 (late): a withdrawal travels between the account's machines.** `device forget` (and
 the phone's withdraw) sent the revoked claim to the coordinator alone; a machine that reads none
 went on admitting the withdrawn device. It is now kept on the machine that signs it first
@@ -4223,8 +4254,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
        `agent.ps1` write `0` into the `test` home's `store/trash-days`, so the delete is not held in
        the writer's trash. Ran on the fleet with 0.1.19 (2026-11-11, both runs green), and
        `check-fleet.sh` asserts the file is written before the delete (a `trashy` machine; sabotaged
-       red). **Left:** the trash's purge across real machines is untested (a run with the trash on
-       and `itsanas trash delete NAME` after the daemon trashed the file would test it).
+       red). Row T (2026-11-18) runs the purge: the laptop's agent deletes a file with the trash
+       on, waits for `itsanas trash list` to hold it, deletes it for good with `itsanas trash
+       delete`, and the run checks it left the trash and every other machine, then a round later
+       (`check-fleet.sh` with a stand-in `itsanas`; plan `fleet-trash.json`, four defences).
+       **Left:** row T has not yet run on the fleet: its first nightly run after merge is the test;
+       the containers' agent offers no T (a note), the laptop is its only writer.
 
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
        Wi-Fi, and on battery on Wi-Fi answering only.

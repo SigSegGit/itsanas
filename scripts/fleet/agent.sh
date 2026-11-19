@@ -36,6 +36,11 @@
 #   (`placement measured`, Nicolas 2026-11-18: a week on the fleet before it is
 #   ever the default, HANDOVER §8 7(a)); the one line, nothing else of the
 #   configuration, and only that value;
+# * where agent.conf names a native `itsanas` (ITSANAS_BIN, never a
+#   container's: that would need docker), hold one of its files in the `test`
+#   account's trash and then delete it for good (`T trash|held|purge|gone`,
+#   HANDOVER §8 10h): the trash's purge across real machines, which nothing
+#   else runs;
 # * bring this machine to the latest published release (`update`, update.sh),
 #   asked for by Nicolas on 2026-11-03 so that a run tests that release. It
 #   restarts the containers, and only when a new release exists. That request
@@ -130,6 +135,56 @@ room_for_one_more() {
 }
 kit() { ITSANAS_RECEIPTS="$RECEIPTS" bash "$KIT" "$@"; }
 
+# Whether `itsanas trash list` names the account path $2 (a kit file, at the
+# folder's top): a word of a line equal to it, so a longer name never matches.
+trash_lists() {
+    printf '%s\n' "$1" | awk -v n="$2" '{ for (i = 1; i <= NF; i++) if ($i == n) f = 1 } END { exit !f }'
+}
+
+# T: a file of `test` deleted here waits in the account's trash, then a
+# delete for good reaches every machine (HANDOVER §8 10h). Only with a native
+# program: the containers' would need docker, which only `update` reaches.
+trash_step() {
+    [ -n "${ITSANAS_BIN:-}" ] && [ -x "$ITSANAS_BIN" ] ||
+        refuse "no native itsanas here (ITSANAS_BIN in agent.conf): T is not offered by this agent"
+    home=$(account_home test) || refuse "no test account on this machine"
+    [ -d "$home/store" ] || refuse "the test node has no store at $home/store"
+    case "$1" in
+        ready) echo "TREADY the test node's trash can be driven here" ;;
+        trash)
+            # On for this delete, so it waits in the trash rather than being
+            # written at once as F's are; set before the daemon's next pass.
+            printf '30\n' >"$home/store/trash-days"
+            kit F delete "$FOLDER" "$2"
+            ;;
+        held | gone)
+            listed=$("$ITSANAS_BIN" --home "$home" trash list 2>&1) || {
+                echo "FAIL  T $1  itsanas trash list: $(printf '%s' "$listed" | tail -1)"
+                exit 1
+            }
+            if trash_lists "$listed" "$2"; then
+                [ "$1" = held ] && echo "PASS  T held  $2 waits in the trash" ||
+                    { echo "FAIL  T gone  $2 is still in the trash"; exit 1; }
+            else
+                [ "$1" = gone ] && echo "PASS  T gone  $2 left the trash" ||
+                    { echo "FAIL  T held  $2 is not in the trash: the delete was not held"; exit 1; }
+            fi
+            ;;
+        purge)
+            said=$("$ITSANAS_BIN" --home "$home" trash delete -- "$2" 2>&1)
+            status=$?
+            # Off again whatever happened: F's delete is about reaching every
+            # machine at once, and the next night's F must not wait 30 days.
+            printf '0\n' >"$home/store/trash-days"
+            if [ "$status" -ne 0 ]; then
+                echo "FAILED $(printf '%s' "$said" | tail -1)"
+                exit 1
+            fi
+            echo "PURGED $(printf '%s' "$said" | tail -1)"
+            ;;
+    esac
+}
+
 case "$*" in
     hello)
         printf 'hello %s agent 1 accounts %s kit %s\n' "$(uname -n)" "$ACCOUNTS" \
@@ -159,6 +214,9 @@ case "$*" in
             echo "PLACEMENT measured, set: the test node restarts on it"
         fi
         ;;
+    "T ready")
+        trash_step ready
+        ;;
     update | "update status")
         [ -n "${CHECKOUT:-}" ] && [ -r "$HERE/update.sh" ] || refuse "this agent cannot update: run setup.sh again"
         # 9>&-: the work outlives this request, and must not keep its lock.
@@ -184,6 +242,10 @@ case "$*" in
                     printf '0\n' >"$home/store/trash-days"
                 fi
                 kit F "$2" "$FOLDER" "$3"
+                ;;
+            "T trash" | "T held" | "T purge" | "T gone")
+                [ $# -eq 3 ] && is_kit_name "$3" || refuse "usage: T $2 <kit file>"
+                trash_step "$2" "$3"
                 ;;
             "C scan")
                 [ $# -eq 4 ] && is_canary "$3" || refuse "usage: C scan <canary> <account>"
@@ -253,7 +315,7 @@ case "$*" in
                      f { exit }' "$snapshot"
                 ;;
             *)
-                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, status, placement measured, update)"
+                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, T ready|trash|held|purge|gone, status, placement measured, update)"
                 ;;
         esac
         ;;

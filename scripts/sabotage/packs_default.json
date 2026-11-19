@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-store",
+    "--test",
+    "packs",
+    "new_store"
+  ],
+  "defences": {
+    "packs: a new store starts in blob files": {
+      "file": "crates/itsanas-store/src/blob.rs",
+      "live": "            || (fresh && std::env::var(PACKS_ENV).map_or(true, |v| v != \"0\"));\n",
+      "dead": "            || (fresh && std::env::var(PACKS_ENV).is_ok_and(|v| v == \"1\"));\n"
+    }
+  }
+}

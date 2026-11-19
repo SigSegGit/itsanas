@@ -45,9 +45,11 @@ pub struct BlobStore {
     packs: Option<std::sync::Arc<crate::pack::Packs>>,
 }
 
-/// Set to `1` to start *new* stores in pack files (M10, experimental). A
-/// store that already has packs keeps them, one that has blob files keeps
-/// those: nothing is converted.
+/// Set to `0` to start a *new* store in one file per chunk, the layout before
+/// packs. A new store starts in pack files (M10) since 2026-11-17: on Windows
+/// with Defender on they wrote 2.2 times faster (ROADMAP M10), and one file per
+/// chunk is 14.7 million files a terabyte. A store that already has blob files
+/// keeps them until `itsanas convert-packs`, one that has packs keeps those.
 pub const PACKS_ENV: &str = "ITSANAS_PACKS";
 
 impl BlobStore {
@@ -55,14 +57,22 @@ impl BlobStore {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
         let blobs = root.join("blobs");
-        let tmp = root.join("tmp");
         let fresh = fs::read_dir(&blobs).map_or(true, |mut entries| entries.next().is_none());
         let packed = crate::pack::Packs::present(root)
-            || (fresh && std::env::var(PACKS_ENV).is_ok_and(|v| v == "1"));
+            || (fresh && std::env::var(PACKS_ENV).map_or(true, |v| v != "0"));
         if packed {
             return Self::open_packed(root);
         }
+        Self::open_files(root)
+    }
 
+    /// Open (creating if needed) a store rooted at `root` in one file per
+    /// chunk, whatever [`PACKS_ENV`] says: the layout of every store made
+    /// before packs, and what [`Self::convert_to_packs`] reads.
+    pub fn open_files(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref();
+        let blobs = root.join("blobs");
+        let tmp = root.join("tmp");
         for directory in [&blobs, &tmp] {
             fs::create_dir_all(directory)
                 .map_err(|error| StoreError::io(directory.clone(), error))?;
@@ -404,7 +414,7 @@ mod tests {
 
     fn store() -> (tempfile::TempDir, BlobStore) {
         let dir = tempfile::tempdir().expect("temp dir");
-        let store = BlobStore::open(dir.path()).expect("open");
+        let store = BlobStore::open_files(dir.path()).expect("open");
         (dir, store)
     }
 
