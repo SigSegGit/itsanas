@@ -146,15 +146,51 @@ class E2eCase: XCTestCase {
     /// The biometric switch can report an invalid activation point in WebKit.
     func tapSwitchOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
-        for _ in 0..<30 {
-            switch scrollToward(element) {
-            case .tapped:
-                return
-            case .scrolled, .absent:
-                Thread.sleep(forTimeInterval: 0.1)
+        let page = app.webViews.firstMatch
+        let visiblePage = { (frame: CGRect) -> CGRect in
+            var visible = frame.intersection(app.windows.firstMatch.frame)
+            if let keyboard = try? app.keyboards.firstMatch.snapshot().frame, !keyboard.isEmpty {
+                visible.size.height = max(0, min(visible.maxY, keyboard.minY) - visible.minY)
             }
+            return visible
         }
-        try fail("\(what) cannot be reached on the page")
+        var lastState = "no accessibility snapshot"
+        for _ in 0..<30 {
+            guard let first = try? element.snapshot().frame,
+                  let pageFrame = try? page.snapshot().frame else {
+                lastState = "snapshot unavailable"
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            let visible = visiblePage(pageFrame)
+            guard !first.isEmpty, !visible.isEmpty else {
+                lastState = "switch or visible page has an empty frame"
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            guard visible.contains(first) else {
+                lastState = "switch frame \(first) is outside visible page \(visible)"
+                if first.midY > visible.midY { page.swipeUp() } else { page.swipeDown() }
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            guard let centre = settledCentre(element),
+                  let settled = try? element.snapshot().frame,
+                  let settledPage = try? page.snapshot().frame else {
+                lastState = "switch did not produce two stable snapshots"
+                continue
+            }
+            let settledVisible = visiblePage(settledPage)
+            guard first == settled, settledVisible.contains(settled) else {
+                lastState = "switch moved or became clipped: \(settled) in \(settledVisible)"
+                continue
+            }
+            tapAt(centre)
+            return
+        }
+        try fail(
+            "\(what) was not fully visible and stable for a coordinate tap "
+                + "after 30 attempts (last state: \(lastState); value: \(String(describing: element.value)))")
     }
 
     /// Where `element` stands, once it stands still inside the window: two
