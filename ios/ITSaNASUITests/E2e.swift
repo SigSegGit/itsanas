@@ -129,8 +129,22 @@ class E2eCase: XCTestCase {
             .matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch
     }
 
-    /// Scroll the page until `element` can be touched, then touch it.
+    /// Scroll the page until a control can be touched, then touch it.
     func tapOnPage(_ element: XCUIElement, _ what: String) throws {
+        try waitFor("\(what) is not on the page") { element.exists }
+        for direction in [true, false] {
+            var swipes = 0
+            while !element.isHittable && swipes < 15 {
+                if direction { app.webViews.firstMatch.swipeUp() } else { app.webViews.firstMatch.swipeDown() }
+                swipes += 1
+            }
+        }
+        guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
+        element.tap()
+    }
+
+    /// The biometric switch can report an invalid activation point in WebKit.
+    func tapSwitchOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
         for _ in 0..<30 {
             switch scrollToward(element) {
@@ -367,7 +381,7 @@ class E2eCase: XCTestCase {
         try openSection("Security", for: box)
         // A checkbox's value reads "1" or 1, by iOS version.
         let isOn = { String(describing: box.value ?? "") == "1" }
-        if isOn() != on { try tapOnPage(box, "the fingerprint box") }
+        if isOn() != on { try tapSwitchOnPage(box, "the fingerprint box") }
         try waitFor("the fingerprint box did not turn \(on ? "on" : "off")") { isOn() == on }
         Thread.sleep(forTimeInterval: 1)
         if app.alerts.count > 0 { try fail("turning the fingerprint \(on ? "on" : "off") was refused") }
