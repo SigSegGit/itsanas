@@ -53,9 +53,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# The runner is not a gate; it is how a contributor runs the gates by hand.
-# Naming it in CI would make CI run everything twice.
-NOT_A_GATE = {"check-all.sh"}
+# These are runners, not gates: check-all runs the suite by hand, and
+# check-fleet.sh invokes its isolated member lifecycle tests as a sub-suite.
+# Naming either as an independent CI gate would run the same checks twice.
+NOT_A_GATE = {"check-all.sh", "check-fleet-member.sh"}
 
 
 def gates():

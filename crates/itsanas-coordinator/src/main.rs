@@ -70,18 +70,8 @@ struct Cli {
     #[arg(long)]
     identity: bool,
 
-    /// Print accounts and stored live device claims locally, then exit.
-    ///
-    /// Read-only: stop the service first and use the same `--state` directory.
-    #[arg(long, conflicts_with_all = [
-        "identity",
-        "invite_only",
-        "admit_first",
-        "forget_account",
-        "suspend",
-        "unsuspend"
-    ])]
-    inventory: bool,
+    #[command(flatten)]
+    inventory: InventoryArgs,
 
     /// Admit new members only if an existing one invited them.
     ///
@@ -139,6 +129,22 @@ struct Cli {
     unsuspend: Option<String>,
 }
 
+#[derive(clap::Args)]
+struct InventoryArgs {
+    /// Print accounts and stored live device claims locally, then exit.
+    ///
+    /// Read-only: stop the service first and use the same `--state` directory.
+    #[arg(long, conflicts_with_all = [
+        "identity",
+        "invite_only",
+        "admit_first",
+        "forget_account",
+        "suspend",
+        "unsuspend"
+    ])]
+    inventory: bool,
+}
+
 /// `--suspend` (`lift` false) or `--unsuspend` (`lift` true) `name`, saying
 /// what changed.
 fn suspend_or_lift(directory: &Directory, name: &str, lift: bool) -> Result<(), String> {
@@ -189,12 +195,8 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let cli = Cli::parse();
 
-    if cli.inventory {
-        let path = cli.state.join("directory.redb");
-        let inventory = Directory::read_inventory(&path)
-            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
-        print!("{}", inventory_output(&inventory));
-        return Ok(());
+    if cli.inventory.inventory {
+        return run_inventory(&cli.state);
     }
 
     fs::create_dir_all(&cli.state)
@@ -307,6 +309,14 @@ fn run() -> Result<(), String> {
         .map_err(|error| format!("the listener stopped: {error}"))?;
 
     println!("stopped.");
+    Ok(())
+}
+
+fn run_inventory(state: &Path) -> Result<(), String> {
+    let path = state.join("directory.redb");
+    let inventory = Directory::read_inventory(&path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    print!("{}", inventory_output(&inventory));
     Ok(())
 }
 
