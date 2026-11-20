@@ -40,10 +40,40 @@ for good, so a device a night would grow every host's table by one a night
 for nothing (until 2026-10-23 it also pushed live devices out of the sixteen
 claims a host hands out; the sixteen presented last are handed out now). When
 the cache is gone (first run, a week unused, a damaged archive) the member logs
-in from the 24 words as a new device and withdraws the previous one.
+in from the 24 words as a new device, withdraws only valid full device IDs
+recorded in `.fleet-member/devices`, and does that before registering the new
+device. It never enumerates or withdraws other devices of the account. If
+registration or later startup fails, the saved ID file is left intact; a
+freshly registered device is withdrawn best-effort, while a restored device is
+never withdrawn on an ordinary startup failure.
 Without the phrase secret the runner does not take part, and B starts on the
 first SSH host instead -- which is the LAN path, and says so little that the
 run reports it.
+
+## Inspecting and removing an old Fleet device
+
+The coordinator offers a local, read-only inventory; it has no network
+endpoint and cannot withdraw a device. Stop its service before opening the
+Directory, run the installed binary with the exact same `--state` value as the
+unit, inspect the full device IDs, then restart the service:
+
+```sh
+sudo systemctl stop itsanas-coordinator
+sudo -u '<service-user>' /usr/local/bin/itsanas-coordinator --state '<same-state-path>' --inventory
+sudo systemctl start itsanas-coordinator
+```
+
+Replace the placeholders with the `User` and `--state` from
+`itsanas-coordinator.service`; keep the service stopped until inventory has
+finished. The output marks suspended accounts and includes stored unrevoked
+claims even when suspension hides them from members. It reports addresses and
+last-seen times only when the Directory has them. The command does not edit the
+Directory. After choosing an ID yourself, a member of that account can withdraw
+only that device with its full ID:
+
+```sh
+itsanas device forget '<full-id>'
+```
 
 A run is **red** when a row says FAIL, or when fewer than two machines answered
 (nothing crossed a network). A machine that does not answer is a **SKIP** row,

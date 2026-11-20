@@ -29,6 +29,7 @@
 //! peers that pinned it keep reaching the same coordinator across restarts.
 
 use std::{
+    fmt::Write as _,
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -36,7 +37,9 @@ use std::{
 };
 
 use clap::Parser;
-use itsanas_coord::{Admission, DEFAULT_COORD_PORT, Directory, server::CoordServer};
+use itsanas_coord::{
+    AccountInventory, Admission, DEFAULT_COORD_PORT, Directory, server::CoordServer,
+};
 use itsanas_crypto::{DeviceKeys, SecretBytes, SymmetricKey};
 
 /// Filename of the coordinator's own device key, beside its directory.
@@ -66,6 +69,9 @@ struct Cli {
     /// resolving elsewhere is refused rather than trusted.
     #[arg(long)]
     identity: bool,
+
+    #[command(flatten)]
+    inventory: InventoryArgs,
 
     /// Admit new members only if an existing one invited them.
     ///
@@ -123,6 +129,22 @@ struct Cli {
     unsuspend: Option<String>,
 }
 
+#[derive(clap::Args)]
+struct InventoryArgs {
+    /// Print accounts and stored live device claims locally, then exit.
+    ///
+    /// Read-only: stop the service first and use the same `--state` directory.
+    #[arg(long, conflicts_with_all = [
+        "identity",
+        "invite_only",
+        "admit_first",
+        "forget_account",
+        "suspend",
+        "unsuspend"
+    ])]
+    inventory: bool,
+}
+
 /// `--suspend` (`lift` false) or `--unsuspend` (`lift` true) `name`, saying
 /// what changed.
 fn suspend_or_lift(directory: &Directory, name: &str, lift: bool) -> Result<(), String> {
@@ -172,6 +194,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let cli = Cli::parse();
+
+    if cli.inventory.inventory {
+        return run_inventory(&cli.state);
+    }
 
     fs::create_dir_all(&cli.state)
         .map_err(|error| format!("could not create {}: {error}", cli.state.display()))?;
@@ -286,6 +312,55 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn run_inventory(state: &Path) -> Result<(), String> {
+    let path = state.join("directory.redb");
+    let inventory = Directory::read_inventory(&path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    print!("{}", inventory_output(&inventory));
+    Ok(())
+}
+
+fn inventory_output(accounts: &[AccountInventory]) -> String {
+    let mut output = String::from("Coordinator inventory (local, read-only)\n");
+    if accounts.is_empty() {
+        output.push_str("No accounts registered.\n");
+        return output;
+    }
+
+    for entry in accounts {
+        let status = if entry.suspended { " [SUSPENDED]" } else { "" };
+        writeln!(
+            output,
+            "Account: {} ({}){status}",
+            entry.account.username, entry.account.user.id
+        )
+        .expect("writing to a String");
+        if entry.devices.is_empty() {
+            output.push_str("  no active device claims\n");
+            continue;
+        }
+
+        for inventory in &entry.devices {
+            let device = inventory.claim.claim.device;
+            writeln!(output, "  Device: {device}").expect("writing to a String");
+            writeln!(
+                output,
+                "    address: {}",
+                inventory.address.as_deref().unwrap_or("unavailable")
+            )
+            .expect("writing to a String");
+            match inventory.last_seen_unix {
+                Some(unix) => {
+                    writeln!(output, "    last seen (Unix seconds): {unix}")
+                        .expect("writing to a String");
+                }
+                None => output.push_str("    last seen: unavailable\n"),
+            }
+        }
+    }
+    output
+}
+
 /// Load this coordinator's device key, generating it once on first start.
 ///
 /// Stored in the clear beside the directory, deliberately. Encrypting it would
@@ -344,3 +419,103 @@ fn restrict(path: &Path) {
 /// a Linux VM.
 #[cfg(not(unix))]
 fn restrict(_path: &Path) {}
+
+#[cfg(test)]
+mod tests {
+    use super::inventory_output;
+    use itsanas_coord::{Directory, NodeClaim, Presence, Registration};
+    use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+
+    const NOW: u64 = 1_800_000_000;
+
+    fn user(seed: u8) -> UserKeys {
+        UserKeys::derive(&MasterSecret::from_bytes([seed; 32]))
+    }
+
+    fn device(seed: u8) -> DeviceKeys {
+        DeviceKeys::from_seed(&SecretBytes::new([seed; 32]))
+    }
+
+    fn register(directory: &Directory, username: &str, owner: &UserKeys) {
+        let signed = Registration {
+            username: username.to_owned(),
+            user: owner.public(),
+            issued_unix: NOW,
+        }
+        .sign(owner);
+        directory.register(&signed, NOW).expect("register account");
+    }
+
+    fn claim(directory: &Directory, owner: &UserKeys, node: &DeviceKeys) {
+        let signed = NodeClaim {
+            owner: owner.user_id(),
+            device: node.device_id(),
+            pledged_bytes: 1024,
+            issued_unix: NOW,
+            revoked: false,
+        }
+        .sign(owner);
+        directory.claim(&signed, NOW).expect("claim device");
+    }
+
+    #[test]
+    fn inventory_is_stable_read_only_and_includes_suspended_claims() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("directory.redb");
+        let directory = Directory::open(&path).expect("open directory");
+
+        let suspended = user(1);
+        let no_devices = user(2);
+        let active = user(3);
+        register(&directory, "zulu", &active);
+        register(&directory, "alpha", &no_devices);
+        register(&directory, "bravo", &suspended);
+
+        let with_address = device(11);
+        let without_address = device(12);
+        let suspended_device = device(13);
+        claim(&directory, &active, &with_address);
+        claim(&directory, &active, &without_address);
+        claim(&directory, &suspended, &suspended_device);
+        directory
+            .announce(
+                &Presence {
+                    device: with_address.device_id(),
+                    address: "192.0.2.15:9797".to_owned(),
+                    at_unix: NOW,
+                    head: 4,
+                }
+                .sign(&with_address),
+                NOW,
+            )
+            .expect("announce address");
+        directory
+            .suspend(suspended.user_id(), NOW)
+            .expect("suspend account");
+
+        drop(directory);
+        let before = std::fs::read(&path).expect("read database before inventory");
+        assert!(
+            Directory::read_inventory(dir.path().join("missing.redb")).is_err(),
+            "a missing Directory was treated as an empty inventory"
+        );
+        let first = inventory_output(&Directory::read_inventory(&path).expect("inventory"));
+        let second = inventory_output(&Directory::read_inventory(&path).expect("repeat inventory"));
+        let after = std::fs::read(&path).expect("read database after inventory");
+
+        assert_eq!(first, second, "account/device ordering changed");
+        assert_eq!(before, after, "inventory modified the Directory");
+        assert!(first.find("Account: alpha").unwrap() < first.find("Account: bravo").unwrap());
+        assert!(first.find("Account: bravo").unwrap() < first.find("Account: zulu").unwrap());
+        assert!(first.contains("Account: bravo ("));
+        assert!(first.contains("[SUSPENDED]"));
+        assert!(first.contains("no active device claims"));
+        assert!(first.contains(&with_address.device_id().to_string()));
+        assert!(first.contains(&without_address.device_id().to_string()));
+        assert!(first.contains(&suspended_device.device_id().to_string()));
+        assert!(first.contains("192.0.2.15:9797"));
+        assert!(first.contains("address: unavailable"));
+        assert!(first.contains("last seen (Unix seconds): 1800000000"));
+        assert!(first.contains("last seen: unavailable"));
+    }
+}

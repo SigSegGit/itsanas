@@ -56,6 +56,9 @@ pub const MAX_REQUESTS_PER_CONNECTION: usize = 16;
 // compiler cannot prove first.
 const _: () = assert!(MAX_PEERS_RETURNED <= 64);
 const _: () = assert!(MAX_WIRE_USERNAME <= 64);
+// The current enrolment bound fits in one reply. The larger wire cap also
+// serves accounts enrolled above today's bound by older coordinators.
+const _: () = assert!(crate::MAX_DEVICES_PER_ACCOUNT <= MAX_PEERS_RETURNED);
 
 /// What a peer asks for.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

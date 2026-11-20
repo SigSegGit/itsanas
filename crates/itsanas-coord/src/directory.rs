@@ -172,6 +172,29 @@ pub struct Account {
     pub escrow_enabled: bool,
 }
 
+/// One account and its live claims, including claims hidden from members
+/// while the account is suspended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountInventory {
+    /// The registered account.
+    pub account: Account,
+    /// Whether the coordinator operator suspended this account.
+    pub suspended: bool,
+    /// Its unrevoked device claims, in device-id order.
+    pub devices: Vec<DeviceInventory>,
+}
+
+/// One stored live claim and the locally recorded presence for its device.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceInventory {
+    /// The signed, unrevoked device claim.
+    pub claim: SignedClaim,
+    /// The last recorded address, if the device announced one.
+    pub address: Option<String>,
+    /// When the coordinator last heard from the device, in Unix seconds.
+    pub last_seen_unix: Option<u64>,
+}
+
 /// A lodged invitation, and what remains of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LodgedInvitation {
@@ -360,6 +383,23 @@ impl Directory {
         };
         directory.rebuild_owner_index_if_missing()?;
         Ok(directory)
+    }
+
+    /// Read accounts, live device claims and recorded presence without
+    /// creating tables, rebuilding indexes or writing to the Directory.
+    ///
+    /// Intended for local operator inspection while the coordinator service
+    /// is stopped. Suspended accounts are included and marked as suspended.
+    pub fn read_inventory(path: impl AsRef<Path>) -> Result<Vec<AccountInventory>> {
+        let db = Database::open(path.as_ref())?;
+        let directory = Self {
+            db,
+            #[cfg(feature = "hostile")]
+            plays_old: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(any(test, feature = "hostile"))]
+            unbounded: std::sync::atomic::AtomicBool::new(false),
+        };
+        directory.inventory()
     }
 
     // ------------------------------------------------------------- accounts
@@ -587,6 +627,46 @@ impl Directory {
         drop(by_id);
         drop(txn);
         self.account(&name)
+    }
+
+    /// List accounts and their live claims for local operator inventory.
+    ///
+    /// Unlike [`Self::live_claims_of`], this includes a suspended account's
+    /// unrevoked claims so the operator can identify devices without making
+    /// them visible through the member protocol. Results are ordered by
+    /// username; each account's claims are ordered by full device id.
+    fn inventory(&self) -> Result<Vec<AccountInventory>> {
+        let txn = self.db.begin_read()?;
+        let accounts = txn.open_table(ACCOUNTS)?;
+        let by_owner = txn.open_table(CLAIMS_BY_OWNER)?;
+        let claims = txn.open_table(CLAIMS)?;
+        let suspended = txn.open_table(SUSPENDED)?;
+        let mut inventory = Vec::new();
+
+        for row in accounts.iter()? {
+            let (_, value) = row?;
+            let account: Account = postcard::from_bytes(value.value())?;
+            let owner = account.user.id;
+            let mut devices = Vec::new();
+            for claim in live_claims_in(&by_owner, &claims, owner)? {
+                let device = claim.claim.device;
+                devices.push(DeviceInventory {
+                    claim,
+                    address: self
+                        .presence_of(device)?
+                        .map(|presence| presence.presence.address),
+                    last_seen_unix: self.last_seen(device)?,
+                });
+            }
+            inventory.push(AccountInventory {
+                suspended: suspended.get(owner.as_bytes().as_slice())?.is_some(),
+                devices,
+                account,
+            });
+        }
+
+        inventory.sort_by(|left, right| left.account.username.cmp(&right.account.username));
+        Ok(inventory)
     }
 
     /// Forget the account registered under `username`, so the name can be
@@ -1021,7 +1101,7 @@ impl Directory {
 
     /// Play a coordinator older than [`MAX_DEVICES_PER_ACCOUNT`]: with `false`,
     /// any number of devices is admitted. For two kinds of test only -- that a
-    /// client refuses a sixth device on its own, and that an account enrolled
+    /// client refuses a device beyond the bound on its own, and an account enrolled
     /// above the bound before it existed keeps working. Nothing built to run
     /// has it.
     #[cfg(any(test, feature = "hostile"))]
@@ -2738,7 +2818,8 @@ mod tests {
         owner
     }
 
-    /// THE DECISION (Nicolas, 2026-09-30, raised from 5 to 10 on 2026-10-22):
+    /// THE DECISION (Nicolas, 2026-09-30, raised from 5 to 10 on 2026-10-22
+    /// and to 20 on 2026-11-20):
     /// [`MAX_DEVICES_PER_ACCOUNT`] live devices per account. One more is
     /// refused on the coordinator, which is the half a rebuilt client
     /// cannot remove, and the refusal writes nothing: no claim, no index row
@@ -2750,6 +2831,7 @@ mod tests {
         let (_dir, directory) = directory();
         let owner = a_full_account(&directory);
         let before = directory.enrolled_counts().expect("counts");
+        assert_eq!(MAX_DEVICES_PER_ACCOUNT, 20);
 
         let refused = directory.claim(&signed(&owner, FULL + 1, NOW + 1, false), NOW + 1);
 

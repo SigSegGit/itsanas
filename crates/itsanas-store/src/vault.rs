@@ -162,9 +162,10 @@ const CLAIMS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_cl
 pub const MAX_KEPT_CLAIMS: u64 = 4096;
 
 /// Most claims handed out for one account in one answer, the most recently
-/// presented first ([`Vault::claims_for`]): an account's live devices (at
-/// most ten since 2026-10-22) and room for the withdrawn ones that still
-/// present. Older clients refuse a longer answer, so this does not grow.
+/// presented first ([`Vault::claims_for`]). The response is a bounded sample,
+/// not the account's full roster: up to 20 live devices are allowed since
+/// 2026-11-20, and withdrawn claims that still present can also appear. Older
+/// clients refuse a longer answer, so this does not grow.
 pub const MAX_CLAIMS_PER_ANSWER: usize = 16;
 
 /// `device` -> the number of the presentation that last kept its claim, so
@@ -1092,7 +1093,8 @@ impl Vault {
     /// A withdrawn device's claim is kept like any other (this host is not
     /// told of withdrawals), and it stops being presented. Handing out the
     /// first sixteen by device id, as this did until 2026-10-23, let an
-    /// account past sixteen devices ever -- ten live and a few replaced --
+    /// account past sixteen devices ever -- ten live at the time and a few
+    /// replaced --
     /// drop live ones from every answer, whichever sorted last. The ones
     /// presented last are the live ones; a claim kept before presentations
     /// were counted reads as the oldest.

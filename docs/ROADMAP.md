@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1707 test functions, 20 of them `#[ignore]`d into the slow job, and 647 of
+**1708 test functions, 20 of them `#[ignore]`d into the slow job, and 647 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2173,17 +2173,18 @@ coordinator makes the node enrol with the configured one, and
 call site is still `register_and_announce`). The Windows wrapper restarts at
 once after exit 75 at most three times in 60 s.
 
-### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
+### At most 20 live devices per account — 2026-09-30, raised 2026-10-22 and 2026-11-20
 
-10, decided by Nicolas on 2026-10-22 (ephemeral devices such as portable keys
-and test machines filled five slots quickly: « je trouve que 5 machines max est
-trop faible, il faudrait au moins 10 avec l'utilisation de devices
-ephemères »); was 5 since 2026-09-30 ("5 max"). The tests derive every count
-from the constant, so the next change is one line. `MAX_DEVICES_PER_ACCOUNT` in
-`crates/itsanas-coord/src/claim.rs`; `scripts/check-bargain.py` holds every
-document to it. Before this, any holder of the master secret could mint device
-ids for free and each became a live claim the coordinator kept and handed every
-machine of the account to dial.
+20 is the current limit, raised from 10 on 2026-11-20. The limit was 10 from
+2026-10-22 (ephemeral devices such as portable keys and test machines filled
+five slots quickly: « je trouve que 5 machines max est trop faible, il
+faudrait au moins 10 avec l'utilisation de devices ephemères ») and 5 from
+2026-09-30 ("5 max"). The tests derive every count from the constant.
+`MAX_DEVICES_PER_ACCOUNT` in `crates/itsanas-coord/src/claim.rs`;
+`scripts/check-bargain.py` holds every current document to it. Before the
+bound, any holder of the master secret could mint device ids for free and each
+became a live claim the coordinator kept and handed every machine of the
+account to dial.
 
 - **On the coordinator** (`Directory::claim`), the bound a rebuilt client
   cannot remove: a live claim for a device it has no claim for is refused when
@@ -2232,8 +2233,8 @@ machine of the account to dial.
   **Not verified:** no screen was opened; the Kotlin compiles
   (`scripts/build-apk.sh debug`, by hand) and nothing runs it.
 
-**Not closed by this:** withdrawn rows are never removed, so the bound caps live devices, not rows (10 live and
-any number withdrawn, as before); a device silent for more than a week
+**Not closed by this:** withdrawn rows are never removed, so the bound caps
+live devices, not rows (20 live and any number withdrawn, as before); a device silent for more than a week
 re-registering through a coordinator older than `Devices` reads only
 `ClaimedPeers` and can be refused by its own client on an account at the
 bound. Reads are still not scoped to the account (any device
