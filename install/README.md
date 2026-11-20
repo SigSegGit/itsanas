@@ -661,18 +661,19 @@ The coordinator turns the name into their machines' addresses. On one network
 the discovery beacons do this without being asked.
 
 `itsanas device list` shows every machine the coordinator has for your account,
-and `itsanas device forget <id>` withdraws one that is gone for good. Without
-it a laptop that was reinstalled or sold stays in the directory and every other
-machine you own keeps dialling it. The short id from the log is enough:
+and `itsanas device forget <full-id>` withdraws one that is gone for good.
+Without it a laptop that was reinstalled or sold stays in the directory and
+every other machine you own keeps dialling it. Copy the full id from the list
+or from a registration refusal:
 
 ```sh
-itsanas device forget 393f7d4acf72
+itsanas device forget '<full-id>'
 ```
 
-(`itsanas device withdraw` is the same command.) An account has at most 10 live
-devices; a withdrawn one frees its slot, and an eleventh is refused at `register`
-with the full ids of the ten until one is withdrawn -- from any machine of
-the account, the refused one included, since a full id needs no listing. An account enrolled above
+(`itsanas device withdraw` is the same command.) An account has at most 20 live
+devices; a withdrawn one frees its slot, and a twenty-first is refused at
+`register` with the full ids of the twenty until one is withdrawn -- from any
+machine of the account, the refused one included. An account enrolled above
 that before the limit existed keeps every device; it just cannot add one.
 
 `listen` matters when something else already holds 9797 on the machine —

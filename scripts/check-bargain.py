@@ -56,7 +56,7 @@ The device bound, since 2026-09-30
 ----------------------------------
 
 The other number of the bargain a member is told: at most
-`MAX_DEVICES_PER_ACCOUNT` live devices per account (Nicolas: "5 max" on 2026-09-30, raised to 10 on 2026-10-22). It is
+`MAX_DEVICES_PER_ACCOUNT` live devices per account (Nicolas: "5 max" on 2026-09-30, raised to 10 on 2026-10-22 and to 20 on 2026-11-20). It is
 here rather than in a gate of its own for the same reason the split is -- one
 constant in the code, restated in the files a new member reads -- and because
 a new `check-*` script needs a `ci.yml` step, which only Nicolas can add.
@@ -130,6 +130,9 @@ STATES_THE_DEVICE_BOUND = (
 # is a record. File, then the exact phrase it may contain.
 OLD_BOUNDS_ALLOWED = {
     ('docs/HANDOVER-ARCHIVE.md', 'at most 5 live devices'),
+    ('docs/HANDOVER.md', '5 live devices per account'),
+    ('docs/HANDOVER.md', '10 live devices per account'),
+    ('docs/HANDOVER.md', 'at most 10 live devices'),
 }
 
 NUMBER_WORDS = {

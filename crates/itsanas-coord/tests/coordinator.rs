@@ -989,9 +989,12 @@ fn red_team_a_stranger_cannot_list_another_member_s_devices() {
 fn red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire() {
     with_coordinator(|address, directory| {
         let nicolas = user(1);
-        let mut first = enrolled_member(address, "nicolas", &nicolas, &device(1));
+        let first = enrolled_member(address, "nicolas", &nicolas, &device(1));
+        drop(first);
         for seed in 2..=u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small") {
-            claim_device(&mut first, &nicolas, &device(seed), false, NOW);
+            let current = device(seed);
+            let mut per_device = dial(address, &current, &nicolas);
+            claim_device(&mut per_device, &nicolas, &current, false, NOW);
         }
 
         let one_too_many = device(u8::try_from(MAX_DEVICES_PER_ACCOUNT + 1).expect("small"));

@@ -941,6 +941,12 @@ else
     echo "  skip  pwsh is not installed here; the Windows kit was not compared"
 fi
 
+if bash scripts/check-fleet-member.sh; then
+    ok "the Fleet member cleans up only devices it owns"
+else
+    bad "the Fleet member lifecycle checks failed"
+fi
+
 echo
 if [ "$failures" -eq 0 ]; then
     echo "check-fleet: the agent refuses and the run fails where it must"

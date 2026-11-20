@@ -14,7 +14,8 @@ pub use claim::{
     SignedPresence,
 };
 pub use directory::{
-    Account, Admission, Directory, Forgotten, LodgedInvitation, Registration, SignedRegistration,
+    Account, AccountInventory, Admission, DeviceInventory, Directory, Forgotten, LodgedInvitation,
+    Registration, SignedRegistration,
 };
 pub use error::{CoordError, Result};
 pub use invitation::{DEFAULT_VALIDITY, Invitation, SECRET_LEN, Secret, SignedInvitation, code_id};

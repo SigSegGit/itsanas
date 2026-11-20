@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-16 — 1707 test functions across 45 binaries, 20 of them
+**Last updated: 2026-11-20 — 1708 test functions across 46 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 647 are red-team tests.**
 
-**1591 of the 1707 tests have an entry of their own on this page** — an *entry*,
+**1592 of the 1708 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -174,6 +174,7 @@ guarantee and is not one.
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 134 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
+| `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 27 |
@@ -894,7 +895,7 @@ about reading.
 | Test | What it proves |
 | --- | --- |
 | `a_disk_check_that_finds_nothing_to_do_writes_nothing` | `check_disk` runs every round; on a small vault a pass ends where it began, and nothing removed with the cursor unchanged is an aborted write, not a commit (`commit_if`). Sabotaged (always commit): red. |
-| **`red_team_the_claims_presented_last_are_handed_out_past_sixteen_devices`** | A host keeps the claim of every device that ever presented one, withdrawn or not, and answered `Request::Claims` with the first `MAX_CLAIMS_PER_ANSWER` (16) by device id: past sixteen devices ever (ten live since #303, plus a few replaced), live ones whose ids sorted last were missing from every answer, and a sibling learning the roster from that host never admitted them. Found 2026-10-23 building the fleet's CI member, which would have added a device a night. `CLAIM_SEEN` in vault.rs numbers each presentation and the answer is the sixteen presented last, so withdrawn devices, which stop presenting, fall out; no protocol change, older clients still get at most sixteen. A device presenting again comes back; another account's claims never count. Sabotaged (no ordering; presentations not recorded): red both. |
+| **`red_team_the_claims_presented_last_are_handed_out_past_sixteen_devices`** | A host keeps the claim of every device that ever presented one, withdrawn or not, and answered `Request::Claims` with the first `MAX_CLAIMS_PER_ANSWER` (16) by device id: past sixteen devices ever (ten live at the time, plus a few replaced), live ones whose ids sorted last were missing from every answer, and a sibling learning the roster from that host never admitted them. Found 2026-10-23 building the fleet's CI member, which would have added a device a night. `CLAIM_SEEN` in vault.rs numbers each presentation and the answer is the sixteen presented last, so withdrawn devices, which stop presenting, fall out; no protocol change, older clients still get at most sixteen. A device presenting again comes back; another account's claims never count. Sabotaged (no ordering; presentations not recorded): red both. |
 | **`red_team_a_vault_whose_disk_went_writes_nothing_on_the_bare_mount_point`** | Unix only, as above. With `vault.redb` gone from its root (the disk unplugged under an open vault), storing refuses and no directory is created on the bare mount point. |
 | **`red_team_a_chunk_stored_again_unchanged_costs_no_commit`** | The idle bench's commits, counted: a peer offering a chunk this vault already held, in the first rounds after a start between two accounts hosting each other, re-indexed it and committed ("costs nothing", the comment said; a commit is some 24 KB). Unchanged now costs none; a new chunk does, and so does one marked evictable, which is unmarked (stored again is wanted again). Sabotaged (always committed; an unmark not counted as a change): red each. |
 | **`red_team_the_disk_checks_cursor_is_not_written_at_every_step`** | One of the two commits an idle round still made (counted over idle rounds only, 2026-10-27): the disk check's cursor, moved and written at every round. Written now at the first step, with a removal, at the end of a pass, and otherwise at most every `CHECK_CURSOR_STEP` (15 min); between writes it moves in memory, so eight rows are checked in order and a blob lost at the fifth is found at the fifth step. 50 to 36-40 KB a round on the idle bench at one minute. Sabotaged (written at every step; the memory not read; no step): red each. Not covered: a restart resuming at the cursor last written, which existing tests of the cursor across `Vault::open` still pass. |
@@ -2849,15 +2850,16 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 
 # `itsanas-coord` — at most `MAX_DEVICES_PER_ACCOUNT` live devices per account (6)
 
-Decided by Nicolas on 2026-09-30 at 5, raised to 10 on 2026-10-22; every count
-below is derived from the constant, so "full" means `MAX_DEVICES_PER_ACCOUNT`. Five unit tests in `directory.rs` and one
+Decided by Nicolas on 2026-09-30 at 5, raised to 10 on 2026-10-22 and to 20
+on 2026-11-20; every count below is derived from the constant, so "full" means
+`MAX_DEVICES_PER_ACCOUNT`. Five unit tests in `directory.rs` and one
 integration test in `tests/coordinator.rs`. `MAX_DEVICES_PER_ACCOUNT` in
 `claim.rs`; `Directory::bound_devices(false)` plays a coordinator older than
 the bound, behind `cfg(test)` and the `hostile` feature.
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_one_device_too_many_is_refused_and_nothing_is_written`** | One live claim more than the bound is refused as `TooManyDevices`, naming the account's devices and `itsanas device forget <id>`, and neither table changes: a written claim would be listed to every machine of the account. Sabotaged on the count (`if false`) and on the command in the message; the count sabotage re-checked red at 10 on 2026-10-22. |
+| **`red_team_one_device_too_many_is_refused_and_nothing_is_written`** | One live claim more than the bound is refused as `TooManyDevices`, naming the account's devices and `itsanas device forget <id>`, and neither table changes: a written claim would be listed to every machine of the account. Sabotaged on the count (`if false`) and on the command in the message; the count sabotage re-checked red at 10 before the later increase to 20. |
 | **`red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`** | One withdrawal frees one slot, not two; the withdrawn device's live claim re-signed after it is refused, stays withdrawn and is not counted. Sabotaged by counting withdrawn claims as live. |
 | **`red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`** | A new claim for a device already live (a pledge change, `register` again) is kept on a full account. Counting it would lock a full account out of every pledge change. Sabotaged by counting every live claim. |
 | `an_account_already_above_the_bound_keeps_its_devices_and_cannot_add_one` | Two more devices than the bound, enrolled by an older coordinator, stay live and can re-sign; one more is refused with the real count. The bound is not applied backwards. |
@@ -2952,12 +2954,23 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | **`red_team_standing_tells_nothing_about_a_device_the_caller_was_not_shown`** | A claim that does not verify is refused, and one signed under another account than the device's own is answered `None`: the question cannot be asked about a device the caller was never shown. Sabotaged by dropping either check. |
 | `standing_answers_a_live_device_with_its_claim_and_an_unknown_one_with_nothing` | The ordinary answers: a live device's claim, and nothing for a device never enrolled. |
 
-# `itsanas-coordinator` crash (`tests/crash.rs`) -- the real binary, killed (2)
+# `itsanas-coordinator` — crash (`tests/crash.rs`), the real binary killed (2)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_the_real_coordinator_erases_a_silent_address_as_it_starts`** | A directory left by an earlier run holds an address past `PRESENCE_KEPT_FOR`. The real `itsanas-coordinator` starts on it, answers once, and is killed; the file then holds no such address and still holds the enrolment. So the pass is wired into what is deployed, and is written down rather than left to the next flush. Sabotaged (no pass at start; the pass skips addresses): red. |
 | **`red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed`** | Spawns the real `itsanas-coordinator`, registers an account, claims a device, announces (the one `Durability::None` write), kills the process outright (SIGKILL, `TerminateProcess` on Windows) and reopens `directory.redb` from the test: the account is present and `enrolled_counts` is (1, 1). Sabotaged by making every directory write non-durable: red. An in-process reopen could not tell them apart, because redb flushes on drop. |
+
+# `itsanas-coordinator` — local, read-only inventory (1)
+
+The local `--inventory` option opens an existing Directory without initializing
+or changing it. It lists accounts in a stable order, includes claims of
+suspended accounts, and prints addresses and last-seen values only when
+available. Missing or unreadable state is an error, not an empty inventory.
+
+| Test | What it proves |
+| --- | --- |
+| **`inventory_is_stable_read_only_and_includes_suspended_claims`** | Several accounts, including an empty and a suspended account; active IDs, a present and absent address, last-seen data, stable ordering, unchanged Directory bytes, and a missing Directory refusal. |
 
 # `itsanas-node` withdrawals (`tests/withdrawals.rs`) — the host's half, against a real coordinator (4)
 

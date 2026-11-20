@@ -257,10 +257,10 @@ itsanas register
 ```
 
 `register` claims the username, enrols this device, and publishes its address.
-An account has at most 10 live devices: an eleventh is refused, by the machine being
-enrolled and by the coordinator, until `itsanas device forget <id>` withdraws
-one and frees its slot. Registering again on a device already enrolled takes no
-slot.
+An account has at most 20 live devices: a twenty-first is refused, by the
+machine being enrolled and by the coordinator, until
+`itsanas device forget <full-id>` withdraws one and frees its slot. Registering
+again on a device already enrolled takes no slot.
 The daemon then republishes and asks for the account's other devices each round.
 
 To make passphrase recovery possible, lodge a container:

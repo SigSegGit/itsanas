@@ -76,7 +76,8 @@ jobs:
           chmod 600 ~/.ssh/config
 
       # The member's home from last night, sealed under FLEET_HOME_KEY, and
-      # its device id (scripts/fleet/member.sh): the same device every night.
+      # its Fleet-owned device ids (scripts/fleet/member.sh). A fresh login
+      # withdraws only those saved ids before registering its new device.
       # A cache from main is readable by other branches' runs, which is why
       # the home is sealed before it is saved.
       - uses: actions/cache/restore@v6

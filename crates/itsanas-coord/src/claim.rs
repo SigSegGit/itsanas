@@ -89,14 +89,14 @@ pub const MAX_CLOCK_SKEW: u64 = 3600;
 
 /// How many live devices one account may have enrolled at once.
 ///
-/// 10, decided by Nicolas on 2026-10-22 (ephemeral devices such as portable
-/// keys and test machines fill five slots quickly); was 5 ("5 max") since
-/// 2026-09-30. A withdrawn device frees its
-/// slot; re-signing the claim of a device already live (a new pledge, a
-/// re-run of `itsanas register`) takes none. Enforced twice: by the client
-/// before it signs a claim for a new device, so the refusal names the devices
-/// to choose from, and by [`crate::Directory::claim`], which is the bound a
-/// rebuilt client cannot remove.
+/// The current limit is 20. It was 10 from 2026-10-22 until 2026-11-20
+/// (ephemeral devices such as portable keys and test machines filled five
+/// slots quickly), and 5 from 2026-09-30 until 2026-10-22. A withdrawn device
+/// frees its slot; re-signing the claim of a device already live (a new
+/// pledge, a re-run of `itsanas register`) takes none. Enforced twice: by the
+/// client before it signs a claim for a new device, so the refusal names the
+/// devices to choose from, and by [`crate::Directory::claim`], which is the
+/// bound a rebuilt client cannot remove.
 ///
 /// Why a bound at all: every keystore holds the master secret, so whoever
 /// holds it can mint device ids for free, and before this every one of them
@@ -105,7 +105,7 @@ pub const MAX_CLOCK_SKEW: u64 = 3600;
 /// enrolled before it existed -- keeps every device it has; it just cannot
 /// add one until enough are withdrawn. `scripts/check-bargain.py` reads this
 /// line and checks every document that states the number.
-pub const MAX_DEVICES_PER_ACCOUNT: usize = 10;
+pub const MAX_DEVICES_PER_ACCOUNT: usize = 20;
 
 /// A user's statement that a device is theirs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

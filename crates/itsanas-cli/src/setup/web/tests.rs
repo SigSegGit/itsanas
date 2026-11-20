@@ -3045,7 +3045,7 @@ fn a_setup_that_stopped_at_the_device_limit_says_so_to_the_page() {
         phase: Phase::Failed,
         failed: Some((
             Step::Registration,
-            "this account has 10 live devices and the limit is 10".to_owned(),
+            "this account has 20 live devices and the limit is 20".to_owned(),
             "withdraw one".to_owned(),
         )),
         ..Run::default()

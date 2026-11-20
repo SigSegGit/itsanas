@@ -374,14 +374,14 @@ mod tests {
                 phrase = Some(said);
             }
 
-            let (sixth, _) = phone(
+            let (one_too_many, _) = phone(
                 &dir.path().join("last"),
                 address,
                 "nicolas",
                 phrase.as_deref(),
             );
-            let answer =
-                register(&sixth, None, NOW + 1).expect("the limit is a screen, not an error");
+            let answer = register(&one_too_many, None, NOW + 1)
+                .expect("the limit is a screen, not an error");
             assert_eq!(answer["atCap"], true, "{answer}");
             let named: Vec<&str> = answer["devices"]
                 .as_array()
@@ -401,21 +401,21 @@ mod tests {
                 "the phone was told to run a command it does not have: {said}"
             );
             assert!(
-                !live(directory, sixth.store.device_id()),
-                "a sixth device was enrolled"
+                !live(directory, one_too_many.store.device_id()),
+                "a device beyond the bound was enrolled"
             );
 
-            withdraw(&sixth, &lost[0].to_string(), NOW + 2)
+            withdraw(&one_too_many, &lost[0].to_string(), NOW + 2)
                 .expect("an unenrolled phone could not withdraw a device the refusal named");
             assert!(!live(directory, lost[0]), "the named device is still live");
 
-            let joined = register(&sixth, None, NOW + 3).expect("register");
+            let joined = register(&one_too_many, None, NOW + 3).expect("register");
             assert_eq!(
                 joined["enrolled"], true,
                 "the freed slot did not let the phone in: {joined}"
             );
             assert!(
-                live(directory, sixth.store.device_id()),
+                live(directory, one_too_many.store.device_id()),
                 "the phone is not enrolled"
             );
         });

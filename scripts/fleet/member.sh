@@ -35,8 +35,9 @@
 #
 # When there is no archive (the first run, a cache evicted after a week
 # unused, no FLEET_HOME_KEY), the member logs in from the 24 words as a new
-# device and withdraws the one before it, whose id is kept in FLEET_STATE
-# next to the archive. A device cannot withdraw itself (`withdraw_device`).
+# device, withdraws only valid full IDs in its Fleet state file, then registers.
+# The state file changes only after the daemon takes a round. A device cannot
+# withdraw itself (`withdraw_device`).
 #
 # What the secrets are: FLEET_TEST_PHRASE is the `test` account itself, and
 # the archive holds that account's keys under a passphrase kept inside it. The
@@ -77,42 +78,79 @@ device_of() {
     sed -n 's/^ *device *:\{0,1\} *\([0-9a-f]\{64\}\).*/\1/p' "$@" 2>/dev/null | head -1
 }
 
+FRESH_DEVICE=
+START_DAEMON_PID=
+
+stop_daemon_pid() {
+    local pid=$1
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    kill "$pid" 2>/dev/null || return 0
+    wait "$pid" 2>/dev/null || true
+    for _ in $(seq 30); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+}
+
+failed_start_cleanup() {
+    local status=$?
+    trap - EXIT
+    if [ "$status" -ne 0 ] && [ -n "$START_DAEMON_PID" ]; then
+        stop_daemon_pid "$START_DAEMON_PID"
+    fi
+    if [ "$status" -ne 0 ] && [ -n "$FRESH_DEVICE" ]; then
+        say "initialization failed; withdrawing only fresh device ${FRESH_DEVICE:0:12}"
+        node device forget "$FRESH_DEVICE" >/dev/null 2>&1 ||
+            say "could not withdraw fresh device ${FRESH_DEVICE:0:12}"
+    fi
+    exit "$status"
+}
+
 restore() {
     [ -n "${FLEET_HOME_KEY:-}" ] && [ -s "$ARCHIVE" ] || return 1
     mkdir -p "$DIR"
     chmod 700 "$DIR"
-    if ! seal -d -in "$ARCHIVE" 2>"$DIR/restore.err" | tar -xz -C "$DIR" 2>>"$DIR/restore.err"; then
-        say "the archive did not open ($(head -1 "$DIR/restore.err")); starting as a new device"
-        rm -rf "$HOME_DIR" "$FOLDER" "$DIR/passphrase"
+    local stage
+    stage=$(mktemp -d "$DIR/.restore.XXXXXX") || die "could not prepare archive restore"
+    if ! seal -d -in "$ARCHIVE" 2>"$DIR/restore.err" | tar -xz -C "$stage" 2>>"$DIR/restore.err"; then
+        say "the archive did not open ($(head -1 "$DIR/restore.err")); partial data stays at $stage, starting as a new device"
         return 1
     fi
-    if [ ! -s "$DIR/passphrase" ] || [ ! -d "$HOME_DIR" ]; then
-        rm -rf "$HOME_DIR" "$FOLDER" "$DIR/passphrase"
+    if [ ! -s "$stage/passphrase" ] || [ ! -d "$stage/home" ] || [ ! -d "$stage/folder" ]; then
+        say "the archive has no complete runner state; data stays at $stage, starting as a new device"
         return 1
     fi
+    if ! mv "$stage/home" "$HOME_DIR" ||
+        ! mv "$stage/folder" "$FOLDER" ||
+        ! mv "$stage/passphrase" "$DIR/passphrase"; then
+        die "could not install the restored runner state; remaining data stays at $stage"
+    fi
+    rmdir "$stage" 2>/dev/null || say "other archive data stays at $stage"
     say "the same device as last run, back after $(( ($(date +%s) - $(stat -c %Y "$ARCHIVE")) / 60 )) minutes"
 }
 
 fresh() {
     [ -n "${FLEET_TEST_PHRASE:-}" ] || die "no archive to restore and FLEET_TEST_PHRASE is empty: no member this run"
-    mkdir -p "$DIR" "$FOLDER"
+    mkdir -p "$DIR" "$FOLDER" "$STATE"
     chmod 700 "$DIR"
     (umask 077; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$DIR/passphrase")
     (umask 077; printf '%s\n' "$FLEET_TEST_PHRASE" >"$DIR/phrase")
     node login --username test --phrase-file "$DIR/phrase" >"$DIR/login.log" 2>&1 ||
         { rm -f "$DIR/phrase"; cat "$DIR/login.log"; die "login failed"; }
     rm -f "$DIR/phrase"
-    node coordinator "$FLEET_COORD" --device "$FLEET_COORD_ID" >/dev/null || die "coordinator"
-    node register >"$DIR/register.log" 2>&1 || { cat "$DIR/register.log"; die "register"; }
     me=$(device_of "$DIR/login.log")
     [ -n "$me" ] || { cat "$DIR/login.log"; die "login did not say which device it made"; }
-    say "a new device, ${me:0:12}"
-    # The device of the run before, withdrawn now that a device of the account
-    # is here to do it. Said, never fatal: an id already forgotten is no
-    # reason to skip the night's tests.
+    node coordinator "$FLEET_COORD" --device "$FLEET_COORD_ID" >/dev/null || die "coordinator"
+    # Free only devices named by the Fleet-owned state file, before claiming a
+    # new slot. Never enumerate or touch any other device on the account.
     if [ -s "$DEVICES" ]; then
-        while read -r old; do
-            [[ "$old" =~ ^[0-9a-f]{64}$ ]] && [ "$old" != "$me" ] || continue
+        while IFS= read -r old || [ -n "$old" ]; do
+            if ! [[ "$old" =~ ^[0-9a-f]{64}$ ]]; then
+                say "ignoring an invalid device id in Fleet state"
+                continue
+            fi
+            [ "$old" != "$me" ] || continue
             if node device forget "$old" >/dev/null 2>&1; then
                 say "withdrew the device of an earlier run, ${old:0:12}"
             else
@@ -120,17 +158,26 @@ fresh() {
             fi
         done <"$DEVICES"
     fi
-    mkdir -p "$STATE"
-    printf '%s\n' "$me" >"$DEVICES"
+    # Set this before the command: even if registration commits remotely and
+    # then exits unsuccessfully or is interrupted, cleanup targets only `me`.
+    FRESH_DEVICE=$me
+    node register >"$DIR/register.log" 2>&1 ||
+        { cat "$DIR/register.log"; die "registration failed; the runner did not join the account"; }
+    say "a new device registered, ${me:0:12}"
     [ -n "${FLEET_HOME_KEY:-}" ] ||
         say "no FLEET_HOME_KEY: this device is not kept, and the next run is a new one"
 }
 
 start() {
+    trap failed_start_cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 129' HUP
+    trap 'exit 143' TERM
     : "${FLEET_COORD:?FLEET_COORD is the coordinator, host:port}"
     : "${FLEET_COORD_ID:?FLEET_COORD_ID is the device id the coordinator must prove}"
     [ -x "$BIN" ] || die "no itsanas binary at $BIN"
     [ ! -e "$HOME_DIR" ] || die "$HOME_DIR exists: one member per run"
+    [ ! -e "$FOLDER" ] || die "$FOLDER exists: one member per run"
     restore || fresh
     mkdir -p "$FOLDER"
     # The runner's temporary directory need not be the same path every night.
@@ -140,7 +187,8 @@ start() {
     ITSANAS_HOME="$HOME_DIR" ITSANAS_PASSPHRASE="$(cat "$DIR/passphrase")" \
         nohup "$BIN" daemon --interval 30 --listen "${FLEET_MEMBER_LISTEN:-0.0.0.0:9797}" \
         </dev/null >"$DIR/daemon.log" 2>&1 &
-    echo $! >"$DIR/daemon.pid"
+    START_DAEMON_PID=$!
+    echo "$START_DAEMON_PID" >"$DIR/daemon.pid"
     for _ in $(seq 120); do
         [ -s "$HOME_DIR/status.snapshot" ] && break
         sleep 1
@@ -156,12 +204,21 @@ HOME_test="$HOME_DIR"
 EOF
     say "up as $(device_of "$HOME_DIR/status.snapshot" | cut -c1-12); FLEET_AGENT_runner=$DIR/agent.conf"
     [ -z "${GITHUB_ENV:-}" ] || echo "FLEET_AGENT_runner=$DIR/agent.conf" >>"$GITHUB_ENV"
+
+    if [ -n "$FRESH_DEVICE" ]; then
+        state_tmp=$(mktemp "$STATE/.devices.XXXXXX") || die "could not prepare Fleet device state"
+        if ! printf '%s\n' "$FRESH_DEVICE" >"$state_tmp" || ! mv "$state_tmp" "$DEVICES"; then
+            rm -f "$state_tmp"
+            die "could not save Fleet device state"
+        fi
+        FRESH_DEVICE=
+    fi
 }
 
 stop() {
     if [ -s "$DIR/daemon.pid" ]; then
         pid=$(cat "$DIR/daemon.pid")
-        kill "$pid" 2>/dev/null
+        stop_daemon_pid "$pid"
         # The store is closed when the process is gone, not when it is told.
         for _ in $(seq 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
         # What repeats, counted: a line printed every round is the thing to
