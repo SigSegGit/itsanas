@@ -148,8 +148,8 @@ class E2eCase: XCTestCase {
         try waitFor("\(what) is not on the page") { element.exists }
         let page = app.webViews.firstMatch
         let visiblePage = { (frame: CGRect) -> CGRect in
-            var visible = frame.intersection(app.windows.firstMatch.frame)
-            if let keyboard = try? app.keyboards.firstMatch.snapshot().frame, !keyboard.isEmpty {
+            var visible = frame.intersection(self.app.windows.firstMatch.frame)
+            if let keyboard = try? self.app.keyboards.firstMatch.snapshot().frame, !keyboard.isEmpty {
                 visible.size.height = max(0, min(visible.maxY, keyboard.minY) - visible.minY)
             }
             return visible
