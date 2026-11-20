@@ -129,7 +129,7 @@ class E2eCase: XCTestCase {
             .matching(NSPredicate(format: "label CONTAINS %@", words)).firstMatch
     }
 
-    /// Scroll the page until `element` can be touched, then touch it.
+    /// Scroll the page until a control can be touched, then touch it.
     func tapOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
         for direction in [true, false] {
@@ -141,6 +141,56 @@ class E2eCase: XCTestCase {
         }
         guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
         element.tap()
+    }
+
+    /// The biometric switch can report an invalid activation point in WebKit.
+    func tapSwitchOnPage(_ element: XCUIElement, _ what: String) throws {
+        try waitFor("\(what) is not on the page") { element.exists }
+        let page = app.webViews.firstMatch
+        let visiblePage = { (frame: CGRect) -> CGRect in
+            var visible = frame.intersection(self.app.windows.firstMatch.frame)
+            if let keyboard = try? self.app.keyboards.firstMatch.snapshot().frame, !keyboard.isEmpty {
+                visible.size.height = max(0, min(visible.maxY, keyboard.minY) - visible.minY)
+            }
+            return visible
+        }
+        var lastState = "no accessibility snapshot"
+        for _ in 0..<30 {
+            guard let first = try? element.snapshot().frame,
+                  let pageFrame = try? page.snapshot().frame else {
+                lastState = "snapshot unavailable"
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            let visible = visiblePage(pageFrame)
+            guard !first.isEmpty, !visible.isEmpty else {
+                lastState = "switch or visible page has an empty frame"
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            guard visible.contains(first) else {
+                lastState = "switch frame \(first) is outside visible page \(visible)"
+                if first.midY > visible.midY { page.swipeUp() } else { page.swipeDown() }
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            guard let centre = settledCentre(element),
+                  let settled = try? element.snapshot().frame,
+                  let settledPage = try? page.snapshot().frame else {
+                lastState = "switch did not produce two stable snapshots"
+                continue
+            }
+            let settledVisible = visiblePage(settledPage)
+            guard first == settled, settledVisible.contains(settled) else {
+                lastState = "switch moved or became clipped: \(settled) in \(settledVisible)"
+                continue
+            }
+            tapAt(centre)
+            return
+        }
+        try fail(
+            "\(what) was not fully visible and stable for a coordinate tap "
+                + "after 30 attempts (last state: \(lastState); value: \(String(describing: element.value)))")
     }
 
     /// Where `element` stands, once it stands still inside the window: two
@@ -367,7 +417,7 @@ class E2eCase: XCTestCase {
         try openSection("Security", for: box)
         // A checkbox's value reads "1" or 1, by iOS version.
         let isOn = { String(describing: box.value ?? "") == "1" }
-        if isOn() != on { try tapOnPage(box, "the fingerprint box") }
+        if isOn() != on { try tapSwitchOnPage(box, "the fingerprint box") }
         try waitFor("the fingerprint box did not turn \(on ? "on" : "off")") { isOn() == on }
         Thread.sleep(forTimeInterval: 1)
         if app.alerts.count > 0 { try fail("turning the fingerprint \(on ? "on" : "off") was refused") }
