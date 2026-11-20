@@ -132,15 +132,15 @@ class E2eCase: XCTestCase {
     /// Scroll the page until `element` can be touched, then touch it.
     func tapOnPage(_ element: XCUIElement, _ what: String) throws {
         try waitFor("\(what) is not on the page") { element.exists }
-        for direction in [true, false] {
-            var swipes = 0
-            while !element.isHittable && swipes < 15 {
-                if direction { app.webViews.firstMatch.swipeUp() } else { app.webViews.firstMatch.swipeDown() }
-                swipes += 1
+        for _ in 0..<30 {
+            switch scrollToward(element) {
+            case .tapped:
+                return
+            case .scrolled, .absent:
+                Thread.sleep(forTimeInterval: 0.1)
             }
         }
-        guard element.isHittable else { try fail("\(what) cannot be reached on the page") }
-        element.tap()
+        try fail("\(what) cannot be reached on the page")
     }
 
     /// Where `element` stands, once it stands still inside the window: two
