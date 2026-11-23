@@ -2264,3 +2264,24 @@ mod tests {
         );
     }
 }
+
+/// The sealed secrets' plaintext, pinned (HANDOVER §8 17): a change here is a
+/// node that can no longer open its own account after an upgrade.
+#[cfg(test)]
+mod disk_bytes {
+    use super::NodeSecrets;
+
+    #[test]
+    fn red_team_the_sealed_secrets_keep_their_bytes() {
+        // Sabotage: swap `master` and `device_seed`.
+        let bytes = postcard::to_stdvec(&NodeSecrets {
+            master: [1; 32],
+            device_seed: [2; 32],
+        })
+        .expect("encode");
+        itsanas_testkit::check_pinned(
+            &[("NodeSecrets", itsanas_testkit::fold(&bytes))],
+            &[("NodeSecrets", 12_813_034_092_718_475_717)],
+        );
+    }
+}

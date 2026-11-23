@@ -4248,7 +4248,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
     oldest release (the daily look reaches it, the coordinator still answers it). Gate for the
     announcement, not for the next release.
 
-17. ⬜ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23). #435
+17. ✅ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23; done the same day: `red_team_what_the_store_writes_to_disk_keeps_its_bytes`, `red_team_what_the_coordinator_writes_to_disk_keeps_its_bytes`, `red_team_the_address_book_keeps_its_bytes`, `red_team_the_sealed_secrets_keep_their_bytes`, the fold and the check shared in `itsanas-testkit`; `backup.rs` writes lists of segment and claim bytes, both pinned through their types). #435
     changed one structure and broke three places: coordinator messages and its presence rows
     (both handled in #443) and the laptop's address book, found by chance in a log. The wire is
     pinned now (`red_team_a_message_that_changes_its_bytes_changes_the_version`, both
@@ -4282,9 +4282,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
     `rename`, `versions_of`, `bring_back`, and Android's chosen-files bar. Proved by the six tests
     of `two_nodes.rs` named `*rename*`, `*version*` and `*comes_back*`, two in `lib.rs`, and
-    `RenameTest`, `VersionsTest`. **Left:** the iPhone's screens for both; the desktop page has
-    neither (a terminal or a synced folder's own rename does it there); a version is brought back
-    only from a machine that holds every chunk of it (fetching it from hosts is not built); a
+    `RenameTest`, `VersionsTest`. Since 2026-11-23 a version comes back on a machine that never held
+    it, its chunks fetched from a machine of the account first (`session::fetch_version`, CLI and
+    phone, `red_team_a_version_never_held_here_comes_back_from_another_machine`), and the desktop
+    page's file list has Versions, Bring back and Rename
+    (`red_team_the_page_brings_a_version_back_and_renames`). **Left:** the iPhone's screens for
+    both; chunks are asked of the account's machines, not of other accounts' hosts; a
     rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
 
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public

@@ -381,13 +381,20 @@ pub fn versions_of(node: &Node, path: &str) -> Answer {
 }
 
 /// Make version `at` (0 is the newest) of `path` the file again, on every
-/// machine. One not on this phone is a sentence: another machine may have it.
+/// machine. One not on this phone is fetched first from a machine of the
+/// account that holds it; none answering is a sentence.
 pub fn bring_back(node: &Node, path: &str, at: usize) -> Answer {
+    let here = itsanas_store::versions(&node.store, &node.vault, path)?
+        .get(at)
+        .is_some_and(|version| version.here);
+    if !here {
+        crate::fetch_version_here(node, path, at);
+    }
     if itsanas_store::bring_back_version(&node.store, &node.vault, path, at)? {
         Ok("{}".to_owned())
     } else {
         Err(Failure::Usage(
-            "that version is not on this phone; a computer that held it can bring it back"
+            "no machine of this account that answered holds that version; try again when the one that wrote it is up"
                 .to_owned(),
         ))
     }

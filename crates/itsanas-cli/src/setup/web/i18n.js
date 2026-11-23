@@ -588,6 +588,11 @@ window.I18N = {
     'Every machine of the account follows these rules on its next round.': 'Toutes les machines du compte suivent ces règles à leur prochain tour.',
     'This machine follows the account\'s rules.': 'Cette machine suit les règles du compte.',
     'Delete everywhere': 'Supprimer partout',
+    'Versions': 'Versions',
+    'Rename': 'Renommer',
+    'New name, on every machine:': 'Nouveau nom, sur toutes les machines :',
+    'Bring back': 'Rétablir',
+    'current': 'actuelle',
     'It goes to the account\'s trash and leaves every machine when its days are over.':
       'Il va dans la corbeille du compte et quitte toutes les machines à la fin de son délai.',
     "Work in the background without the system's battery limits":
@@ -1029,6 +1034,11 @@ window.I18N = {
     'Every machine of the account follows these rules on its next round.': '账户的每台设备将在下一轮遵循这些规则。',
     'This machine follows the account\'s rules.': '此设备遵循账户的规则。',
     'Delete everywhere': '从所有地方删除',
+    'Versions': '历史版本',
+    'Rename': '重命名',
+    'New name, on every machine:': '新名称（所有设备同步）：',
+    'Bring back': '恢复此版本',
+    'current': '当前',
     'It goes to the account\'s trash and leaves every machine when its days are over.': '它会进入账户的回收站，期限结束后从所有设备上删除。',
     'Work in the background without the system\'s battery limits': '在后台工作，不受系统电池限制',
     'Otherwise the phone runs ITSaNAS only a few times a day once the app has not been opened for a while. The system asks you to confirm; turning it off is done in the phone\'s own settings.': '否则，在一段时间未打开应用后，手机每天只会运行 ITSaNAS 几次。系统会要求你确认；要关闭此项，请在手机自身的设置中操作。',

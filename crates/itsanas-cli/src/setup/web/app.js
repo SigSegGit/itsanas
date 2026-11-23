@@ -1104,13 +1104,34 @@
   }
 
   // ------------------------------------------------- files on this machine
-  async function files(action, path) {
+  // The versions of one file, newest first; any but the current one comes back
+  // on every machine, fetched first when this machine never held it.
+  function versionList(path, versions) {
+    const list = document.createElement('ol');
+    versions.forEach(function (version, at) {
+      const item = document.createElement('li');
+      const when = new Date(version.modified * 1000).toLocaleString();
+      item.textContent = when + ' · ' + version.size + ' B' +
+        (version.current ? ' · ' + t('current') : version.here ? '' : ' · ' + t('not here'));
+      if (!version.current) {
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.textContent = t('Bring back');
+        back.addEventListener('click', function () { files('restore', path, { at: String(at) }); });
+        item.appendChild(back);
+      }
+      list.appendChild(item);
+    });
+    return list;
+  }
+
+  async function files(action, path, more) {
     const line = $('st-files-said');
     const list = $('st-files');
     line.textContent = '';
     let reply;
     try {
-      reply = action ? await api('POST', '/api/files', { action: action, path: path }) : await api('GET', '/api/files');
+      reply = action ? await api('POST', '/api/files', Object.assign({ action: action, path: path }, more || {})) : await api('GET', '/api/files');
     } catch (e) { line.textContent = e.message; return; }
     list.textContent = '';
     reply.files.forEach(function (row) {
@@ -1125,6 +1146,23 @@
         button.textContent = row.freed ? t('Keep here') : t('Free up');
         button.addEventListener('click', function () { files(row.freed ? 'keep' : 'free', row.path); });
         item.appendChild(button);
+      }
+      // Every version of the file, and a new name, on every machine (§8 15).
+      const history = document.createElement('button');
+      history.type = 'button';
+      history.textContent = t('Versions');
+      history.addEventListener('click', function () { files('versions', row.path); });
+      item.appendChild(history);
+      const rename = document.createElement('button');
+      rename.type = 'button';
+      rename.textContent = t('Rename');
+      rename.addEventListener('click', function () {
+        const to = window.prompt(t('New name, on every machine:'), row.path);
+        if (to && to !== row.path) { files('rename', row.path, { to: to }); }
+      });
+      item.appendChild(rename);
+      if (reply.versions && reply.versions.path === row.path) {
+        item.appendChild(versionList(row.path, reply.versions.list));
       }
       // Not on this machine: delete it from every machine, into the account's trash.
       if (!row.here) {

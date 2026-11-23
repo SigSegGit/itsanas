@@ -777,6 +777,7 @@ version = "0.1.22"
 dependencies = [
  "itsanas-coord",
  "itsanas-crypto",
+ "itsanas-testkit",
  "itsanas-tls",
  "itsanas-wire",
  "postcard",
@@ -903,6 +904,7 @@ dependencies = [
  "itsanas-policy",
  "itsanas-store",
  "itsanas-sync",
+ "itsanas-testkit",
  "itsanas-tls",
  "postcard",
  "serde",

@@ -3129,6 +3129,21 @@ fn over_budget(node: &Node, error: itsanas_store::StoreError) -> CliError {
     ))
 }
 
+/// Bring here the chunks of version `at` of `path` from the first machine of
+/// the account that serves them all, so a version comes back on a machine
+/// that never held it (HANDOVER §8 15). Each chunk is checked as it arrives.
+pub(crate) fn fetch_version_here(node: &Node, path: &str, at: usize) -> bool {
+    account_targets(node, None).iter().any(|(target, pinned)| {
+        connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned).is_ok_and(
+            |mut client| {
+                let _ = node.introduce(&mut client, itsanas_discover::now_unix());
+                session::fetch_version(&node.store, &node.vault, &mut client, path, at)
+                    .unwrap_or(false)
+            },
+        )
+    })
+}
+
 /// Go and get a file this device knows about and has not downloaded.
 ///
 /// Fetches exactly that file's chunks from the first peer that has them, rather
@@ -3256,10 +3271,13 @@ fn versions_in(node: &Node, path: &str, restore: Option<usize>) -> Result<String
                 "version {n} of {path} is the one the account has now"
             ));
         }
-        if !itsanas_store::bring_back_version(&node.store, &node.vault, path, n - 1)? {
+        if !chosen.here && !fetch_version_here(node, path, n - 1) {
             return Ok(format!(
-                "version {n} of {path} is not on this machine; ask on one where `itsanas versions` says `here`"
+                "version {n} of {path} is on no machine of this account that answered; ask again when the one that wrote it is up"
             ));
+        }
+        if !itsanas_store::bring_back_version(&node.store, &node.vault, path, n - 1)? {
+            return Ok(format!("version {n} of {path} could not be brought back"));
         }
         return Ok(format!("{path} is version {n} again, on every machine"));
     }

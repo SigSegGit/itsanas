@@ -1672,22 +1672,55 @@ fn delete_account(ctx: &Context, request: &Request) -> Response {
 /// Free a file of the synced folder here, or keep it here again
 /// ([`crate::freeing`]); answers the list as it now stands.
 fn files_change(ctx: &Context, request: &Request) -> Response {
+    const ACTIONS: &str = "the action is free, keep, everywhere, versions, restore or rename";
     let form = json::parse_form(&request.body).unwrap_or_default();
     let (Some(action), Some(path)) = (field(&form, "action"), field(&form, "path")) else {
-        return Response::refuse(400, "the action is free, keep or everywhere, with a path");
+        return Response::refuse(400, &format!("{ACTIONS}, with a path"));
     };
-    if !matches!(action, "free" | "keep" | "everywhere") {
-        return Response::refuse(400, "the action is free, keep or everywhere");
+    let at = field(&form, "at").and_then(|at| at.parse::<usize>().ok());
+    let to = field(&form, "to").map(str::to_owned);
+    match action {
+        "restore" if at.is_none() => return Response::refuse(400, "restore needs at"),
+        "rename" if to.as_deref().is_none_or(str::is_empty) => {
+            return Response::refuse(400, "rename needs to");
+        }
+        "free" | "keep" | "everywhere" | "versions" | "restore" | "rename" => {}
+        _ => return Response::refuse(400, ACTIONS),
     }
     node_call(ctx, |node| {
+        let mut versions = None;
         let said = match action {
             "keep" => crate::freeing::keep(node, path)?,
             "everywhere" => crate::freeing::delete_everywhere(node, path)?,
+            // The versions of one file, newest first, beside the list: the page
+            // shows them under it, each with Bring back (§8 15).
+            "versions" => {
+                versions = Some(
+                    serde_json::from_str::<serde_json::Value>(&crate::phone::versions_of(
+                        node, path,
+                    )?)
+                    .map_err(|error| Failure::Usage(error.to_string()))?,
+                );
+                String::new()
+            }
+            "restore" => {
+                let at = at.unwrap_or_default();
+                crate::phone::bring_back(node, path, at)?;
+                format!("{path} is version {} again, on every machine", at + 1)
+            }
+            "rename" => {
+                let to = to.clone().unwrap_or_default();
+                crate::phone::rename(node, path, &to)?;
+                format!("{path} is now {to}, on every machine")
+            }
             _ => crate::freeing::free(node, path)?,
         };
         let mut listed: serde_json::Value = serde_json::from_str(&crate::freeing::files(node)?)
             .map_err(|error| Failure::Usage(error.to_string()))?;
         listed["said"] = serde_json::Value::String(said);
+        if let Some(versions) = versions {
+            listed["versions"] = serde_json::json!({ "path": path, "list": versions["versions"] });
+        }
         Ok(listed.to_string())
     })
 }

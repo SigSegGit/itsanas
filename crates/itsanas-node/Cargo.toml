@@ -28,6 +28,7 @@ thiserror = "2.0.20"
 zeroize = "1.9.0"
 
 [dev-dependencies]
+itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
 blake3 = "1.8.7"
 # The same crate, able to play a coordinator that hands out a presence nobody
 # signed: the only way to prove the client refuses one.

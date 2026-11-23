@@ -28,6 +28,7 @@ hostile = []
 workspace = true
 
 [dev-dependencies]
+itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
 # Itself with `hostile`, so the integration tests can play a coordinator older
 # than the device bound (`Directory::bound_devices`).
 itsanas-coord = { version = "0.1.0", path = ".", features = ["hostile"] }

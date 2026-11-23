@@ -67,6 +67,9 @@ pub mod trash;
 pub mod vault;
 pub mod version;
 
+#[cfg(test)]
+mod disk_bytes;
+
 /// Commit `txn`, counted under test, so a test can say that a call which
 /// changed nothing wrote nothing: an idle node's disk writes are its commits
 /// (ROADMAP, "An idle node's disk writes"), whatever the rows say.
