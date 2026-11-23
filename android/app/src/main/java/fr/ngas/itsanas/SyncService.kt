@@ -65,7 +65,7 @@ class SyncService : Service() {
         super.onCreate()
         channel()
         try {
-            startForeground(NOTIFICATION, notification("Starting", "Opening the account"))
+            startForeground(NOTIFICATION, notification(getString(R.string.sync_starting), getString(R.string.sync_opening)))
         } catch (_: IllegalStateException) {
             // Android refuses a service past its daily limit while the app is
             // off the screen, and uncaught that is a crash. `SyncWorker` carries on.
@@ -100,19 +100,19 @@ class SyncService : Service() {
             } catch (error: Throwable) {
                 // A cancelled coroutine is the service ending, not a failure to report.
                 if (error is CancellationException) throw error
-                update("Not syncing", error.message ?: "the core would not answer")
+                update(getString(R.string.sync_not_syncing), error.message ?: getString(R.string.sync_core_silent))
                 delay(RETRY_MS)
                 continue
             }
 
             if (!plan.connects) {
-                update("Waiting", plan.because)
+                update(getString(R.string.sync_waiting), plan.because)
                 delay(plan.everySeconds?.times(1000) ?: RETRY_MS)
                 continue
             }
 
             if (!Account.open) {
-                update("Locked", "Open the application once to unlock this account")
+                update(getString(R.string.sync_locked), getString(R.string.sync_locked_text))
                 delay(RETRY_MS)
                 continue
             }
@@ -133,12 +133,12 @@ class SyncService : Service() {
                         if (error is CancellationException) throw error
                     }
                 }
-                update("Hosting", hosting.second)
+                update(getString(R.string.sync_hosting), hosting.second)
                 delay(HOST_LOOK_MS)
                 continue
             }
 
-            update("Syncing", plan.because)
+            update(getString(R.string.sync_syncing), plan.because)
             // Only when content may move, so a metered link pays for no photos.
             // A folder that fails stops nothing: the round still runs, and says so.
             val folderFailed = if (plan.movesContent) {
@@ -147,19 +147,19 @@ class SyncService : Service() {
                     null
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    error.message ?: "the folder could not be read"
+                    error.message ?: getString(R.string.sync_folder_unreadable)
                 }
             } else {
                 null
             }
             val line = try {
                 val report = Account.syncNow(metadataOnly = !plan.movesContent)
-                folderFailed?.let { "Folder: $it" } ?: summarise(report, plan.because)
+                folderFailed?.let { getString(R.string.sync_folder_failed, it) } ?: summarise(report, plan.because)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                error.message ?: "the round failed"
+                error.message ?: getString(R.string.sync_round_failed)
             }
-            update(if (plan.movesContent) "Synced" else "Checked", line)
+            update(getString(if (plan.movesContent) R.string.sync_synced else R.string.sync_checked), line)
 
             // A look a minute at most, so a phone plugged in starts hosting
             // without waiting for its next two-hour round. The round itself
@@ -191,10 +191,10 @@ class SyncService : Service() {
             val adopted = json.getInt("adopted")
             val released = json.getInt("released")
             when {
-                reached == 0 -> "No machine answered"
-                adopted == 0 && released == 0 -> "Up to date — $because"
-                released > 0 -> "$adopted in, $released let go"
-                else -> "$adopted file(s) arrived"
+                reached == 0 -> getString(R.string.sync_none_answered)
+                adopted == 0 && released == 0 -> getString(R.string.sync_up_to_date, because)
+                released > 0 -> getString(R.string.sync_in_out, adopted, released)
+                else -> getString(R.string.sync_arrived, adopted)
             }
         } catch (_: Throwable) {
             because
@@ -230,8 +230,8 @@ class SyncService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Syncing", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shown while this phone is exchanging data with your machines"
+            NotificationChannel(CHANNEL, getString(R.string.sync_channel), NotificationManager.IMPORTANCE_LOW).apply {
+                description = getString(R.string.sync_channel_help)
             }
         )
     }
@@ -259,8 +259,8 @@ class SyncService : Service() {
             manager.notify(
                 NOTIFICATION + 1,
                 NotificationCompat.Builder(context, CHANNEL)
-                    .setContentTitle("Locked")
-                    .setContentText("Open the application once to unlock this account")
+                    .setContentTitle(context.getString(R.string.sync_locked))
+                    .setContentText(context.getString(R.string.sync_locked_text))
                     .setSmallIcon(R.drawable.ic_stat_itsanas)
                     .setAutoCancel(true)
                     .build(),

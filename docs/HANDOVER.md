@@ -4218,6 +4218,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
+19. 🟨 **A phone in China** (asked by Nicolas, 2026-11-23; a tester in China, on a Huawei).
+    Done in 0.1.22: the page speaks Simplified Chinese (`zh` in `LANGUAGES`, 435 entries of
+    `i18n.js`, `every_language_of_the_page_says_all_the_french_one_says`), and so do the native
+    screens (`values-zh-rCN`, `scripts/check-android-strings.py`), the sync notification and the
+    fingerprint prompt included, which were literals in the Kotlin and English for every
+    language. The app needs no Google service (no Play Services dependency), so a phone without
+    them runs it. Left, each to be decided on the tester's report: (a) the update check asks
+    github.com, which a phone in China may not reach; the manifest is signed, so a mirror
+    anywhere is safe, but a mirror is new infrastructure, the owner's choice; (b) HarmonyOS 5
+    ("NEXT") runs no APK: a native app there is a separate project, and the compatibility layer
+    is untested; (c) Huawei's launch manager stops background apps whatever the battery
+    exemption says: the tester sets ITSaNAS to manual there; (d) what the engine itself says
+    (errors, `because` lines on native screens, the CLI) stays English; (e) the 24 words stay
+    the English BIP-39 list, which every existing account uses; (f) whether the coordinator in
+    France and the peers answer from China at a usable latency is what the test is for.
+
 18. ⬜ **An occasional user is never cut off by an update** (Nicolas, 2026-11-23). Until the
     public announcement, a version may break compatibility: 0.1.21 (peer protocol 12, presence
     with `head`) cut off the Mac and phones still on 0.1.19 until they update, and that is

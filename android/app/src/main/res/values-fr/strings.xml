@@ -133,4 +133,27 @@
     <string name="trash_folder_not_writable">Ce téléphone ne peut que lire le dossier. Choisissez-le à nouveau dans l\'écran Fichiers pour que l\'application puisse y écrire.</string>
     <string name="trash_delete">Supprimer du réseau</string>
     <string name="trash_delete_body">Il disparaît de toutes les machines du compte. Il n\'y a pas d\'annulation.</string>
+    <!-- La notification de synchronisation (SyncService). -->
+    <string name="sync_channel">Synchronisation</string>
+    <string name="sync_channel_help">Affichée pendant que ce téléphone échange des données avec vos machines</string>
+    <string name="sync_starting">Démarrage</string>
+    <string name="sync_opening">Ouverture du compte</string>
+    <string name="sync_not_syncing">Pas de synchronisation</string>
+    <string name="sync_core_silent">le moteur ne répond pas</string>
+    <string name="sync_waiting">En attente</string>
+    <string name="sync_locked">Verrouillé</string>
+    <string name="sync_locked_text">Ouvrez l\'application une fois pour déverrouiller ce compte</string>
+    <string name="sync_hosting">Hébergement</string>
+    <string name="sync_syncing">Synchronisation</string>
+    <string name="sync_synced">Synchronisé</string>
+    <string name="sync_checked">Vérifié</string>
+    <string name="sync_folder_unreadable">le dossier n\'a pas pu être lu</string>
+    <string name="sync_folder_failed">Dossier : %1$s</string>
+    <string name="sync_round_failed">le tour a échoué</string>
+    <string name="sync_none_answered">Aucune machine n\'a répondu</string>
+    <string name="sync_up_to_date">À jour — %1$s</string>
+    <string name="sync_in_out">%1$d reçu(s), %2$d libéré(s)</string>
+    <string name="sync_arrived">%1$d fichier(s) arrivé(s)</string>
+    <string name="biometric_prompt_enrol">Utilisez votre empreinte ou votre visage pour déverrouiller ITSaNAS</string>
+    <string name="biometric_prompt_unlock">Déverrouiller ITSaNAS</string>
 </resources>

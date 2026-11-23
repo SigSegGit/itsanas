@@ -1397,11 +1397,20 @@ fn js_string(text: &str) -> (String, &str) {
     panic!("a string in i18n.js never ends");
 }
 
-/// The French table of i18n.js, entry by entry, as the browser reads it. A
-/// line the reader does not understand is a failure, not a skipped entry.
+/// The French table of i18n.js, entry by entry, as the browser reads it.
 fn french_table() -> Vec<(String, String)> {
+    table_of("fr")
+}
+
+/// The table of `lang` in i18n.js, entry by entry, as the browser reads it. A
+/// line the reader does not understand is a failure, not a skipped entry.
+fn table_of(lang: &str) -> Vec<(String, String)> {
     let js = super::I18N_JS;
-    let mut rest = &js[js.find("fr: {").expect("the fr table") + "fr: {".len()..];
+    let opening = format!("\n  {lang}: {{");
+    let mut rest = &js[js
+        .find(&opening)
+        .unwrap_or_else(|| panic!("no {lang} table in i18n.js"))
+        + opening.len()..];
     let mut entries = Vec::new();
     loop {
         rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
@@ -1449,12 +1458,62 @@ fn the_french_table_has_one_entry_per_english_text_and_none_empty() {
     }
 }
 
+/// The `{name}` slots of a text, which the script fills in.
+fn slots(text: &str) -> BTreeSet<&str> {
+    text.match_indices('{')
+        .filter_map(|(at, _)| text[at..].find('}').map(|end| &text[at..=at + end]))
+        .collect()
+}
+
+#[test]
+fn every_language_of_the_page_says_all_the_french_one_says() {
+    // French is the reference every other test checks against the page; a
+    // language is complete when it has the same keys, none empty, each with
+    // the slots the script fills (a missing `{size}` would show a sentence
+    // with no number in it).
+    let french = french_keys();
+    let others: Vec<&str> = super::LANGUAGES
+        .into_iter()
+        .filter(|lang| !matches!(*lang, "en" | "fr"))
+        .collect();
+    assert!(
+        others.contains(&"zh"),
+        "Chinese left the page's languages: {others:?}"
+    );
+    // A phone set to Chinese: its web view asks `zh-CN` first.
+    assert_eq!(
+        super::language_of("zh-CN,zh;q=0.9,en;q=0.8"),
+        Some("zh"),
+        "a phone set to Chinese would open the page in English"
+    );
+    for lang in others {
+        let table = table_of(lang);
+        let keys: BTreeSet<String> = table.iter().map(|(key, _)| key.clone()).collect();
+        let missing: Vec<&String> = french.difference(&keys).collect();
+        let extra: Vec<&String> = keys.difference(&french).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty() && keys.len() == table.len(),
+            "the {lang} table is not the French one's set of texts: a reader would see English among {lang}; missing {missing:#?}, extra {extra:#?}"
+        );
+        for (english, said) in &table {
+            assert!(
+                !said.trim().is_empty() && slots(english) == slots(said),
+                "{lang}: {english:?} became {said:?}: empty, or a slot lost"
+            );
+        }
+        assert!(
+            super::INDEX_HTML.contains(&format!("<option value=\"{lang}\">")),
+            "{lang} is spoken but cannot be chosen in the page's list"
+        );
+    }
+}
+
 #[test]
 fn every_text_of_the_page_has_a_french_translation() {
     let french = french_keys();
     let untranslated: Vec<String> = texts_of_the_page()
         .into_iter()
-        .filter(|text| !matches!(text.as_str(), "ITSaNAS" | "English" | "Français"))
+        .filter(|text| !matches!(text.as_str(), "ITSaNAS" | "English" | "Français" | "中文"))
         .filter(|text| !french.contains(text))
         .collect();
     assert!(

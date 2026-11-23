@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-20 — 1715 test functions across 47 binaries, 20 of them
+**Last updated: 2026-11-23 — 1716 test functions across 47 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 652 are red-team tests.**
 
-**1599 of the 1715 tests have an entry of their own on this page** — an *entry*,
+**1600 of the 1716 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 382 |
+| `itsanas-cli` unit | 383 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -1295,7 +1295,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (382)
+# `itsanas-cli` — unit tests (383)
 
 ## `bench` — measuring this machine (4)
 
@@ -1512,6 +1512,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_a_chosen_path_never_lands_inside_a_script`** | On the three systems the folder chooser gets its start folder through an environment variable, never inside its script, so a folder name cannot run as code. Sabotaged (path in an argument): red. |
 | `a_gtk_bookmark_escapes_what_a_url_cannot_hold` | A space or an accent in the folder is percent-encoded in the GTK bookmark line. |
 | `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder and label of the page, and every `t('...')`, `N('...')` (a table's text, translated where shown) and `say('...')` string of app.js, is a key of the French table as i18n.js is parsed entry by entry (no longer a substring search, which a French value could satisfy). Sabotaged (one entry removed): red. |
+| `every_language_of_the_page_says_all_the_french_one_says` | Every language of `LANGUAGES` other than English and French (Chinese, `zh`, since 2026-11-23) has exactly the French table's keys, none empty, each value with the `{slots}` of its key, and an `<option>` in the page's list; a browser asking `zh-CN` first gets Chinese. French is what every other test holds against the page, so a language equal to it is complete. Sabotaged (one Chinese entry removed; `{size}` dropped from one; the option removed): red each. |
 | `the_french_table_has_one_entry_per_english_text_and_none_empty` | i18n.js parses whole (an unreadable line fails, it is not skipped), holds over a hundred entries, no English key twice (the browser would silently keep the last) and no empty French value. Sabotaged (a key repeated): red. |
 | `no_text_set_by_the_script_skips_the_translation` | app.js sets no visible text from an English literal (`textContent = '...'`, `confirm('...')`) nor shows the server's `said` raw: the Settings sentences that stayed English in the hand test of 2026-10-22. Sabotaged (`reply.said` shown raw): red. |
 | `the_page_speaks_the_browser_s_language_until_one_is_chosen` | `language_of` picks, from `Accept-Language`, the most preferred language the page speaks by primary tag and `q` (French for `fr-FR`, `FR-ca`, `de,fr;q=0.8`; English for `en-GB,…,fr;q=0.8`; none for `de, *` or a bogus `q`), and GET / then starts `<html lang="fr" data-lang="fr">`; with no header the page is left to `navigator.language`. Sabotaged (no language accepted): red. |

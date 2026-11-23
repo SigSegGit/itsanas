@@ -123,6 +123,12 @@ jobs:
       # them searched for `25/75` while the files said "costs three pledged".
       - name: Every document states the split the code ships
         run: python scripts/check-bargain.py
+      # The Android app's screens in French and Chinese. Android shows English
+      # for a name a language lacks, and the release lint does not fail on it:
+      # one English line in a Chinese screen would pass every other check. The
+      # sync notification was English on French phones, written in the Kotlin.
+      - name: Every language of the Android app is complete
+        run: python scripts/check-android-strings.py
       # One interface on every platform: a feature lives in the library and a
       # shell draws only what it alone can. The list of what each platform has is
       # read against the commands, the page's headings and routes, and Features,
