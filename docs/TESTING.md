@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1716 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 652 are red-team tests.**
+**Last updated: 2026-11-23 — 1719 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 654 are red-team tests.**
 
-**1600 of the 1716 tests have an entry of their own on this page** — an *entry*,
+**1603 of the 1719 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 383 |
+| `itsanas-cli` unit | 386 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -226,7 +226,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 42 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 228 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 230 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1295,7 +1295,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (383)
+# `itsanas-cli` — unit tests (386)
 
 ## `bench` — measuring this machine (4)
 
@@ -1409,6 +1409,9 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
 | **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. The same test also holds `check()` to the same answer: a source build is told `NotFromRelease`, not "update available" it will then refuse every day, while a release install still hears `Available` (sabotaged: `Available` on error, red). |
 | **`red_team_a_network_drop_never_calls_a_release_install_a_source_build`** | `check` fetches the manifest twice: the newest, then the running version's own, to learn whether this program is that release. When the second fetch fails for want of a network, the check fails "could not check for an update", to be retried; it used to answer `NotFromRelease`, telling a release install it never updates itself. Only a 404 (the server answering that there is no such release) means not-from-release. Sabotaged by treating every fetch error as missing: red. |
+| **`red_team_a_machine_that_cannot_reach_github_updates_from_the_mirror`** | GitHub does not answer (a network in China), the copy under `releases/` on the coordinator's host does: the update is found and installed from it, signature and hashes checked as from GitHub. With GitHub as the only source the machine stayed on its release for ever. Sabotaged (only the first source tried): red. |
+| **`red_team_a_mirror_without_an_old_release_does_not_call_a_release_install_a_source_build`** | GitHub unreachable and a mirror that began after this machine's release answers 404 for it: that is no answer, the check fails to be retried, never `NotFromRelease`. "Not there" only when every source says so. Sabotaged (a 404 from any source wins): red. |
+| `the_phone_asks_github_then_the_same_mirror_as_the_desktop` | `Updater.kt` names GitHub's `latest/download` and the mirror's, in that order, and the mirror is the one the desktop derives from the coordinator's name, over HTTPS on its default port. Sabotaged (the mirror on the coordinator's port): red. |
 | **`red_team_an_auto_update_where_the_program_cannot_be_replaced_is_told_not_failed`** | `updates = auto` on a program its account cannot replace: the release is told as `notify` tells it (the notice the tray reads), nothing is downloaded or installed, and `itsanas update` refuses with `sudo itsanas update` in its words. It failed every day, said only in a log. Sabotaged (auto installs whatever the directory allows): red. |
 | **`red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`** | The daily check writes its two small signed files beside the program, where the install will need them; a program under a prefix its account cannot write failed the check every day. It now falls back to a private directory with a fresh random name (never a fixed name in a shared one). Sabotaged (the fallback made beside the program): red. |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |

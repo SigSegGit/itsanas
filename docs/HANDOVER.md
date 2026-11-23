@@ -4224,9 +4224,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
     screens (`values-zh-rCN`, `scripts/check-android-strings.py`), the sync notification and the
     fingerprint prompt included, which were literals in the Kotlin and English for every
     language. The app needs no Google service (no Play Services dependency), so a phone without
-    them runs it. Left, each to be decided on the tester's report: (a) the update check asks
-    github.com, which a phone in China may not reach; the manifest is signed, so a mirror
-    anywhere is safe, but a mirror is new infrastructure, the owner's choice; (b) HarmonyOS 5
+    them runs it. Left, each to be decided on the tester's report: (a) ✅ the update check asks
+    github.com, then the mirror under `releases/` on the coordinator's host (Nicolas,
+    2026-11-23), desktop and phone (`red_team_a_machine_that_cannot_reach_github_updates_from_the_mirror`,
+    `scripts/mirror-release.ps1`); ⬜ the web server there and `ITSANAS_MIRROR` on the signing
+    PC are Nicolas's, and until then the second source answers nothing; (b) HarmonyOS 5
     ("NEXT") runs no APK: a native app there is a separate project, and the compatibility layer
     is untested; (c) Huawei's launch manager stops background apps whatever the battery
     exemption says: the tester sets ITSaNAS to manual there; (d) what the engine itself says

@@ -23,33 +23,62 @@ import java.net.URL
  * and hashes that signature covers -- the checks a desktop node makes before
  * it replaces its own binary. Android then installs it only if it is signed
  * with the same key as the installed application, and asks the person first.
+ *
+ * Two sources, GitHub first, then the same files on the coordinator's host
+ * for a network that cannot reach GitHub (a phone in China). Neither is
+ * trusted: the signature decides. The desktop asks the same two, in the same
+ * order (update.rs, `the_phone_asks_github_then_the_same_mirror_as_the_desktop`).
  */
 object Updater {
-    private const val LATEST = "https://github.com/SigSegGit/itsanas/releases/latest/download"
+    private val SOURCES = listOf(
+        "https://github.com/SigSegGit/itsanas/releases/latest/download",
+        "https://itsanas.ngas.fr/releases/latest/download",
+    )
 
     /** How many checks the person asked for have finished: what a test can see of a toast. */
     @Volatile
     var askedChecks = 0
 
     /** A newer release the signed manifest offers. */
-    data class Offer(val version: String, val size: Long, val manifest: String, val signature: String)
+    data class Offer(
+        val version: String,
+        val size: Long,
+        val manifest: String,
+        val signature: String,
+        /** Where the manifest came from: the APK is asked there first. */
+        val source: String,
+    )
 
-    /** The offer, or null when this is the latest release. Throws on a bad signature. */
+    /**
+     * The offer, or null when this is the latest release, from the first
+     * source that answers. Throws on a bad signature, or when none answers.
+     */
     suspend fun check(): Offer? = withContext(Dispatchers.IO) {
-        val manifest = fetch("$LATEST/manifest.txt").decodeToString()
-        val signature = fetch("$LATEST/manifest.txt.sig").decodeToString()
-        val answer = JSONObject(Native.checkUpdate(manifest, signature))
-        if (!answer.getBoolean("update")) {
-            null
-        } else {
-            Offer(answer.getString("version"), answer.getLong("size"), manifest, signature)
+        var failure: java.io.IOException? = null
+        for (source in SOURCES) {
+            val manifest: String
+            val signature: String
+            try {
+                manifest = fetch("$source/manifest.txt").decodeToString()
+                signature = fetch("$source/manifest.txt.sig").decodeToString()
+            } catch (e: java.io.IOException) {
+                failure = e
+                continue
+            }
+            val answer = JSONObject(Native.checkUpdate(manifest, signature))
+            return@withContext if (!answer.getBoolean("update")) {
+                null
+            } else {
+                Offer(answer.getString("version"), answer.getLong("size"), manifest, signature, source)
+            }
         }
+        throw failure ?: java.io.IOException("no release source")
     }
 
     /**
      * The offer to show when the application opens, at most once a day: null
      * when it already asked today, when this is the latest release, or when
-     * the check failed (offline, GitHub not answering). A bad signature is
+     * the check failed (offline, no source answering). A bad signature is
      * a failure too here; Settings -> Updates shows it in words.
      */
     suspend fun dueOffer(context: Context): Offer? {
@@ -79,9 +108,21 @@ object Updater {
             val dir = File(context.cacheDir, "update").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
             val file = File(dir, "ITSaNAS-${offer.version}.apk")
-            file.writeBytes(fetch("$LATEST/itsanas-android-apk"))
-            // Throws unless this is byte for byte the APK the signature names.
-            Native.checkApk(offer.manifest, offer.signature, file.path)
+            var failure: Exception? = null
+            val order = listOf(offer.source) + SOURCES.filter { it != offer.source }
+            val checked = order.any { source ->
+                try {
+                    file.writeBytes(fetch("$source/itsanas-android-apk"))
+                    // Throws unless this is byte for byte the APK the signature names.
+                    Native.checkApk(offer.manifest, offer.signature, file.path)
+                    true
+                } catch (e: Exception) {
+                    failure = e
+                    file.delete()
+                    false
+                }
+            }
+            if (!checked) throw failure ?: java.io.IOException("no release source")
             file
         }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", apk)

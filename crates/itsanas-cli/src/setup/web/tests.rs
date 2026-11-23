@@ -2530,12 +2530,15 @@ fn the_space_question_is_answered_by_the_one_rule_every_platform_shares() {
         Mode::Setup,
         &Seen::default(),
     );
-    let disk = itsanas_node::pledges::disk_space(dir.path());
-    let (total, free) = (disk.total.unwrap_or(0), disk.free.unwrap_or(0));
-    for other in [0_u64, 1 << 30, 10 << 40] {
-        let reply = page
-            .api("POST", "/api/suggest", &format!("other={other}"))
-            .body;
+    // The disk is read here and by the page a moment apart, and a shared CI
+    // runner's free space moves in between (an ARM run, 2026-11-23): the
+    // page's answer must be the rule's for a reading taken just before or
+    // just after it, never for none.
+    let reading = || {
+        let disk = itsanas_node::pledges::disk_space(dir.path());
+        (disk.total.unwrap_or(0), disk.free.unwrap_or(0))
+    };
+    let says = |reply: &str, (total, free): (u64, u64), other: u64| {
         let expected = itsanas_node::pledges::suggest(
             &crate::config::Config::default(),
             total,
@@ -2544,21 +2547,34 @@ fn the_space_question_is_answered_by_the_one_rule_every_platform_shares() {
             other,
             other,
         );
+        reply.contains(&format!("\"pledge_gb\":{}", expected.pledge >> 30))
+            && reply.contains(&format!("\"keep_gb\":{}", expected.keep >> 30))
+            && reply.contains(&format!(
+                "\"same_as_other_machines\":{}",
+                expected.same_as_other_machines
+            ))
+    };
+    for other in [0_u64, 1 << 30, 10 << 40] {
+        let before = reading();
+        let reply = page
+            .api("POST", "/api/suggest", &format!("other={other}"))
+            .body;
+        let after = reading();
         assert!(
-            reply.contains(&format!("\"pledge_gb\":{}", expected.pledge >> 30))
-                && reply.contains(&format!("\"keep_gb\":{}", expected.keep >> 30))
-                && reply.contains(&format!(
-                    "\"same_as_other_machines\":{}",
-                    expected.same_as_other_machines
-                )),
+            says(&reply, before, other) || says(&reply, after, other),
             "the page was suggested something the rule does not (other = {other}): {reply}"
         );
     }
+    let before = reading();
     let state = page.api("GET", "/api/state", "").body;
-    let none =
-        itsanas_node::pledges::suggest(&crate::config::Config::default(), total, free, 0, 0, 0);
+    let after = reading();
+    let first = |(total, free): (u64, u64)| {
+        let none =
+            itsanas_node::pledges::suggest(&crate::config::Config::default(), total, free, 0, 0, 0);
+        state.contains(&format!("\"pledge_gb\":{}", none.pledge >> 30))
+    };
     assert!(
-        state.contains(&format!("\"pledge_gb\":{}", none.pledge >> 30)),
+        first(before) || first(after),
         "the first suggestion is not the rule's: {state}"
     );
 }

@@ -18,7 +18,9 @@
       4. signs it with `itsanas-release sign`, which asks the passphrase itself,
          hidden -- this script never sees, prints or stores it;
       5. uploads manifest.txt.sig and publishes the release;
-      6. says what was published.
+      6. says what was published;
+      7. copies it to the mirror on the coordinator's host
+         (mirror-release.ps1), when ITSANAS_MIRROR is set.
 
     Nothing secret leaves this PC: CI never holds the key (decided 2026-10-06,
     docs/RELEASING.md).
@@ -196,6 +198,9 @@ try {
     Write-Host ''
     Write-Host "Published ITSaNAS $version ($Tag), signed, for: $($targets -join ', ')." -ForegroundColor Green
     Write-Host "Testers can now install it: see docs/RELEASING.md."
+    # The copy for networks that cannot reach GitHub. Published already: a
+    # failure here is said, and fixed by running mirror-release.ps1 again.
+    & (Join-Path $PSScriptRoot 'mirror-release.ps1') -Tag $Tag -Repo $Repo
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
