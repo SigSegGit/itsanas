@@ -15,6 +15,34 @@ WRITTEN-AT: 2026-11-17
 BASE: 25720ae
 -->
 
+**2026-11-23: the fleet red for a week, and what an idle node costs.** Every fleet run from
+11-16 failed; the last ones on `B runner -> pi/vm` and C, because every machine of `test` and
+`mandarine` read the coordinator's listing as "Hit the end of buffer". Cause: #435 changed the
+presence bytes, and a row the coordinator kept from a device silent since the upgrade no longer
+decoded, failing the whole account's listing (`nicolas` worked: all its devices had announced
+again). Fixed in `itsanas-coord/src/directory.rs`: an unreadable presence is a device not seen,
+skipped in a sample, erased by the next expiry pass
+(`red_team_a_presence_in_an_old_format_hides_only_its_own_device`). It reaches the VM only when
+the coordinator is rebuilt from a commit that has it: the fleet agents rebuild on a release tag,
+so this needs a release (or the rebuild by hand in §8 0a). Also: the client image sets
+`ITSANAS_UPDATES=off` (the containers looked for a release daily with no curl, and logged the
+failure); `.gitignore` has `/ios/build/` (it blocked `release.cmd`). New, asked by Nicolas: idle
+budgets. `tests/idle.rs` meters a phone's idle sync on the wire, coordinator included: 13.9 KB a
+round on Wi-Fi (most of it the peer's 256-bucket chunk summary, asked every round), 5.6 KB
+metered, 68 KB of memory over 120 rounds (Linux); budgets 20 KiB, 8 KiB, 512 KiB after round 40, measured in a child with `GLIBC_TUNABLES` turning off the per-thread arenas and the stack cache (with them, 573 KB on x86 and no leak); skipped under CI's ARM job, which runs in `qemu-aarch64-static` and whose resident memory is the emulator's.
+`scripts/idle-writes.sh` with `CHECK=1` budgets two real daemons (disk, CPU, memory, loopback
+bytes), a step of `acceptance-local`. Trap: Git Bash rewrites `/mnt/c/...` given to `wsl`; use
+`MSYS_NO_PATHCONV=1 wsl -e bash -l script`, `-l` for cargo on the PATH.
+Rodin, on the batch: the coordinator's `COORD_VERSION` existed, with a readable "upgrade one
+side" refusal, and #435 did not raise it, so the old clients got garbage instead; a pin of the
+full bytes of every coordinator message now fails on any such change
+(`red_team_a_message_that_changes_its_bytes_changes_the_version`). Left: (1) the peer protocol
+pins only variant numbers, the same hole; (2) a Wi-Fi idle round asks the peer's 256-bucket
+summary (about 8 KB) though nothing changed: one hash of the 256 first would make it a few
+hundred bytes; (3) on CI's runner two idle daemons and their coordinator put 56 KB a round on `lo` (each
+byte counted twice), budget 160 KB. **Rule from this week: read the fleet before anything** (`gh run list --workflow
+fleet.yml --limit 3`, and issue "fleet: red"): it was red seven days with an issue nobody read.
+
 **2026-11-19: #409's iPhone run, the end check.** Every UI test passed; then the computer still
 listed `to-trash.txt`, deleted for good on the phone, after about 160 s. The core is not the cause:
 `a_file_deleted_for_good_on_a_phone_leaves_the_computer` (phone.rs) passes once the computer runs
@@ -4175,6 +4203,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+16. ⬜ **A small database's backup in a dedicated account, and companies as hosts** (asked by
+    Nicolas, 2026-11-23, "a main point to do soon"). First the owner's own case: itsaresume's data
+    (its journal, `itsaresume-journal.jsonl`, and the CV corpus, both files today) kept by a
+    dedicated account, `itsaresume`, whose node runs beside the app on the VM. What has to be
+    true, each with its test: (a) the app never hands ITSaNAS a file mid-write: a consistent
+    snapshot (for SQLite `VACUUM INTO`, for a journal a copy at a record boundary) written aside
+    and renamed into the account's folder, so a round never syncs half a file; (b) a point in time
+    comes back: `itsanas versions <file> --restore N` on a machine that never held it gives the
+    snapshot byte for byte (today a version comes back only from a machine holding its chunks,
+    §8 15 Left, which this case needs built); (c) what it costs: a snapshot an hour of a few MB is
+    mostly unchanged chunks, so measure the bytes a day with `tests/idle.rs`'s relay before
+    choosing the interval. Then the wider idea, to weigh, not build: a company keeping its
+    database's backup here has machines that are on all day with good bandwidth, which the
+    placement already prefers once measured (`measured` placement, #437); the space bargain
+    (ECONOMICS) makes it pledge more than it stores, so it hosts the rest of the network. Open for
+    Nicolas before any of it: what such an account is promised (nothing public says it today),
+    whether it joins the open network or an invite-only coordinator, and retention.
 
 15. 🟨 **Rename, and earlier versions** (asked by Nicolas, 2026-11-19: more for the next version to
     test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's

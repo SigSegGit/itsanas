@@ -427,6 +427,12 @@ jobs:
       - run: bash -n scripts/acceptance.sh && bash -n scripts/acceptance-local.sh
       - name: Every phase passes where it must and fails where it must
         run: bash scripts/acceptance-local.sh target/debug/itsanas target/debug/itsanas-coordinator
+      # Two daemons hosting each other, idle for 40 rounds: disk writes, CPU
+      # time, loopback bytes and resident memory against budgets. A leak or a
+      # round that re-sends what nothing asked for passes every one-round test
+      # and shows weeks later on a Pi's SD card, a phone's battery or its plan.
+      - name: An idle node stays inside its disk, CPU, memory and network budgets
+        run: CHECK=1 REQUIRE_NET=1 BIN=target/debug/itsanas COORDB=target/debug/itsanas-coordinator INT=2 R=40 bash scripts/idle-writes.sh
 
   cross-build:
     name: Builds and runs on ARM

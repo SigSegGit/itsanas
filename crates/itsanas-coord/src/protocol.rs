@@ -628,6 +628,54 @@ mod tests {
         (requests, responses)
     }
 
+    /// The bytes of every message, folded (FNV-1a: postcard writes fields in
+    /// declaration order, so the figure is the same on every build), one row
+    /// per published [`COORD_VERSION`]. A row is never edited once its
+    /// version shipped: new bytes are a new row, which the last-row check
+    /// below makes a new version.
+    const WIRE_BY_VERSION: &[(u16, u64)] = &[(1, 3_629_543_649_988_875_695)];
+
+    #[test]
+    fn red_team_a_message_that_changes_its_bytes_changes_the_version() {
+        // #435 added a field to a presence and left `COORD_VERSION` at 1: the
+        // first byte of every message stayed, which is all the test below
+        // pins, so nothing went red. Every client of the release before read
+        // the new listing as "Hit the end of buffer", and the fleet was red for
+        // a week, where a client speaking the old version would have been
+        // told "upgrade one side". Any change to what a message writes changes
+        // this figure: raise `COORD_VERSION`, make the directory read rows of
+        // the old version (or skip them, `Directory::presence_of`), and set the
+        // new figure here.
+        let (mut requests, mut responses) = one_of_each_numbered();
+        let (more_requests, more_responses) = deletions_numbered();
+        requests.extend(more_requests);
+        responses.extend(more_responses);
+        let mut folded: u64 = 0xcbf2_9ce4_8422_2325;
+        let bytes = requests
+            .iter()
+            .map(|(_, request)| postcard::to_stdvec(request).unwrap())
+            .chain(
+                responses
+                    .iter()
+                    .map(|(_, response)| postcard::to_stdvec(response).unwrap()),
+            );
+        for message in bytes {
+            for byte in message {
+                folded = (folded ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        assert_eq!(
+            WIRE_BY_VERSION.last().map(|row| row.0),
+            Some(COORD_VERSION),
+            "COORD_VERSION has no row: add one with this build's figure, {folded}"
+        );
+        assert_eq!(
+            (COORD_VERSION, folded),
+            *WIRE_BY_VERSION.last().unwrap(),
+            "a coordinator message writes other bytes at the same version: every deployed client and coordinator of the release before reads it as garbage. Raise COORD_VERSION and read the old rows"
+        );
+    }
+
     #[test]
     fn red_team_coordinator_messages_keep_their_wire_numbers() {
         // postcard writes a variant as its position in the enum. The peer

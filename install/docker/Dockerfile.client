@@ -12,5 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/itsanas /usr/local/bin/itsanas
 ENV ITSANAS_HOME=/data/home
+# A container's version is this image's, rebuilt from the checkout: the
+# daemon's daily look for a signed release has nothing to install here.
+ENV ITSANAS_UPDATES=off
 ENTRYPOINT ["/usr/local/bin/itsanas"]
 CMD ["daemon"]

@@ -12,7 +12,7 @@ use itsanas_release::{FileEntry, Manifest, ReleaseKey, Trust, Version};
 
 use super::{
     Daily, Fetch, Found, NOTICE_FILE, Updater, aside, curl_command, daily, read_capped, replace,
-    this_target,
+    setting_of, this_target,
 };
 use crate::config::Updates;
 
@@ -689,4 +689,25 @@ fn the_release_size_is_the_signed_manifests_sum() {
     let stranger = ReleaseKey::generate().expect("key");
     world.publish_as("0.1.0", NEW_PROGRAM, &stranger, false);
     assert!(world.updater().release_bytes().is_err());
+}
+
+/// The fleet's containers looked for a release every day, with no curl to
+/// look with, and logged a failure each time: their version is their image's.
+/// The image says `ITSANAS_UPDATES=off`, which wins over the node's own
+/// setting; a word that is not a setting changes nothing. Sabotage: the
+/// environment ignored.
+#[test]
+fn the_environment_turns_the_daily_look_off_in_a_container() {
+    let auto = || Ok(Updates::Auto);
+    assert_eq!(setting_of(Some("off"), auto()), Updates::Off);
+    assert_eq!(setting_of(None, auto()), Updates::Auto);
+    assert_eq!(setting_of(Some("sometimes"), auto()), Updates::Auto);
+    assert_eq!(
+        setting_of(
+            None,
+            Err(itsanas_node::NodeError::Config("unreadable".to_owned()))
+        ),
+        Updates::Notify,
+        "an unreadable configuration no longer falls back to the default"
+    );
 }

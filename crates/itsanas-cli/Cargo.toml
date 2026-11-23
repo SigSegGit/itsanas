@@ -63,3 +63,8 @@ workspace = true
 # A real coordinator in process, with the `hostile` hooks the device tests use.
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord", features = ["hostile"] }
 # blake3 and tempfile are ordinary dependencies now: `itsanas bench` ships.
+
+# Idle cost, over many rounds: needs the in-process coordinator of `testing`.
+[[test]]
+name = "idle"
+required-features = ["testing"]
