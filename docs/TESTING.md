@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-20 — 1708 test functions across 46 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 647 are red-team tests.**
+**Last updated: 2026-11-20 — 1712 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 649 are red-team tests.**
 
-**1592 of the 1708 tests have an entry of their own on this page** — an *entry*,
+**1596 of the 1712 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 134 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 136 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 381 |
+| `itsanas-cli` unit | 382 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -196,6 +196,7 @@ guarantee and is not one.
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
+| `itsanas-cli` idle (`tests/idle.rs`) | 1 |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 17 |
 | `itsanas-testkit` unit | 7 |
@@ -216,10 +217,10 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
-| `wire` | peer and coordinator framing, versions, verb numbering | 5 |
+| `wire` | peer and coordinator framing, versions, verb numbering | 6 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 83 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 67 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 76 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
@@ -1226,6 +1227,21 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
+# `itsanas-cli` — what an idle sync costs (1)
+
+`tests/idle.rs`, built with the `testing` feature. A phone, the computer it
+syncs with and a coordinator in one process, every byte between them counted
+by a relay: 12 rounds to settle, then 120 idle rounds on Wi-Fi and 20 metered.
+Measured 2026-11-23: 13.9 KB a round on Wi-Fi (most of it the peer's 256-bucket
+chunk summary), 5.6 KB metered, and 68 KB of resident memory over the 120
+rounds (Linux). The daemon-level budgets (disk, CPU, memory, loopback bytes of
+two real daemons) are `scripts/idle-writes.sh` with `CHECK=1`, a step of the
+`acceptance-local` job.
+
+| Test | What it proves |
+|---|---|
+| `an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory` | No idle round moves content; one costs at most 20 KiB on Wi-Fi and 8 KiB metered, coordinator included; the rounds keep at most 1 MiB of resident memory (Linux). Sabotaged (32 KB leaked a round): red. |
+
 # `itsanas-cli` — test C's route, two accounts on one machine (3, `#[ignore]`d)
 
 `tests/route.rs`. The fleet's test C rests on one route: another account's node on
@@ -1277,7 +1293,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (381)
+# `itsanas-cli` — unit tests (382)
 
 ## `bench` — measuring this machine (4)
 
@@ -1368,7 +1384,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_refused_passphrase_is_asked_again_with_the_reason_and_three_refusals_stop_the_run`** | A new passphrase that breaks the rule is asked again, with the reason in an event that never holds what was typed, instead of ending a long setup; three refusals stop it with nothing written. Sabotaged (one attempt; the reason not said): red. |
 | **`red_team_forgetting_the_passphrase_replaces_the_keys_only_for_the_account_s_own_words`** | `forgot` leaves the node byte for byte as it was, and the service unstopped, for the words of another account, words that do not parse and a passphrase refused three times; the account's own words give the same account and a new device under the new passphrase, keep what was set up, store the passphrase for the service and start it. Sabotaged (owner comparison, store, stop, attempts): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it, checked where the program cannot write (18)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it, checked where the program cannot write, never in a container (19)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1395,6 +1411,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_program_beside_which_nothing_can_be_written_still_hears_of_a_release`** | The daily check writes its two small signed files beside the program, where the install will need them; a program under a prefix its account cannot write failed the check every day. It now falls back to a private directory with a fresh random name (never a fixed name in a shared one). Sabotaged (the fallback made beside the program): red. |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
+| `the_environment_turns_the_daily_look_off_in_a_container` | `ITSANAS_UPDATES=off` (set by the client image) wins over the node's setting; a word that is not a setting changes nothing; an unreadable configuration falls back to `notify`. The fleet's containers looked every day with no curl and logged a failure each time. Sabotaged (the environment ignored): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
 | **`red_team_a_node_left_stopped_by_an_update_has_its_service_started`** | After `itsanas update`, a daemon that stopped for its restart and that nothing started again within a minute has its service started by `update` (`schtasks /Run`, `systemctl --user start`, launchd's bootstrap: `ServiceControl::start`, as `signin` does), which then watches it come back and says that it started it; a failed start, a node that does not come back, or no service installed each say so and name `signin`; any other outcome leaves the service alone. One of three laptop daemons stayed down after 0.1.10 to 0.1.11 (hand test, 2026-10-22). Against a stand-in service. Sabotaged (no `start()`): red. |
 | `the_release_size_is_the_signed_manifests_sum` | `copy-to-key` counts the room the programs need from the running version's signed manifest, its sizes added up; a manifest signed by another key gives no figure. |
@@ -2738,7 +2755,7 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (25)
+# `itsanas-coord` — the coordinator server (26)
 
 Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
@@ -2755,6 +2772,7 @@ two numbers made `itsanas-coord` look eight short.
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_coordinator`** | Every member dials this one address, so a slot held by a caller trickling its handshake is a slot no member gets. The deadline is unit-tested in `itsanas-tls`; this proves the coordinator applies it. Fails when the coordinator ignores its deadline. |
 | **`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`** | `device list` was built on `Peers`, which drops a device silent for a week — the lost laptop the list is opened to find. Every live enrolment is listed, heard-from first; one that never announced reads as never heard from rather than fresh; a withdrawn one is absent. |
 | **`red_team_a_stranger_cannot_list_another_member_s_devices`** | Another member and an unenrolled keypair are both refused the list of pledges and silences. |
+| **`red_team_a_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every coordinator message, folded (FNV-1a), pinned at `COORD_VERSION` 1. #435 added a field to a presence and left the version at 1; the number test passed, every client of the release before read "Hit the end of buffer", and the fleet was red a week. Sabotaged (a presence without its `head`, as before #435): red. |
 | **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
 | **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | The escrow blob is the one thing reachable without proving anything, so the rate limit is the whole defence. A per-connection counter would be no counter: an attacker reconnects, pays one handshake, and works through a word list. |
@@ -2878,7 +2896,7 @@ good and nothing could free it. `Directory::forget_account`, run by
 | **`a_forgotten_account_frees_its_name_and_its_live_devices`** | The name can be registered again under another key, and the old account's live claim, escrow and id lookup are gone, so the coordinator hands out nothing of it. Forgetting a name nobody holds answers "none" rather than failing. |
 | **`red_team_forgetting_an_account_keeps_its_withdrawals_final`** | A withdrawal is final for its device id (HANDOVER §6). If forgetting erased it, the same keys registering again would bring a stolen, withdrawn machine back with a fresh live claim. Sabotaged by dropping withdrawals with the rest: red. |
 
-# `itsanas-coord` — what stops being kept (11)
+# `itsanas-coord` — what stops being kept (12)
 
 A device's address and the date it was last heard from are erased once it has
 been silent for `PRESENCE_KEPT_FOR` (thirty days; nobody is handed the address
@@ -2899,6 +2917,7 @@ nothing else about the account.
 | `an_account_that_goes_leaves_no_escrow_count_behind` | `forget_account` and `delete_account` take the name out of `escrow_tries`; an invented name stays until its window is over. Sabotaged (no removal): red. |
 | **`red_team_a_stranger_learns_nothing_from_a_lookup_but_the_key`** | An account with a date and an escrow blob, and one without, answer alike but for name and key: a date of 0 and an escrow flag of false. The directory keeps the real values and `GetEscrow` still hands out the blob. Sabotaged (either field as held): red. |
 | `a_device_silent_past_the_keep_stays_enrolled_and_comes_back_by_announcing` | Peers until `PRESENCE_TTL` and not a second after; `Devices` shows address and silence up to the keep, nothing past it, and still lists the device; one announcement brings it all back. Sabotaged (no erase of the availability row; `>=`): red. |
+| **`red_team_a_presence_in_an_old_format_hides_only_its_own_device`** | The fleet, 2026-11-16 to 22: after the coordinator moved to presences carrying the chain's length (#435), one row in the old format, from a device silent since, failed every listing of its account ("Hit the end of buffer"), so no machine of `test` or `mandarine` found the others. Such a row now reads as a device not seen, a sample skips it, and the expiry pass erases it whatever its record says. Sabotaged (`presence_of` strict; `presences_after` strict; the pass keeping it): red each. |
 | `one_pass_erases_the_silent_addresses_the_free_names_and_the_spent_counts` | The pass the server calls covers all three tables. Sabotaged (each of the three skipped): red. |
 | **`red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_later`** | Two runs over a real socket. Default period: the old row is gone by the first answer, a row planted afterwards stays, and the one log line holds no address. Short period: a row planted while it runs goes without a restart, and a machine just heard stays. Sabotaged (no pass at start; none after; a pass every time round the loop; an address in the log): red. |
 

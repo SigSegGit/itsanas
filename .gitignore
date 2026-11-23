@@ -1,5 +1,8 @@
 /target
 /ios-ipa/
+# What scripts/iphone-watch.sh pulls off the phone: never committed, and
+# release.ps1 refuses an untracked tree.
+/ios/build/
 *.ipa
 **/*.rs.bk
 *.pdb

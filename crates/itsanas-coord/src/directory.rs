@@ -1312,13 +1312,18 @@ impl Directory {
     }
 
     /// Where a device was last seen.
+    ///
+    /// A row this build cannot read is a device not seen: presences written
+    /// before the format changed (#435 added the chain's length) stay until
+    /// their device announces again or [`Self::expire_presence`] erases them,
+    /// and one such row from a silent device failed every listing of its
+    /// account (the fleet, 2026-11-16 to 11-22: "Hit the end of buffer").
     pub fn presence_of(&self, device: DeviceId) -> Result<Option<SignedPresence>> {
         let txn = self.db.begin_read()?;
         let presence = txn.open_table(PRESENCE)?;
-        match presence.get(device.to_bytes().as_slice())? {
-            Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
-            None => Ok(None),
-        }
+        Ok(presence
+            .get(device.to_bytes().as_slice())?
+            .and_then(|value| postcard::from_bytes(value.value()).ok()))
     }
 
     /// Up to `scan` addresses, in device order from just after `after`, going
@@ -1337,7 +1342,11 @@ impl Directory {
         let earlier = presence.range(..from.as_slice())?;
         for row in later.chain(earlier).take(scan) {
             let (_, value) = row?;
-            out.push(postcard::from_bytes(value.value())?);
+            // Skipped, as in `presence_of`: one unreadable row is no reason
+            // to answer nobody.
+            if let Ok(signed) = postcard::from_bytes(value.value()) {
+                out.push(signed);
+            }
         }
         Ok(out)
     }
@@ -1368,8 +1377,13 @@ impl Directory {
             let mut silent = Vec::new();
             for row in presence.iter()? {
                 let (device, value) = row?;
-                let said = postcard::from_bytes::<SignedPresence>(value.value())
-                    .map_or(0, |signed| signed.presence.at_unix);
+                // A row nobody can read serves nobody: erased whatever the
+                // device's record says, rather than kept for a month.
+                let Ok(signed) = postcard::from_bytes::<SignedPresence>(value.value()) else {
+                    silent.push(device.value().to_vec());
+                    continue;
+                };
+                let said = signed.presence.at_unix;
                 let heard = availability
                     .get(device.value())?
                     .and_then(|record| {
@@ -3085,6 +3099,83 @@ mod tests {
             directory.claim(&stolen, NOW + 10),
             Err(CoordError::Rejected(_))
         ));
+    }
+
+    /// The fleet, 2026-11-16 to 11-22: after the coordinator moved to the
+    /// presence format with the chain's length, a row written in the old
+    /// format by a device silent since made every listing of its account fail
+    /// ("Hit the end of buffer"), and no machine of the account found the
+    /// others. Sabotage: decode with `?` again in `presence_of` or
+    /// `presences_after`; or keep an unreadable row in `expire_presence`.
+    #[test]
+    fn red_team_a_presence_in_an_old_format_hides_only_its_own_device() {
+        #[derive(serde::Serialize)]
+        struct OldPresence {
+            device: DeviceId,
+            address: String,
+            at_unix: u64,
+        }
+        #[derive(serde::Serialize)]
+        struct OldSigned {
+            presence: OldPresence,
+            signature: itsanas_crypto::Signature,
+        }
+
+        let (_dir, directory) = directory();
+        let owner = user(31);
+        register(&directory, "camille", &owner);
+        enrol(&directory, &owner, &device(31), 1024);
+        enrol(&directory, &owner, &device(32), 1024);
+        let fresh = Presence {
+            device: device(31).device_id(),
+            address: "10.0.0.31:9797".to_owned(),
+            at_unix: NOW,
+            head: 3,
+        }
+        .sign(&device(31));
+        directory.announce(&fresh, NOW).unwrap();
+        let old = OldSigned {
+            presence: OldPresence {
+                device: device(32).device_id(),
+                address: "10.0.0.32:9797".to_owned(),
+                at_unix: NOW,
+            },
+            signature: fresh.signature,
+        };
+        {
+            let txn = directory.db.begin_write().unwrap();
+            txn.open_table(PRESENCE)
+                .unwrap()
+                .insert(
+                    device(32).device_id().to_bytes().as_slice(),
+                    postcard::to_stdvec(&old).unwrap().as_slice(),
+                )
+                .unwrap();
+            txn.commit().unwrap();
+        }
+
+        assert_eq!(
+            directory.presence_of(device(32).device_id()).unwrap(),
+            None,
+            "a presence in the old format read as a device seen"
+        );
+        assert_eq!(
+            directory.presence_of(device(31).device_id()).unwrap(),
+            Some(fresh.clone()),
+            "the readable presence was lost beside an unreadable one"
+        );
+        assert_eq!(
+            directory
+                .presences_after(device(31).device_id(), 10)
+                .unwrap(),
+            vec![fresh],
+            "one unreadable row failed the whole sample: the account's machines find nobody"
+        );
+        assert_eq!(
+            directory.expire_presence(NOW, 3600).unwrap(),
+            1,
+            "an unreadable row was kept by the expiry pass, for a month"
+        );
     }
 
     #[test]

@@ -652,9 +652,10 @@ pub(crate) fn watch(home: &Path, shutdown: &AtomicBool, updated: &AtomicBool) {
             Duration::from_secs(23 * 3600),
             Duration::from_secs(2 * 3600),
         );
-        let setting = Config::load(&Node::config_path(home))
-            .map(|config| config.updates)
-            .unwrap_or_default();
+        let setting = setting_of(
+            std::env::var("ITSANAS_UPDATES").ok().as_deref(),
+            Config::load(&Node::config_path(home)).map(|config| config.updates),
+        );
         let curl = Curl;
         let outcome =
             Updater::of_this_build(&curl).and_then(|updater| daily(home, &updater, setting));
@@ -673,6 +674,16 @@ pub(crate) fn watch(home: &Path, shutdown: &AtomicBool, updated: &AtomicBool) {
             Err(error) => eprintln!("itsanas: the daily update check failed: {error}"),
         }
     }
+}
+
+/// The daemon's update setting: `ITSANAS_UPDATES` when it names one, else
+/// the node's configuration. A container's version is its image's, so its
+/// image says `off` (`install/docker/Dockerfile.client`): the fleet's
+/// containers looked every day, with no curl to look with, and logged a
+/// failure each time.
+fn setting_of(env: Option<&str>, configured: itsanas_node::Result<Updates>) -> Updates {
+    env.and_then(Updates::parse)
+        .unwrap_or_else(|| configured.unwrap_or_default())
 }
 
 /// `itsanas update [--check]`.
