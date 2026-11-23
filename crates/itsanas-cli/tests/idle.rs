@@ -31,11 +31,19 @@ const BYTES_PER_IDLE_ROUND: u64 = 20 * 1024;
 const BYTES_PER_METERED_ROUND: u64 = 8 * 1024;
 /// Metered rounds measured.
 const METERED_ROUNDS: usize = 20;
-/// Measured rounds after which memory is read the first time. Until then it
-/// grows without leaking: glibc gives each new thread of the relay its own
-/// arena until there are eight a core (CI, 2026-11-23: 1.1 MB over the first
-/// 120 rounds, 68 KB under WSL). A leak grows after that as before it.
+/// Measured rounds after which memory is read the first time: caches the
+/// rounds fill (claims, contacts) settle before.
 const MEMORY_SETTLES: usize = 40;
+/// Set in the child [`an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory`]
+/// runs itself as on Linux.
+const CHILD: &str = "ITSANAS_IDLE_CHILD";
+/// What the child runs under. glibc keeps memory for threads that come and
+/// go: an arena per thread up to eight a core, and up to 40 MB of freed
+/// stacks. The relay and the in-process server start threads every round, so
+/// resident memory measured those caches and not a leak (CI, 2026-11-23:
+/// 573 KB on x86, 29 MB on ARM, 48 KB under WSL). Read by glibc when a process
+/// starts, hence a child.
+const QUIET_GLIBC: &str = "glibc.malloc.arena_max=1:glibc.pthread.stack_cache_size=0";
 /// Resident memory the rounds after [`MEMORY_SETTLES`] may add, all of them:
 /// a leak of 8 KB a round is 640 KB there.
 const MEMORY_GROWTH: u64 = 512 * 1024;
@@ -84,6 +92,23 @@ fn resident() -> Option<u64> {
 
 #[test]
 fn an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory() {
+    if cfg!(target_os = "linux") && std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().expect("this test"))
+            .args([
+                "--exact",
+                "an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("GLIBC_TUNABLES", QUIET_GLIBC)
+            .status()
+            .expect("the child runs");
+        assert!(
+            status.success(),
+            "the measured run failed: its output is above"
+        );
+        return;
+    }
     testing::with_directory(|coordinator, _| {
         let dir = tempfile::tempdir().expect("tempdir");
         let (desk, phrase) = testing::phone(&dir.path().join("desk"), coordinator, "camille", None);

@@ -103,7 +103,9 @@ echo "  network $((net / 1024)) KB/round on loopback, both nodes and the coordin
 # about three times over: a regression, not noise, is what crosses them. A
 # leak of 8 KB a round crosses MEMORY_KB within R=40 (32 KB a round, planted,
 # kept 928 KB).
-DISK_KB=${DISK_KB:-100}
+# Disk varies with the runner: 32 then 126 KB a round on two CI runs of the
+# same commit (#443). The budget catches the 447 KB of October, not noise.
+DISK_KB=${DISK_KB:-300}
 CPU_MS=${CPU_MS:-60}
 MEMORY_KB=${MEMORY_KB:-256}
 # Measured on CI's ubuntu-24.04 (#443): 56 KB a round, every byte counted
