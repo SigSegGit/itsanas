@@ -20,7 +20,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | ✅ **done** (2026-11-18): a folder that syncs, alerts that fire when copies run short or rounds reach nobody, and no command refused while the service runs |
 | M8 Three-device bring-up | — | 🟨 the fleet runs every night since 2026-10-24 (`FLEET-CI.md`): the laptop, the VM and a runner away from home; the Pi skipped on its host key, and no power cut of all three yet |
 | M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
-| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Local discovery since 2026-11-18: a phone asks on its network and the account's daemons answer it at once (`rounds::nearby`, `discovery::answer_if_asked`, `red_team_a_phone_hears_its_accounts_machine_on_the_local_network`; not yet seen on a real Wi-Fi, and an iPhone sends no broadcast without Apple's multicast entitlement). Still missing: the APK is **debug-signed** — sideload only, never Play |
+| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Local discovery since 2026-11-18: a phone asks on its network and the account's daemons answer it at once (`rounds::nearby`, `discovery::answer_if_asked`, `red_team_a_phone_hears_its_accounts_machine_on_the_local_network`; not yet seen on a real Wi-Fi, and an iPhone sends no broadcast without Apple's multicast entitlement). The release APK is signed with the release key on the signing PC (`sign-release.ps1`, `docs/ANDROID-RELEASE.md`) and updates itself from GitHub, then the mirror; a CI build without the key is debug-signed. Still missing: a store listing |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | 🟨 a new store starts in packs since 2026-11-17 (`ITSANAS_PACKS=0` keeps one file per chunk); an existing store converts with `itsanas convert-packs`, run on the laptop's fleet node by the nightly run since 2026-11-18 (`FLEET-CI.md` row Q), and since 2026-11-23 on its own at the daemon's start when its disk has room for the copy (`red_team_an_old_store_converts_itself_but_never_fills_its_disk`) |
 | M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1733 test functions, 20 of them `#[ignore]`d into the slow job, and 666 of
+**1735 test functions, 20 of them `#[ignore]`d into the slow job, and 667 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1547,10 +1547,16 @@ Decided by Nicolas, in this order:
    promise at once (`red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised`).
    On the phone, `setLimits`, which its settings screen calls, asks the same
    question in its own words; `setKeep` and `setPledge` check the split only.
-2. **Later — reservation.** An optional reserved file of "pledged − stored",
-   shrunk as chunks arrive (`fallocate` / `SetFileValidData`), for a real
-   guarantee against other programs. Costs the space on day one and is
-   unreliable on copy-on-write or compressing filesystems.
+2. ✅ **Done 2026-11-23 — reservation, opt-in** (`reserve = on` in the node's
+   config; `pledges::reserve`, called before each round). A file of
+   "pledged − held − one round's intake (1 GB)", allocated with `fs4`
+   (`fallocate` on Linux and Android, `F_PREALLOCATE` on macOS, the file's
+   allocation on Windows), shrunk as chunks arrive, never grown into the
+   256 MB kept free; every check of free space against the pledge counts it
+   back (`free_for_pledge`, the room for incoming chunks, `status`'s "held on
+   disk"). Costs the space on day one and is unreliable on copy-on-write or
+   compressing filesystems
+   (`red_team_the_reserve_holds_the_pledge_and_never_the_owners_last_space`).
 
 Rejected: a Docker volume of fixed size (Docker does not enforce volume size
 on plain ext4; Windows and native installs untouched).
