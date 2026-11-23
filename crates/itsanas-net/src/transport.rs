@@ -61,7 +61,8 @@ use crate::{
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
         PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DRAINING, PROTOCOL_WITH_DROP_NOTICES,
-        PROTOCOL_WITH_EVICTION, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request, Response,
+        PROTOCOL_WITH_EVICTION, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES,
+        PROTOCOL_WITH_SUMMARY_ROOT, Request, Response,
     },
     service::PeerService,
 };
@@ -1066,6 +1067,21 @@ impl PeerClient {
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "chunk summary",
+            }),
+        }
+    }
+
+    /// The root of this peer's chunk summary for `owner`: `None` when the
+    /// peer is too old to be asked, and the caller asks the whole summary.
+    pub fn summary_root(&mut self, owner: UserId) -> Result<Option<[u8; 32]>> {
+        if self.spoken < PROTOCOL_WITH_SUMMARY_ROOT {
+            return Ok(None);
+        }
+        match self.request(&Request::SummaryRoot { owner })? {
+            Response::SummaryRoot(root) => Ok(Some(root)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "a summary root",
             }),
         }
     }

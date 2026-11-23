@@ -616,11 +616,17 @@ enum Reconciled {
 /// old to be asked: the sweep runs in full, correctly and expensively. This is
 /// an optimisation, and an optimisation that can break a sync is not one.
 fn reconcile(store: &Store, client: &mut PeerClient, owner: UserId) -> Result<Reconciled> {
+    let ours = store.chunk_summary()?;
+    // The root alone first: the ordinary answer is "the same", and 32 bytes
+    // say it. Equal roots are equal digests, so this side's stand in for the
+    // peer's when a due walk checks them bucket by bucket.
+    if client.summary_root(owner).unwrap_or(None) == Some(summary::root(&ours)) {
+        return Ok(Reconciled::Identical(ours));
+    }
     let Some(theirs) = client.chunk_summary(owner).unwrap_or(None) else {
         return Ok(Reconciled::Unknown);
     };
 
-    let ours = store.chunk_summary()?;
     if summary::root(&ours) == summary::root(&theirs) {
         return Ok(Reconciled::Identical(theirs));
     }

@@ -184,6 +184,14 @@ impl Neighbourhood {
         }
     }
 
+    /// `device` was dialled at `address` and did not answer: the table may
+    /// then take another address it is heard at (`Neighbours::note_unanswered`).
+    pub fn unanswered(&self, device: &DeviceId, address: std::net::SocketAddr) {
+        if let Ok(mut table) = self.table.lock() {
+            table.note_unanswered(device, address);
+        }
+    }
+
     /// Whether a device has already earned a place a stranger cannot take.
     #[must_use]
     pub fn is_confirmed(&self, device: &DeviceId) -> bool {

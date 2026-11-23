@@ -26,7 +26,7 @@ const WARM_ROUNDS: usize = 12;
 const ROUNDS: usize = 120;
 /// Bytes on the wire, both ways and both links, that one idle round may
 /// cost. Measured 2026-11-23: see `docs/TESTING.md`.
-const BYTES_PER_IDLE_ROUND: u64 = 20 * 1024;
+const BYTES_PER_IDLE_ROUND: u64 = 8 * 1024;
 /// The same on a metered connection, where only the log goes (`metadata_only`).
 const BYTES_PER_METERED_ROUND: u64 = 8 * 1024;
 /// Metered rounds measured.

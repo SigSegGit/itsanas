@@ -778,12 +778,13 @@ honest machines disagree for ever, and the failure would look exactly like data
 loss.
 
 A round then compares one hash. If the two agree there is nothing more to say
-and **nothing is listed at all**. On the wire that is the 256 bucket digests,
-8 KB, whatever the account weighs -- not the thirty-two bytes this paragraph
-said until 2026-10-04: the host answers every digest so the asker can locate a
-difference, and nothing sends the root alone first. 8 KB a round is 2.4 MB a
-day per peer. If they disagree, the disagreement is *located*, and the
-ordinary have/missing exchange runs over the named buckets only.
+and **nothing is listed at all**. On the wire that is the root alone, 32
+bytes (`Request::SummaryRoot`, peer protocol 12, 2026-11-23); until then it was
+the 256 bucket digests, 8 KB a round whatever changed, most of an idle phone
+round on Wi-Fi (13.9 KB, then 5.7 KB). A peer at 11 is still asked the
+digests. If the roots disagree, the 256 digests follow, the disagreement is
+*located*, and the ordinary have/missing exchange runs over the named buckets
+only.
 
 **A differing hash is a question, not a verdict.** It says "somewhere in this
 two-hundred-and-fifty-sixth of the id space we do not agree" and nothing else.
