@@ -29,7 +29,7 @@ so this needs a release (or the rebuild by hand in §8 0a). Also: the client ima
 failure); `.gitignore` has `/ios/build/` (it blocked `release.cmd`). New, asked by Nicolas: idle
 budgets. `tests/idle.rs` meters a phone's idle sync on the wire, coordinator included: 13.9 KB a
 round on Wi-Fi (most of it the peer's 256-bucket chunk summary, asked every round), 5.6 KB
-metered, 68 KB of memory over 120 rounds (Linux); budgets 20 KiB, 8 KiB, 512 KiB after round 40, measured in a child with `GLIBC_TUNABLES` turning off the per-thread arenas and the stack cache (with them, 29 MB on ARM and no leak).
+metered, 68 KB of memory over 120 rounds (Linux); budgets 20 KiB, 8 KiB, 512 KiB after round 40, measured in a child with `GLIBC_TUNABLES` turning off the per-thread arenas and the stack cache (with them, 573 KB on x86 and no leak); skipped under CI's ARM job, which runs in `qemu-aarch64-static` and whose resident memory is the emulator's.
 `scripts/idle-writes.sh` with `CHECK=1` budgets two real daemons (disk, CPU, memory, loopback
 bytes), a step of `acceptance-local`. Trap: Git Bash rewrites `/mnt/c/...` given to `wsl`; use
 `MSYS_NO_PATHCONV=1 wsl -e bash -l script`, `-l` for cargo on the PATH.

@@ -83,7 +83,15 @@ fn pipe(mut from: TcpStream, mut to: TcpStream, counted: &AtomicU64) {
 }
 
 /// This process's resident memory, where the platform says it simply.
+///
+/// Not under an emulator: CI's ARM job runs the tests in `qemu-aarch64-static`
+/// (`QEMU_LD_PREFIX` set), whose translated code is resident too and grew
+/// 28 MB over 80 rounds with nothing leaking. The wire half still runs there.
 fn resident() -> Option<u64> {
+    if std::env::var_os("QEMU_LD_PREFIX").is_some() {
+        println!("under an emulator: resident memory says nothing of this program's");
+        return None;
+    }
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
     let kilobytes: u64 = line.split_whitespace().nth(1)?.parse().ok()?;

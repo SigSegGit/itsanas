@@ -1240,7 +1240,7 @@ two real daemons) are `scripts/idle-writes.sh` with `CHECK=1`, a step of the
 
 | Test | What it proves |
 |---|---|
-| `an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory` | No idle round moves content; one costs at most 20 KiB on Wi-Fi and 8 KiB metered, coordinator included; the 80 rounds after the 40th keep at most 512 KiB of resident memory (Linux, in a child run with glibc's per-thread arenas and stack cache off, which grew 573 KB on x86 and 29 MB on ARM with no leak; 0 B since). Sabotaged (32 KB leaked a round): red. |
+| `an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory` | No idle round moves content; one costs at most 20 KiB on Wi-Fi and 8 KiB metered, coordinator included; the 80 rounds after the 40th keep at most 512 KiB of resident memory (Linux, in a child run with glibc's per-thread arenas and stack cache off, which grew 573 KB on x86 with no leak; 0 B since; not under CI's ARM emulator, whose own translated code grew 28 MB). Sabotaged (32 KB leaked a round): red. |
 
 # `itsanas-cli` — test C's route, two accounts on one machine (3, `#[ignore]`d)
 
