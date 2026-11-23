@@ -70,6 +70,18 @@ the only questions come at the end, after a beep. The steps by hand:
 It needs `gh` logged in (`gh auth login`) and Rust (it builds the signing tool
 from the checkout, so the code that touches the key is the reviewed code).
 
+5. Last, `sign-release.ps1` runs `scripts\mirror-release.ps1`, which copies
+   the published release to the **mirror**: `releases/` on the official
+   coordinator's host, over HTTPS, for networks that cannot reach GitHub.
+   It reads `ITSANAS_MIRROR` (`<ssh host>:<directory>`) on the signing PC and
+   does nothing without it. The directory has GitHub's layout,
+   `download/vX.Y.Z/` with every file of the release and
+   `latest/download`, a link moved to the new version in one rename once
+   every file is there; any web server on the coordinator's host that serves
+   it as static files at `/releases/` will do. Run it again by hand
+   (`mirror-release.ps1 -Tag vX.Y.Z`) after a failure, or to copy an older
+   release.
+
 ## Installing a release (testers)
 
 Windows, by clicking: `ITSaNAS-Setup-<version>.exe` from the release
@@ -126,7 +138,8 @@ default (log, and "update available: X" in `itsanas status`), `auto`
    says so, fetches nothing;
 2. a binary under a cargo `target/` directory, or on a platform no release
    covers, never updates itself;
-3. `releases/latest/download/manifest.txt` and `.sig` (HTTPS through `curl`,
+3. `releases/latest/download/manifest.txt` and `.sig`, from GitHub, or from
+   the mirror when GitHub does not answer (HTTPS through `curl`,
    which every supported system ships; the workspace has no HTTP client and
    the signature, not the transport, is what is trusted), verified by
    `itsanas-release`: signature, format, newer than the running version;

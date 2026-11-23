@@ -28,8 +28,15 @@
 //! transport is not what is trusted -- the signature is. `curl` ships with
 //! Windows 10 and later, macOS and every Linux this project targets, and
 //! `install/get.sh` already relies on it.
+//!
+//! **Two sources, GitHub first.** The same files are copied, after signing,
+//! to `releases/` on the official coordinator's host
+//! (`scripts/mirror-release.ps1`), for a network that cannot reach GitHub: a
+//! phone in China (HANDOVER §8 19). The mirror is trusted exactly as GitHub
+//! is -- not at all: the signature decides.
 
 use std::{
+    cell::Cell,
     io,
     path::{Path, PathBuf},
     process::Command,
@@ -48,6 +55,18 @@ use crate::{
 /// Where published releases are. `latest/` is GitHub's newest published,
 /// non-draft release: a draft nobody signed is never offered.
 const RELEASES: &str = "https://github.com/SigSegGit/itsanas/releases/";
+
+/// The second source: the same layout (`latest/download/`,
+/// `download/v<version>/`) under `releases/` on the official coordinator's
+/// host, over HTTPS. Derived from [`DEFAULT_COORDINATOR`] rather than
+/// written, so the network keeps one name, repointable by DNS.
+///
+/// [`DEFAULT_COORDINATOR`]: itsanas_node::coordinator::DEFAULT_COORDINATOR
+pub(crate) fn mirror() -> String {
+    let address = itsanas_node::coordinator::DEFAULT_COORDINATOR;
+    let host = address.rsplit_once(':').map_or(address, |(host, _)| host);
+    format!("https://{host}/releases/")
+}
 const MANIFEST: &str = "manifest.txt";
 const SIGNATURE: &str = "manifest.txt.sig";
 /// A manifest is a few hundred bytes; a server sending more is not sending one.
@@ -65,13 +84,22 @@ pub(crate) trait Fetch {
     fn get(&self, path: &str, to: &Path, max_bytes: u64) -> std::result::Result<(), String>;
 }
 
-/// The real fetch: `curl`, HTTPS only, redirects (GitHub's `latest` is one)
-/// HTTPS only too.
-pub(crate) struct Curl;
+/// The real fetch from one source: `curl`, HTTPS only, redirects (GitHub's
+/// `latest` is one) HTTPS only too.
+pub(crate) struct Curl {
+    base: String,
+}
+
+impl Curl {
+    /// Files under `base`, a URL ending in `/`.
+    pub(crate) fn at(base: impl Into<String>) -> Self {
+        Self { base: base.into() }
+    }
+}
 
 impl Fetch for Curl {
     fn get(&self, path: &str, to: &Path, max_bytes: u64) -> std::result::Result<(), String> {
-        let output = curl_command(path, to, max_bytes)
+        let output = curl_command(&self.base, path, to, max_bytes)
             .output()
             .map_err(|error| format!("could not run curl ({error}); is it installed?"))?;
         if output.status.success() {
@@ -90,7 +118,7 @@ impl Fetch for Curl {
 /// redirect to plain HTTP would hand the file to anyone on the path); a cap
 /// on the size; the URL always under this project's releases, with the path
 /// passed as one argument and never through a shell.
-pub(crate) fn curl_command(path: &str, to: &Path, max_bytes: u64) -> Command {
+pub(crate) fn curl_command(base: &str, path: &str, to: &Path, max_bytes: u64) -> Command {
     let mut command = Command::new("curl");
     command
         .args([
@@ -111,8 +139,57 @@ pub(crate) fn curl_command(path: &str, to: &Path, max_bytes: u64) -> Command {
             "--output",
         ])
         .arg(to)
-        .arg(format!("{RELEASES}{}", path.trim_start_matches('/')));
+        .arg(format!("{base}{}", path.trim_start_matches('/')));
     command
+}
+
+/// Several sources tried in turn, starting from the one that answered last,
+/// so a manifest, its signature and its binary come from one place when it
+/// answers.
+pub(crate) struct Mirrored {
+    sources: Vec<Box<dyn Fetch>>,
+    last: Cell<usize>,
+}
+
+impl Mirrored {
+    pub(crate) fn new(sources: Vec<Box<dyn Fetch>>) -> Self {
+        Self {
+            sources,
+            last: Cell::new(0),
+        }
+    }
+}
+
+impl Fetch for Mirrored {
+    fn get(&self, path: &str, to: &Path, max_bytes: u64) -> std::result::Result<(), String> {
+        let count = self.sources.len();
+        let start = self.last.get();
+        let (mut missing, mut failed) = (Vec::new(), Vec::new());
+        for step in 0..count {
+            let at = (start + step) % count;
+            match self.sources[at].get(path, to, max_bytes) {
+                Ok(()) => {
+                    self.last.set(at);
+                    return Ok(());
+                }
+                Err(error) if is_missing(&error) => missing.push(error),
+                Err(error) => failed.push(error),
+            }
+        }
+        // "Not there" only when every source said so. A mirror that lacks an
+        // old release while GitHub cannot be reached says nothing about
+        // whether that release exists, and taking its 404 for an answer
+        // called a release install a source build that never updates.
+        Err(if failed.is_empty() { missing } else { failed }.join("; "))
+    }
+}
+
+/// GitHub, then the mirror on the coordinator's host.
+pub(crate) fn releases() -> Mirrored {
+    Mirrored::new(vec![
+        Box::new(Curl::at(RELEASES)),
+        Box::new(Curl::at(mirror())),
+    ])
 }
 
 /// Whether a fetch failed because the server answered that the file is not
@@ -656,7 +733,7 @@ pub(crate) fn watch(home: &Path, shutdown: &AtomicBool, updated: &AtomicBool) {
             std::env::var("ITSANAS_UPDATES").ok().as_deref(),
             Config::load(&Node::config_path(home)).map(|config| config.updates),
         );
-        let curl = Curl;
+        let curl = releases();
         let outcome =
             Updater::of_this_build(&curl).and_then(|updater| daily(home, &updater, setting));
         match outcome {
@@ -688,7 +765,7 @@ fn setting_of(env: Option<&str>, configured: itsanas_node::Result<Updates>) -> U
 
 /// `itsanas update [--check]`.
 pub(crate) fn command(check_only: bool) -> Result<()> {
-    let curl = Curl;
+    let curl = releases();
     let updater = Updater::of_this_build(&curl)?;
     forget_the_old_program(&updater.exe);
     let manifest = match updater.check()? {

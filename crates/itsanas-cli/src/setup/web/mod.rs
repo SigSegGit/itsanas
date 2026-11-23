@@ -358,7 +358,7 @@ impl Backends {
             another: start_another,
             drives: Box::new(crate::drives::candidates),
             programs: || {
-                let curl = crate::update::Curl;
+                let curl = crate::update::releases();
                 crate::update::Updater::of_this_build(&curl)
                     .and_then(|updater| updater.release_bytes())
                     .ok()

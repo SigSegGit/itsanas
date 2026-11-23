@@ -218,7 +218,7 @@ const LAUNCHERS: [(&str, &str); 3] = [
 /// A path that is not a full one, a drive that is not there, or the disk.
 pub fn make(dir: &Path) -> Result<String> {
     make_with(dir, |bin| {
-        let curl = crate::update::Curl;
+        let curl = crate::update::releases();
         crate::update::Updater::of_this_build(&curl)?.release_binaries(bin)
     })
 }

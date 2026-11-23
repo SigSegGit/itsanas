@@ -11,8 +11,8 @@ use std::{
 use itsanas_release::{FileEntry, Manifest, ReleaseKey, Trust, Version};
 
 use super::{
-    Daily, Fetch, Found, NOTICE_FILE, Updater, aside, curl_command, daily, read_capped, replace,
-    setting_of, this_target,
+    Daily, Fetch, Found, Mirrored, NOTICE_FILE, Updater, aside, curl_command, daily, mirror,
+    read_capped, replace, setting_of, this_target,
 };
 use crate::config::Updates;
 
@@ -516,7 +516,12 @@ fn this_target_names_the_machine_it_runs_on() {
 /// the release, would let someone on the network choose what is installed.
 #[test]
 fn red_team_the_download_command_is_https_only_capped_and_under_the_releases() {
-    let command = curl_command("/latest/download/manifest.txt", Path::new("out"), 65_536);
+    let command = curl_command(
+        super::RELEASES,
+        "/latest/download/manifest.txt",
+        Path::new("out"),
+        65_536,
+    );
     let args: Vec<String> = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -547,6 +552,107 @@ fn red_team_the_download_command_is_https_only_capped_and_under_the_releases() {
         url.starts_with(super::RELEASES) && !url[super::RELEASES.len()..].starts_with('/'),
         "the URL leaves this project's releases: {url}"
     );
+}
+
+/// A source nothing answers at: GitHub from a network that blocks it.
+struct Unreachable;
+
+impl Fetch for Unreachable {
+    fn get(&self, path: &str, _to: &Path, _max_bytes: u64) -> Result<(), String> {
+        Err(format!(
+            "could not download {path}: Failed to connect to github.com port 443"
+        ))
+    }
+}
+
+/// A source serving `World`'s files as they are, so a test can hand it to a
+/// [`Mirrored`] that owns its sources.
+struct Folder(PathBuf);
+
+impl Fetch for Folder {
+    fn get(&self, path: &str, to: &Path, max_bytes: u64) -> Result<(), String> {
+        Served {
+            root: self.0.clone(),
+            asked: RefCell::new(Vec::new()),
+        }
+        .get(path, to, max_bytes)
+    }
+}
+
+#[test]
+fn red_team_a_machine_that_cannot_reach_github_updates_from_the_mirror() {
+    // A phone or a machine in China: GitHub never answers, the coordinator's
+    // host does. With GitHub as the only source it never heard of a release.
+    // Sabotage: `Mirrored::get` tries only its first source.
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    let sources = Mirrored::new(vec![
+        Box::new(Unreachable),
+        Box::new(Folder(world.served.root.clone())),
+    ]);
+    let updater = Updater {
+        fetch: &sources,
+        ..world.updater()
+    };
+    let manifest = match updater.check() {
+        Ok(Found::Available(manifest)) => manifest,
+        other => panic!("GitHub unreachable left this machine on its old release: {other:?}"),
+    };
+    updater
+        .install(&manifest)
+        .expect("installed from the mirror");
+    assert_eq!(
+        std::fs::read(&world.exe).expect("program"),
+        NEW_PROGRAM,
+        "the mirror's signed release was not installed"
+    );
+}
+
+#[test]
+fn red_team_a_mirror_without_an_old_release_does_not_call_a_release_install_a_source_build() {
+    // GitHub unreachable, and the mirror began after this machine's release:
+    // it answers 404 for `download/v0.1.0`. That is not "no such release",
+    // and `check` must fail to be retried, never say "never updates itself".
+    // Sabotage: return the 404s whenever there is one.
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    let mirror_root = world.served.root.join("../mirror");
+    std::fs::create_dir_all(mirror_root.join("latest")).expect("mirror");
+    copy_dir(
+        &world.served.root.join("latest/download"),
+        &mirror_root.join("latest/download"),
+    );
+    let sources = Mirrored::new(vec![Box::new(Unreachable), Box::new(Folder(mirror_root))]);
+    let updater = Updater {
+        fetch: &sources,
+        ..world.updater()
+    };
+    match updater.check() {
+        Err(error) => assert!(error.to_string().contains("could not check"), "{error}"),
+        other => panic!("a mirror's missing old release was reported as {other:?}"),
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("dir");
+    for entry in std::fs::read_dir(from).expect("read") {
+        let entry = entry.expect("entry");
+        std::fs::copy(entry.path(), to.join(entry.file_name())).expect("copy");
+    }
+}
+
+/// The phone asks the same two places in the same order: GitHub, then the
+/// coordinator's host. A phone that only knows GitHub never updates in China.
+#[test]
+fn the_phone_asks_github_then_the_same_mirror_as_the_desktop() {
+    let kotlin = include_str!("../../../../android/app/src/main/java/fr/ngas/itsanas/Updater.kt");
+    let github = format!("\"{}latest/download\"", super::RELEASES);
+    let mirror = format!("\"{}latest/download\"", mirror());
+    let (Some(first), Some(second)) = (kotlin.find(&github), kotlin.find(&mirror)) else {
+        panic!("Updater.kt must name {github} and {mirror}");
+    };
+    assert!(first < second, "Updater.kt must ask GitHub first");
+    assert!(mirror.starts_with("\"https://") && !mirror.contains(":9898"));
 }
 
 /// A file at the download path larger than the cap is refused, not read whole.

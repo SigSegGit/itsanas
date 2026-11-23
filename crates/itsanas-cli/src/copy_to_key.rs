@@ -846,7 +846,7 @@ pub(crate) fn command(home: &Path, dir: &Path, detach: bool, on_stdin: bool) -> 
 
 /// The copy with this build's release and coordinator.
 fn run(home: &Path, dir: &Path, passes: &Passphrases) -> Result<String> {
-    let curl = crate::update::Curl;
+    let curl = crate::update::releases();
     let programs = crate::update::Updater::of_this_build(&curl)
         .and_then(|updater| updater.release_bytes())
         .ok();
