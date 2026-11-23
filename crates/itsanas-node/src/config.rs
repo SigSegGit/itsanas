@@ -130,6 +130,17 @@ impl PlacementMode {
     }
 }
 
+/// The `reserve` line, or why it is wrong.
+fn parse_reserve(value: &str, line: usize) -> Result<bool> {
+    match value {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(NodeError::Config(format!(
+            "line {line}: reserve must be on or off, found {value:?}"
+        ))),
+    }
+}
+
 /// The `placement` line, or why it is wrong.
 fn parse_placement(value: &str, line: usize) -> Result<PlacementMode> {
     PlacementMode::parse(value).ok_or_else(|| {
@@ -260,6 +271,11 @@ pub struct Config {
     pub updates: Updates,
     /// How the daemon places this account's chunks on other people's hosts.
     pub placement: PlacementMode,
+    /// Hold the pledge on disk: a file the size of what is promised and not
+    /// yet held, shrunk as chunks arrive ([`crate::pledges::reserve`]), so
+    /// another program cannot take the space this machine promised. Off by
+    /// default: it costs the space on day one (`reserve = on`).
+    pub reserve: bool,
 }
 
 impl Default for Config {
@@ -285,6 +301,7 @@ impl Default for Config {
             keep_only: Vec::new(),
             updates: Updates::default(),
             placement: PlacementMode::default(),
+            reserve: false,
         }
     }
 }
@@ -475,6 +492,10 @@ impl Config {
         if self.placement != PlacementMode::default() {
             let _ = writeln!(out, "placement = {}", self.placement.name());
         }
+        // Same rule again: written only when chosen.
+        if self.reserve {
+            let _ = writeln!(out, "reserve = on");
+        }
 
         out
     }
@@ -572,6 +593,7 @@ impl Config {
                 "peer" => peers.push(value.to_owned()),
                 "updates" => config.updates = parse_updates(value, number + 1)?,
                 "placement" => config.placement = parse_placement(value, number + 1)?,
+                "reserve" => config.reserve = parse_reserve(value, number + 1)?,
                 other if hosting_line(&mut config, other, value, number)? => {}
                 other => {
                     // A backslash continuation here reached the repository with
@@ -587,7 +609,7 @@ impl Config {
                             "metered_allowance_bytes, metered_period, ",
                             "keep_only, ",
                             "listen, announce, folder, vault, peer, ",
-                            "coordinator, coordinator_device, updates, placement"
+                            "coordinator, coordinator_device, updates, placement, reserve"
                         ),
                         number + 1,
                         other
@@ -1264,6 +1286,15 @@ mod tests {
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn reserve_is_off_unless_the_file_says_on() {
+        assert!(!Config::default().reserve);
+        assert!(!Config::default().render().contains("reserve"));
+        let on = Config::parse("reserve = on").unwrap();
+        assert!(on.reserve && on.render().contains("reserve = on"));
+        assert!(Config::parse("reserve = maybe").is_err());
     }
 
     #[test]

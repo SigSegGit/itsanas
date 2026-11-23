@@ -519,8 +519,124 @@ pub fn describe(others: &[Promise], stale: &[String], size: impl Fn(u64) -> Stri
     out
 }
 
+/// The file that holds the pledge on disk, in the vault: see [`reserve`].
+pub const RESERVE_FILE: &str = "reserved-space";
+
+/// What [`reserve`] leaves unreserved of what is promised: room for the
+/// chunks one round takes in before the next shrinks the file. Without it a
+/// round's arrivals would come out of [`RESERVE`], the space kept for the
+/// machine's own writes.
+pub const RESERVE_INTAKE: u64 = 1 << 30;
+
+/// The bytes `dir`'s reserve file holds now: space promised, free to the
+/// pledge, which every check of free space against it counts back in.
+#[must_use]
+pub fn reserved(dir: &Path) -> u64 {
+    std::fs::metadata(dir.join(RESERVE_FILE)).map_or(0, |meta| meta.len())
+}
+
+/// Size `dir`'s reserve file to what is promised and not yet held,
+/// `pledged - held` less [`RESERVE_INTAKE`], allocated on disk so another
+/// program cannot take it (ROADMAP "Pledges are not reserved", step 2). It
+/// grows only into what is free beyond [`RESERVE`], shrinks as chunks arrive,
+/// and goes when nothing is left to hold. Answers its size now.
+///
+/// Copy-on-write and compressing filesystems may not keep an allocation
+/// (ROADMAP): there the file holds less than its size says.
+///
+/// # Errors
+///
+/// When the file cannot be written.
+pub fn reserve(dir: &Path, pledged: u64, held: u64, free: u64) -> std::io::Result<u64> {
+    reserve_with(dir, pledged, held, free, (RESERVE_INTAKE, RESERVE))
+}
+
+/// [`reserve`] with its intake and the space kept free given: a test cannot
+/// allocate gigabytes.
+fn reserve_with(
+    dir: &Path,
+    pledged: u64,
+    held: u64,
+    free: u64,
+    (intake, kept): (u64, u64),
+) -> std::io::Result<u64> {
+    use fs4::FileExt as _;
+    let path = dir.join(RESERVE_FILE);
+    let current = reserved(dir);
+    let room = current.saturating_add(free.saturating_sub(kept));
+    let size = pledged
+        .saturating_sub(held)
+        .saturating_sub(intake)
+        .min(room);
+    if size == 0 {
+        match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+            _ => return Ok(0),
+        }
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)?;
+    if size < current {
+        file.set_len(size)?;
+    } else if size > current {
+        file.allocate(size)?;
+        if file.metadata()?.len() < size {
+            file.set_len(size)?;
+        }
+    }
+    Ok(size)
+}
+
+/// Take the reserve file away: `reserve = off`, or a pledge withdrawn.
+pub fn unreserve(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(RESERVE_FILE));
+}
+
 #[cfg(test)]
 mod tests {
+    /// The reserve file holds what is promised and not held, less a round's
+    /// intake, shrinks as chunks arrive, never grows into the space kept free
+    /// for the machine's owner, and goes when nothing is left to hold
+    /// (ROADMAP "Pledges are not reserved", step 2). Sabotage: drop the cap
+    /// by what is free.
+    #[test]
+    fn red_team_the_reserve_holds_the_pledge_and_never_the_owners_last_space() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let at = dir.path();
+        let small = (10_000, 5_000);
+        let len = || super::reserved(at);
+        assert_eq!(
+            super::reserve_with(at, 100_000, 20_000, u64::MAX, small).unwrap(),
+            70_000
+        );
+        assert_eq!(len(), 70_000, "the file does not hold what it says");
+        assert_eq!(
+            super::reserve_with(at, 100_000, 50_000, u64::MAX, small).unwrap(),
+            40_000
+        );
+        assert_eq!(
+            len(),
+            40_000,
+            "the reserve did not shrink as chunks arrived"
+        );
+        assert_eq!(
+            super::reserve_with(at, 1_000_000, 0, 5_000 + 3_000, small).unwrap(),
+            43_000,
+            "the reserve grew into the space kept free for the machine's owner"
+        );
+        assert_eq!(
+            super::reserve_with(at, 100_000, 100_000, u64::MAX, small).unwrap(),
+            0
+        );
+        assert!(
+            !at.join(super::RESERVE_FILE).exists(),
+            "a reserve with nothing left to hold stayed on the disk"
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -1845,9 +1845,12 @@ fn room_at(
         if answers_only.load(Ordering::Relaxed) || !vault_present(&vault) {
             return Some(0);
         }
-        fs4::available_space(&vault)
-            .ok()
-            .map(|free| free.saturating_sub(itsanas_node::pledges::RESERVE))
+        // The reserve file is space held for exactly these chunks: free to
+        // them, or `reserve = on` would refuse what it was made to keep.
+        fs4::available_space(&vault).ok().map(|free| {
+            free.saturating_add(itsanas_node::pledges::reserved(&vault))
+                .saturating_sub(itsanas_node::pledges::RESERVE)
+        })
     }
 }
 
@@ -1865,8 +1868,30 @@ fn keepable_pledge(node: &Node) -> u64 {
     itsanas_node::pledges::keepable(
         node.config.pledge_bytes,
         node.vault.held_bytes().unwrap_or(0),
-        fs4::available_space(node.vault_dir()).ok(),
+        crate::free_for_pledge(node),
     )
+}
+
+/// `reserve = on`: size the reserve file to what is promised and not yet
+/// held, before this round takes anything in; `off`, or a vault away, takes
+/// it away. A failure is said and changes nothing else.
+fn hold_the_pledge(node: &Node) {
+    let dir = node.vault_dir();
+    if !node.config.reserve || !vault_present(&dir) {
+        itsanas_node::pledges::unreserve(&dir);
+        return;
+    }
+    let Ok(free) = fs4::available_space(&dir) else {
+        return;
+    };
+    if let Err(error) = itsanas_node::pledges::reserve(
+        &dir,
+        node.config.pledge_bytes,
+        node.vault.held_bytes().unwrap_or(0),
+        free,
+    ) {
+        eprintln!("itsanas: the pledge could not be held on disk ({error})");
+    }
 }
 
 fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
@@ -1966,6 +1991,7 @@ fn one_round(
     if stops_for_vault(node, shutdown) {
         return (BTreeSet::new(), false, None);
     }
+    hold_the_pledge(node);
     // The coordinator first, and only with a reason: this machine has not
     // published since it started, has moved, owes its hourly publication, or
     // last round reached a machine of the account at none of its addresses
