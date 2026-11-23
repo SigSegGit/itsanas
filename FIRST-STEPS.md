@@ -112,8 +112,8 @@ On Windows, the easiest is **`ITSaNAS-Setup-<version>.exe`** from the
 installs for your account only and opens the setup page (not code-signed yet,
 so Windows SmartScreen says "unknown publisher" the first time: *More info*,
 then *Run anyway*). Otherwise run `itsanas setup`. On a computer with a screen
-it opens a page in your browser, in your system's language (English and French
-for now), with three questions: the account (new, or one you already have; a
+it opens a page in your browser, in your system's language (English, French
+and Simplified Chinese for now), with three questions: the account (new, or one you already have; a
 username already taken is said while you type it), then the folder (with a
 *Browse* button) and the space you offer (a slider that says what it earns
 you). The network is built in and open to anybody: nothing to type. Then it

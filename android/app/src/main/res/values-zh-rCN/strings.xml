@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simplified Chinese of values/strings.xml, name for name
+     (scripts/check-android-strings.py). -->
+<resources>
+    <string name="app_name">ITSaNAS</string>
+
+    <string name="back">返回</string>
+    <string name="cancel">取消</string>
+    <string name="ok">确定</string>
+    <string name="close">关闭</string>
+    <string name="continue_">继续</string>
+    <string name="did_not_work">操作未成功</string>
+    <string name="show_passphrase">显示密码短语</string>
+    <string name="hide_passphrase">隐藏密码短语</string>
+
+    <string name="unlock_title">解锁</string>
+    <string name="passphrase_label">密码短语</string>
+    <string name="unlock_open">打开</string>
+    <string name="unlock_forgot">我忘记了密码短语</string>
+
+    <string name="new_passphrase_title">设置密码短语</string>
+    <string name="new_passphrase_help">它在此手机上保护此账户。长度为 %1$d 到 %2$d 个字符。</string>
+    <string name="new_passphrase_again">再输入一次</string>
+    <string name="new_passphrase_differ">两次输入不一致。</string>
+
+    <string name="ask_passphrase_title">你的密码短语</string>
+    <string name="ask_passphrase_help">用于：%1$s</string>
+
+    <string name="recovery_title">你的 24 个词</string>
+    <string name="recovery_help">输入或粘贴账户的 24 个词，用空格分隔。</string>
+    <string name="recovery_label">24 个词</string>
+    <string name="recovery_count">已输入 %1$d / 24 个词</string>
+    <string name="recovery_unknown">第 %1$d 个词不属于任何恢复短语。</string>
+    <string name="recovery_ok">这 24 个词是匹配的。</string>
+
+    <string name="words_title">你的 24 个词</string>
+    <string name="words_text">这 24 个词就是你的账户。有了它们，你可以在任何设备上打开账户。任何拿到它们的人都能读取你存储的所有内容。如果你丢失了这些词以及此账户的所有设备，没有人能帮你找回。</string>
+    <string name="words_advice">请把它们写在安全的地方，或保存在密码管理器中。</string>
+    <string name="words_copy">复制</string>
+    <string name="words_copy_title">复制这些词？</string>
+    <string name="words_copy_body">其他应用可以读取你复制的内容。ITSaNAS 会在 60 秒后清除剪贴板。</string>
+    <string name="words_have_them">我已记下</string>
+
+    <string name="check_title">核对</string>
+    <string name="check_help">请根据你记下的列表输入这些词。</string>
+    <string name="check_word">第 %1$d 个词</string>
+    <string name="check_wrong">不对。请再看一遍这些词后重试（还剩 %1$d 次）。</string>
+    <string name="check_again">三次错误：将再次显示这些词。</string>
+    <string name="check_show_again">再次显示这些词</string>
+    <string name="check_confirm">确认</string>
+
+    <string name="files_empty">这里还没有内容。添加一个文件，或与你的某台设备同步。</string>
+    <string name="phone_folder_choose">选择一个要保存在账户中的文件夹</string>
+    <string name="phone_folder_on">%1$s 中的新文件会自动进入你的账户。在手机上从该文件夹删除文件，它仍保留在账户中，并显示在回收站里。</string>
+    <string name="phone_folder_stop">停止</string>
+    <string name="not_synced_hours">已有 %1$d 小时未与你的任何设备同步。请检查此手机是否联网，以及你的其他设备是否开机。</string>
+    <string name="not_synced_days">已有 %1$d 天未与你的任何设备同步。请检查此手机是否联网，以及你的其他设备是否开机。</string>
+    <string name="machines_failing">未通过存储检查的设备：%1$d 台。它们保存的内容不再算作你文件的副本。</string>
+    <string name="vault_refuses">此手机已无法写入它承诺为他人保存的内容。</string>
+    <string name="low_disk">此手机仅剩 %1$s 可用空间。请释放一些空间：存满后将无法保存。</string>
+    <string name="not_safe_yet">你的文件尚不安全：所需的 %2$d 份副本中只有 %1$d 份存在于此手机之外。如果现在丢失手机，缺少的部分将无法找回。</string>
+    <string name="files_summary">%1$d 个在此 · %2$d 个不在此 · %3$s</string>
+    <string name="files_added">已添加 %1$d 个文件</string>
+    <string name="files_sync">立即同步</string>
+    <string name="files_settings">设置</string>
+    <string name="files_add">添加文件</string>
+    <string name="file_open">打开</string>
+    <string name="file_share">分享</string>
+    <string name="file_chosen">已选择</string>
+    <string name="files_chosen">已选择 %1$d 个</string>
+    <string name="files_choose_none">清除选择</string>
+    <string name="files_share_chosen">分享所选文件</string>
+    <string name="files_free_chosen">在此手机上释放所选文件</string>
+    <string name="files_delete_chosen">删除所选文件</string>
+    <string name="files_rename_chosen">重命名</string>
+    <string name="files_versions_chosen">历史版本</string>
+    <string name="versions_title">%1$s 的历史版本</string>
+    <string name="versions_reading">正在读取账户…</string>
+    <string name="versions_current">当前</string>
+    <string name="versions_back">恢复此版本</string>
+    <string name="rename_title">重命名 %1$s</string>
+    <string name="rename_help">加入斜杠会将它移入文件夹，在所有设备上生效。</string>
+    <string name="rename_confirm">重命名</string>
+    <string name="files_freed">已释放 %1$d 个 · %2$d 个暂留在此，直到其他设备保存了它们</string>
+    <string name="delete_title_many">删除 %1$d 个文件？</string>
+    <string name="file_fetch">获取并打开</string>
+    <string name="file_delete">删除</string>
+    <string name="file_free">在此手机上释放</string>
+    <string name="round_new">%1$d 个新增</string>
+    <string name="round_changed">%1$d 个更改</string>
+    <string name="round_gone">%1$d 个移除</string>
+    <string name="file_not_here">不在此手机上</string>
+    <string name="tree_up">返回上一级文件夹</string>
+    <string name="tree_one_file">1 个文件 · %1$s</string>
+    <string name="tree_files">%1$d 个文件 · %2$s</string>
+    <string name="tree_not_here">%1$d 个不在此手机上</string>
+    <string name="delete_title">删除 %1$s？</string>
+    <string name="delete_body">它会在账户的回收站中保留 %1$d 天，期间任何设备都可以恢复它，之后将从所有设备上删除。在此之前它仍占用你的空间。</string>
+    <string name="delete_everywhere">移到回收站</string>
+    <string name="delete_keep">保留</string>
+
+    <string name="update_title">ITSaNAS %1$s 已发布</string>
+    <string name="update_body">此手机运行的是 %1$s。安装前 Android 会征求你的同意。</string>
+    <string name="update_none">ITSaNAS %1$s 已是最新版本。</string>
+    <string name="update_install">安装</string>
+    <string name="update_later">稍后</string>
+    <string name="unlock_use_passphrase">使用密码短语</string>
+    <string name="update_failed">更新未安装：%1$s</string>
+
+    <string name="biometric_title">使用指纹或面容解锁？</string>
+    <string name="biometric_body">开启后，ITSaNAS 会在验证指纹或面容后打开，而不是一直保留你的密码短语。在此手机上添加新指纹会关闭此功能，直到你再次输入密码短语。</string>
+    <string name="biometric_on">开启</string>
+    <string name="biometric_not_now">暂不</string>
+    <string name="biometric_failed">未能开启指纹或面容解锁。</string>
+    <string name="trash_title">回收站</string>
+    <string name="trash_rules_where">删除操作的效果及保留天数，在“设置”的“回收站”中设定。</string>
+    <string name="trash_empty_all">清空回收站</string>
+    <string name="trash_empty_title">永久删除 %1$d 个文件？</string>
+    <string name="trash_waiting">等待你确认，然后从所有设备上删除</string>
+    <string name="trash_protected">其他设备删除后保留在此，还剩 %1$d 天</string>
+    <string name="delete_body_direct">它会从账户的所有设备上删除。</string>
+    <string name="delete_body_local">它只离开此手机：账户和你的其他设备仍保留它。</string>
+    <string name="delete_waiting">它会在回收站中等待你确认删除。</string>
+    <string name="identity_title">请验证身份</string>
+    <string name="identity_passphrase">你的密码短语</string>
+    <string name="identity_ok">确认</string>
+    <string name="identity_refused">未确认：没有删除任何内容。</string>
+    <string name="trash_empty">回收站为空。</string>
+    <string name="trash_left">%1$d 天后永久删除</string>
+    <string name="trash_left_folder">已从此手机的文件夹中移除，仍保留在账户中</string>
+    <string name="trash_restore">恢复</string>
+    <string name="trash_keep">保留在账户中</string>
+    <string name="trash_put_back">放回文件夹</string>
+    <string name="trash_folder_not_writable">此手机只能读取该文件夹。请在“文件”界面重新选择它，以便应用可以写入。</string>
+    <string name="trash_delete">从网络中删除</string>
+    <string name="trash_delete_body">它会从账户的所有设备上消失。无法撤销。</string>
+
+    <!-- 同步通知（SyncService）。 -->
+    <string name="sync_channel">同步</string>
+    <string name="sync_channel_help">此手机与你的设备交换数据时显示</string>
+    <string name="sync_starting">正在启动</string>
+    <string name="sync_opening">正在打开账户</string>
+    <string name="sync_not_syncing">未在同步</string>
+    <string name="sync_core_silent">核心无响应</string>
+    <string name="sync_waiting">等待中</string>
+    <string name="sync_locked">已锁定</string>
+    <string name="sync_locked_text">请打开一次应用以解锁此账户</string>
+    <string name="sync_hosting">正在托管</string>
+    <string name="sync_syncing">正在同步</string>
+    <string name="sync_synced">已同步</string>
+    <string name="sync_checked">已检查</string>
+    <string name="sync_folder_unreadable">无法读取文件夹</string>
+    <string name="sync_folder_failed">文件夹：%1$s</string>
+    <string name="sync_round_failed">本轮同步失败</string>
+    <string name="sync_none_answered">没有设备响应</string>
+    <string name="sync_up_to_date">已是最新 — %1$s</string>
+    <string name="sync_in_out">收到 %1$d 个，释放 %2$d 个</string>
+    <string name="sync_arrived">收到 %1$d 个文件</string>
+    <string name="biometric_prompt_enrol">使用指纹或面容解锁 ITSaNAS</string>
+    <string name="biometric_prompt_unlock">解锁 ITSaNAS</string>
+</resources>

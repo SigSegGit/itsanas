@@ -65,7 +65,7 @@ object Biometric {
      */
     fun enable(activity: FragmentActivity, passphrase: String, done: (Boolean) -> Unit) {
         val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
-        prompt(activity, cipher, "Use your fingerprint or face to unlock ITSaNAS", { unlocked ->
+        prompt(activity, cipher, activity.getString(R.string.biometric_prompt_enrol), { unlocked ->
             val sealed = unlocked.doFinal(passphrase.toByteArray(Charsets.UTF_8))
             prefs(activity).edit()
                 .putString(CIPHERTEXT, Base64.encodeToString(sealed, Base64.NO_WRAP))
@@ -95,7 +95,7 @@ object Biometric {
             stored.edit().remove(ASKED).apply()
             return fallback()
         }
-        prompt(activity, cipher, "Unlock ITSaNAS", { unlocked ->
+        prompt(activity, cipher, activity.getString(R.string.biometric_prompt_unlock), { unlocked ->
             passphrase(String(unlocked.doFinal(Base64.decode(sealed, Base64.NO_WRAP)), Charsets.UTF_8))
         }, fallback)
     }
@@ -109,7 +109,7 @@ object Biometric {
     ) {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
-            .setNegativeButtonText("Use the passphrase")
+            .setNegativeButtonText(activity.getString(R.string.unlock_use_passphrase))
             .setAllowedAuthenticators(BIOMETRIC_STRONG)
             .build()
         BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {

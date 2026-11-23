@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Only what the native screens say. The page is the library's, in its own
-     i18n; each string here has its French in values-fr/strings.xml. -->
+     i18n; each string here has its French in values-fr and its Chinese in
+     values-zh-rCN (scripts/check-android-strings.py). -->
 <resources>
     <string name="app_name">ITSaNAS</string>
 
@@ -134,4 +135,27 @@
     <string name="trash_folder_not_writable">This phone may only read the folder. Choose it again on the Files screen so the app may write into it.</string>
     <string name="trash_delete">Delete from the network</string>
     <string name="trash_delete_body">It disappears from every machine of the account. There is no undo.</string>
+    <!-- The sync notification (SyncService). -->
+    <string name="sync_channel">Syncing</string>
+    <string name="sync_channel_help">Shown while this phone is exchanging data with your machines</string>
+    <string name="sync_starting">Starting</string>
+    <string name="sync_opening">Opening the account</string>
+    <string name="sync_not_syncing">Not syncing</string>
+    <string name="sync_core_silent">the core would not answer</string>
+    <string name="sync_waiting">Waiting</string>
+    <string name="sync_locked">Locked</string>
+    <string name="sync_locked_text">Open the application once to unlock this account</string>
+    <string name="sync_hosting">Hosting</string>
+    <string name="sync_syncing">Syncing</string>
+    <string name="sync_synced">Synced</string>
+    <string name="sync_checked">Checked</string>
+    <string name="sync_folder_unreadable">the folder could not be read</string>
+    <string name="sync_folder_failed">Folder: %1$s</string>
+    <string name="sync_round_failed">the round failed</string>
+    <string name="sync_none_answered">No machine answered</string>
+    <string name="sync_up_to_date">Up to date — %1$s</string>
+    <string name="sync_in_out">%1$d in, %2$d let go</string>
+    <string name="sync_arrived">%1$d file(s) arrived</string>
+    <string name="biometric_prompt_enrol">Use your fingerprint or face to unlock ITSaNAS</string>
+    <string name="biometric_prompt_unlock">Unlock ITSaNAS</string>
 </resources>

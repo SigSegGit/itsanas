@@ -92,7 +92,7 @@ const ICON_PNG: &[u8] = include_bytes!("../../../../../docs/assets/icon.png");
 
 /// The languages the page speaks: English, written in the page, and those of
 /// `i18n.js`.
-const LANGUAGES: [&str; 2] = ["en", "fr"];
+const LANGUAGES: [&str; 3] = ["en", "fr", "zh"];
 /// In a node's home, the language chosen in the page's list. Each page is a
 /// new port, so a new origin with empty browser storage: a choice kept there
 /// was gone at the next `itsanas settings` (hand test, 2026-10-22: French
