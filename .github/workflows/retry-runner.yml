@@ -3,10 +3,16 @@ name: Retry a platform job, patiently
 # The macOS and ARM jobs fail now and then for the runner, not the code: no Mac
 # free for half an hour, a lost runner, a simulator that never booted. Each one
 # used to cost a session reading a log, pushing a guess and paying for a whole
-# new run. This workflow re-runs only the failed jobs of a CI run, up to twice,
-# ten minutes after the failure so a busy pool of Macs has freed up, and never
-# for a commit that a newer push has already replaced. A job still red after
-# three attempts is likely the code, and is left for a person.
+# new run. This workflow re-runs only the failed jobs of a CI run, and never
+# for a commit that a newer push has already replaced:
+#
+# - a platform job CANCELLED (the runner was lost or stopped answering: the
+#   iPhone job died at fifteen minutes three times on 2026-11-23, all its
+#   tests passed when it got a Mac) is the runner's fault whatever the code,
+#   and is re-run up to four times, five minutes apart;
+# - a platform job that FAILED is re-run up to twice, ten minutes apart, so a
+#   busy pool of Macs has freed up. Still red after three attempts it is
+#   likely the code, and is left for a person.
 
 on:
   workflow_run:
@@ -22,7 +28,7 @@ jobs:
     name: Re-run a macOS or ARM job that failed
     if: >-
       github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.run_attempt < 3
+      github.event.workflow_run.run_attempt < 5
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -30,18 +36,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           SHA: ${{ github.event.workflow_run.head_sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           REPO: ${{ github.repository }}
         run: |
-          failed="$(gh api "repos/$REPO/actions/runs/$RUN/jobs?per_page=100" \
-            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name')"
-          printf 'failed jobs:\n%s\n' "$failed"
-          if ! printf '%s\n' "$failed" | grep -qE 'iPhone|macos|ARM'; then
+          jobs="$(gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | "\(.conclusion) \(.name)"')"
+          printf 'failed jobs:\n%s\n' "$jobs"
+          platform="$(printf '%s\n' "$jobs" | grep -E 'iPhone|macos|ARM' || true)"
+          if [ -z "$platform" ]; then
             echo "no macOS or ARM job failed: nothing to re-run"
             exit 0
           fi
-          sleep 600
+          if printf '%s\n' "$platform" | grep -q '^failure '; then
+            if [ "$ATTEMPT" -ge 3 ]; then
+              echo "a platform job failed on attempt $ATTEMPT: likely the code, left for a person"
+              exit 0
+            fi
+            sleep 600
+          else
+            # Only cancellations: a lost runner, never the code.
+            sleep 300
+          fi
           head="$(gh api "repos/$REPO/branches/$BRANCH" --jq .commit.sha 2>/dev/null || true)"
           if [ -n "$head" ] && [ "$head" != "$SHA" ]; then
             echo "a newer push replaced $SHA: its own run decides"
