@@ -4218,6 +4218,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
    placement (§6). Not before (a): changing
    the default.
 
+18. ⬜ **An occasional user is never cut off by an update** (Nicolas, 2026-11-23). Until the
+    public announcement, a version may break compatibility: 0.1.21 (peer protocol 12, presence
+    with `head`) cut off the Mac and phones still on 0.1.19 until they update, and that is
+    accepted. Before the announcement and any commercial offer, it is not: a member who opens
+    the app once a month, on a version several releases old, must still sync, restore and
+    receive the update. Expected: a stated support window (N previous protocol versions both
+    spoken and answered, old stored formats read, §8 17); every `PROTOCOL_WITH_*` gate tested
+    against the oldest version in the window; a fleet scenario where one machine stays on the
+    oldest supported release while the others move; and an update path that works from that
+    oldest release (the daily look reaches it, the coordinator still answers it). Gate for the
+    announcement, not for the next release.
+
 17. ⬜ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23). #435
     changed one structure and broke three places: coordinator messages and its presence rows
     (both handled in #443) and the laptop's address book, found by chance in a log. The wire is
