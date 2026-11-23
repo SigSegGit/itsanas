@@ -94,7 +94,7 @@ pub const MARKER: &str = ".itsanas-folder";
 const NOT_ON_WINDOWS: [char; 7] = [':', '*', '?', '"', '<', '>', '|'];
 
 /// Whether `logical` can be a file's name here: on Windows, none of
-/// [`NOT_ON_WINDOWS`]. Every other system takes them.
+/// `: * ? " < > |`. Every other system takes them.
 #[must_use]
 pub fn fits(logical: &str, windows: bool) -> bool {
     !windows || !logical.contains(NOT_ON_WINDOWS)
