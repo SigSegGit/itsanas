@@ -100,8 +100,9 @@ features that belong together: one step per session is gone (Nicolas,
 rather than watching CI. Every push re-runs the whole matrix, Mac included, so
 a pull request is pushed once when it can be, a red run is read once and all its
 causes fixed in one push, and a macOS or ARM job that fails is left to
-`.github/workflows/retry-runner.yml`, which re-runs it up to twice, ten minutes
-apart, unless a newer push replaced it; its log is read only after the third
+`.github/workflows/retry-runner.yml`, unless a newer push replaced it: a job
+the runner lost (cancelled) up to four times, five minutes apart; a job that
+failed up to twice, ten minutes apart, and its log is read only after the third
 attempt.
 
 **Right the first time.** Before the first push, write to what the gates enforce:
