@@ -307,6 +307,15 @@ pub struct Version {
     entry: FileEntry,
 }
 
+impl Version {
+    /// The chunks that make this version: what must be here before it can
+    /// come back.
+    #[must_use]
+    pub fn chunks(&self) -> &[ChunkId] {
+        &self.entry.chunks
+    }
+}
+
 /// Every version of `path` the account's logs hold, newest first: what the
 /// file was before each edit, and before it was deleted.
 ///

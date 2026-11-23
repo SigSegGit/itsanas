@@ -2383,6 +2383,97 @@ fn red_team_a_version_whose_chunks_are_gone_is_never_brought_back() {
     );
 }
 
+/// A version this machine never held comes back from a machine that did: its
+/// chunks are fetched, checked, then it is the file on every machine (§8 15).
+/// Sabotage: `fetch_version` answers true without fetching.
+#[test]
+fn red_team_a_version_never_held_here_comes_back_from_another_machine() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("essay.txt", b"the good draft")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop
+        .store
+        .write_file("essay.txt", b"the draft that broke it")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+
+    let listed =
+        itsanas_store::versions(&phone.store, &phone.vault, "essay.txt").expect("versions");
+    let good = listed
+        .iter()
+        .position(|version| version.size == 14)
+        .expect("the good draft is listed");
+    assert!(
+        !listed[good].here,
+        "the phone holds a version it never fetched"
+    );
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        assert!(
+            session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", good)
+                .expect("fetch"),
+            "the laptop holds every chunk of the version and none came"
+        );
+    });
+    assert!(
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+            .expect("bring back"),
+        "a version whose chunks were just fetched was not brought back"
+    );
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"the good draft".to_vec()),
+        "the version brought back from the laptop's chunks is not the file"
+    );
+}
+
+/// A machine that no longer holds the chunks cannot make the version come
+/// back: nothing is published, the file stays as it is.
+#[test]
+fn a_version_no_machine_holds_stays_out() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("old.txt", b"collected since")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop.store.write_file("old.txt", b"newer").expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop
+        .store
+        .collect_garbage(std::time::Duration::ZERO)
+        .expect("gc");
+    pull_listing(&phone, &laptop);
+    let listed = itsanas_store::versions(&phone.store, &phone.vault, "old.txt").expect("versions");
+    let gone = listed
+        .iter()
+        .position(|version| version.size == 15)
+        .expect("listed");
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        assert!(
+            !session::fetch_version(&phone.store, &phone.vault, &mut client, "old.txt", gone)
+                .expect("fetch"),
+            "a version whose chunks are collected everywhere was said to be here"
+        );
+    });
+    assert!(
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "old.txt", gone)
+            .expect("bring back")
+    );
+}
+
 #[test]
 fn deleting_what_the_account_does_not_have_deletes_nothing() {
     let master = alice();

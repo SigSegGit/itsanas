@@ -993,6 +993,43 @@ fn sweep_everything(store: &Store, client: &mut PeerClient, report: &mut PushRep
     Ok(())
 }
 
+/// Bring here, from `client`, the chunks of version `at` of `path` (an index
+/// into [`itsanas_store::versions`]) that this machine lacks, so it can be
+/// brought back here: a version used to come back only on a machine that
+/// had kept every chunk of it (HANDOVER §8 15). Each chunk is checked as any
+/// chunk is ([`Store::accept_chunk`]), one at a time, so memory stays one
+/// chunk. Answers whether every chunk is here now.
+///
+/// # Errors
+///
+/// When the store cannot be read or written, or the peer fails.
+pub fn fetch_version(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    path: &str,
+    at: usize,
+) -> Result<bool> {
+    let Some(chosen) = itsanas_store::versions(store, vault, path)?
+        .into_iter()
+        .nth(at)
+    else {
+        return Ok(false);
+    };
+    for chunk in chosen.chunks() {
+        if store.has_chunk(chunk) {
+            continue;
+        }
+        let Some(sealed) = client.chunk(store.owner(), *chunk)? else {
+            return Ok(false);
+        };
+        if !store.accept_chunk(chunk, &sealed)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Fetch exactly the chunks named, from a peer, and apply what they complete.
 ///
 /// # The gap this closes

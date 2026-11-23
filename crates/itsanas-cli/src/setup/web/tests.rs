@@ -2819,6 +2819,68 @@ fn red_team_the_page_trash_acts_only_on_what_is_in_it() {
     );
 }
 
+/// The page's file list shows a file's versions, brings an earlier one back on
+/// every machine, and renames it (§8 15: the desktop page had neither).
+/// Sabotage: make the `restore` action list instead of bringing back.
+#[test]
+fn red_team_the_page_brings_a_version_back_and_renames() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (page, slot) = page_with_node(dir.path(), &["essay.txt"], |node| {
+        node.store
+            .write_file("essay.txt", b"the draft that broke it")
+            .expect("edit");
+        node.store.flush_segment().expect("seal");
+    });
+    let node = || slot.lock().expect("slot").clone().expect("node");
+
+    let listed = page.api("POST", "/api/files", "action=versions&path=essay.txt");
+    assert_eq!(listed.status, 200, "{}", listed.body);
+    let reply: serde_json::Value = serde_json::from_str(&listed.body).expect("json");
+    let versions = reply["versions"]["list"]
+        .as_array()
+        .expect("versions listed");
+    assert_eq!(
+        versions.len(),
+        2,
+        "both versions are not listed: {}",
+        listed.body
+    );
+    let earlier = versions
+        .iter()
+        .position(|version| version["current"] == false)
+        .expect("an earlier version");
+
+    let back = page.api(
+        "POST",
+        "/api/files",
+        &format!("action=restore&path=essay.txt&at={earlier}"),
+    );
+    assert_eq!(back.status, 200, "{}", back.body);
+    assert_ne!(
+        node().store.read_file("essay.txt").expect("read"),
+        Some(b"the draft that broke it".to_vec()),
+        "Bring back left the newest version as the file"
+    );
+
+    let moved = page.api(
+        "POST",
+        "/api/files",
+        "action=rename&path=essay.txt&to=final.txt",
+    );
+    assert_eq!(moved.status, 200, "{}", moved.body);
+    assert!(
+        node().store.stat("final.txt").expect("stat").is_some()
+            && node().store.stat("essay.txt").expect("stat").is_none(),
+        "Rename did not move the file"
+    );
+    let refused = page.api("POST", "/api/files", "action=rename&path=final.txt&to=");
+    assert_eq!(
+        refused.status, 400,
+        "an empty new name was accepted: {}",
+        refused.body
+    );
+}
+
 /// A rule that keeps less waits for the person to prove who they are, in the
 /// engine's own window; one that keeps more is set at once. Sabotage: make
 /// `deleting::needs_identity` answer false.

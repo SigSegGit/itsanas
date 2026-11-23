@@ -4282,9 +4282,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
     `rename`, `versions_of`, `bring_back`, and Android's chosen-files bar. Proved by the six tests
     of `two_nodes.rs` named `*rename*`, `*version*` and `*comes_back*`, two in `lib.rs`, and
-    `RenameTest`, `VersionsTest`. **Left:** the iPhone's screens for both; the desktop page has
-    neither (a terminal or a synced folder's own rename does it there); a version is brought back
-    only from a machine that holds every chunk of it (fetching it from hosts is not built); a
+    `RenameTest`, `VersionsTest`. Since 2026-11-23 a version comes back on a machine that never held
+    it, its chunks fetched from a machine of the account first (`session::fetch_version`, CLI and
+    phone, `red_team_a_version_never_held_here_comes_back_from_another_machine`), and the desktop
+    page's file list has Versions, Bring back and Rename
+    (`red_team_the_page_brings_a_version_back_and_renames`). **Left:** the iPhone's screens for
+    both; chunks are asked of the account's machines, not of other accounts' hosts; a
     rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
 
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
