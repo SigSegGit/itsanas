@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1726 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 660 are red-team tests.**
+**Last updated: 2026-11-23 — 1729 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 662 are red-team tests.**
 
-**1610 of the 1726 tests have an entry of their own on this page** — an *entry*,
+**1613 of the 1729 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,10 +164,10 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 6 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 72 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 77 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 79 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -224,7 +224,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 77 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 43 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 45 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 66 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 231 |
 
@@ -814,7 +814,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — deletes between machines with different rules (5)
+# `itsanas-sync` — deletes between machines with different rules (6)
 
 Two machines of one account, each with its own rules (HANDOVER §8 13): the
 account's trash, Protect, and rules every machine reads alike.
@@ -824,6 +824,7 @@ account's trash, Protect, and rules every machine reads alike.
 | **`red_team_a_file_trashed_on_one_machine_is_restored_from_another`** | A file the phone puts in the account's trash is in the computer's trash list and still a file of the account; a restore on the computer takes it out of the phone's trash too. Sabotaged (no marker written): red. |
 | **`red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash`** | The account trash's marker keeps the version deleted (`device@date.size`); a file edited on another machine before the delay ran out is a newer file, taken out of the trash each round before the purge (`deletion::untrash_edited`), and a file nobody touched stays in. Before, the purge deleted the edit. Sabotaged (no edit found): red. |
 | **`red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects`** | A file the phone deletes outright is kept by the computer, which protects by default; publishing it again brings it back on the phone. Sabotaged (nothing protected): red. |
+| **`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`** | A machine whose index holds no trash marker (a phone that downloads nothing) reads its noted trash: a delete that emptied the trash is not kept for days there (§8 13). Sabotaged (the noted trash dropped from `deletion::protect`): red. |
 | **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
 
@@ -1052,7 +1053,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (77)
+# `itsanas-net` — two-node tests (79)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1112,6 +1113,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `a_file_deleted_for_good_comes_back_from_a_machine_that_still_holds_it` | A file deleted for good lists its last version, not current, and comes back on every machine from the one that still holds its chunks: nothing collects them but `itsanas gc`. |
 | **`red_team_a_version_never_held_here_comes_back_from_another_machine`** | A phone that only listed a file brings back the earlier version the laptop wrote: `session::fetch_version` asks the laptop for each missing chunk, checks it as any chunk (`accept_chunk`), and the version is the file on both machines (§8 15: a version came back only on a machine that had kept every chunk). Sabotaged (`fetch_version` answers true without fetching): red. |
 | `a_version_no_machine_holds_stays_out` | Collected on the laptop too: nothing comes, nothing is published, the file stays as it is. |
+| **`red_team_a_version_comes_back_from_a_host_and_never_from_its_noise`** | The account's machines gone, a host of another account that keeps the version's chunks gives them back, and one that answers with noise gives nothing: no chunk is stored, nothing is published (§8 15). Sabotaged (a refused chunk counted as fetched): red. |
+| `a_file_only_listed_here_is_fetched_from_a_host` | `fetch_only` against a host of another account: a file the account's machines no longer serve opens from the copies a stranger keeps. `itsanas get` and the phone ask the coordinator's hosts once every machine of the account was tried. |
 | **`red_team_a_version_whose_chunks_are_gone_is_never_brought_back`** | After `itsanas gc` collected a deleted file's chunks, its version says `not here` and is never published again: every machine would list a file that opens nowhere. Sabotaged (the check that its chunks are here dropped): red. |
 | **`a_metadata_round_learns_what_changed_without_downloading_it`** | The other half: nothing is fetched, nothing is half-written, and a later round on an unmetered connection completes it. Writing this test is what found that deferred work was never retried. |
 | **`a_delete_racing_an_edit_still_leaves_the_file_listed`** | The listing applies the same asymmetry as the merge engine. A listing that hid a file the engine is about to keep would tell somebody their edit was lost. |

@@ -696,10 +696,14 @@ pub fn protect(
     }
     let reserved = known_here(store)?;
     let (protects, days) = protects_here(&reserved, store);
+    // A machine that downloads nothing may hold no marker in its index: the
+    // account's trash as it last noted it (from the log) says the same, or a
+    // phone kept for days a file emptied out of the trash (§8 13).
     let trashed = reserved
         .iter()
         .filter_map(|marker| parse_marker(marker))
-        .any(|trashed| trashed.path == *path);
+        .any(|trashed| trashed.path == *path)
+        || noted_shared(store.root()).contains_key(path);
     if !protects || trashed {
         return Ok(());
     }

@@ -2474,6 +2474,127 @@ fn a_version_no_machine_holds_stays_out() {
     );
 }
 
+/// The account's machines all gone, a version still comes back from a host of
+/// another account that keeps its chunks; one that answers with noise brings
+/// nothing back. Sabotage: store a fetched chunk without `accept_chunk`.
+#[test]
+fn red_team_a_version_comes_back_from_a_host_and_never_from_its_noise() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    let host = node(&MasterSecret::from_bytes([0xC3; 32]), 54);
+    let liar = node(&MasterSecret::from_bytes([0xC4; 32]), 55);
+    laptop
+        .store
+        .write_file("essay.txt", b"the good draft")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    for keeper in [&host, &liar] {
+        with_server(keeper, Pledge::gigabytes(1), |address| {
+            let mut client =
+                PeerClient::connect(address, &laptop.device, laptop.store.owner(), None)
+                    .expect("dial");
+            session::push(&laptop.store, &mut client).expect("push");
+        });
+    }
+    laptop
+        .store
+        .write_file("essay.txt", b"the draft that broke it")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+    let good = itsanas_store::versions(&phone.store, &phone.vault, "essay.txt")
+        .expect("versions")
+        .iter()
+        .position(|version| version.size == 14)
+        .expect("listed");
+    let owner = laptop.store.owner();
+    for chunk in itsanas_store::versions(&phone.store, &phone.vault, "essay.txt").expect("versions")
+        [good]
+        .chunks()
+    {
+        let sealed = liar
+            .vault
+            .get_chunk(owner, chunk)
+            .expect("vault")
+            .expect("held");
+        liar.vault.remove_chunk(owner, chunk).expect("remove");
+        liar.vault
+            .put_chunk(owner, chunk, &vec![0x7A; sealed.len()])
+            .expect("noise");
+    }
+    drop(laptop);
+
+    let ask = |keeper: &Node| {
+        let mut fetched = false;
+        with_server(keeper, Pledge::gigabytes(1), |address| {
+            let mut client = PeerClient::connect(address, &phone.device, phone.store.owner(), None)
+                .expect("dial");
+            fetched =
+                session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", good)
+                    .expect("fetch");
+        });
+        fetched
+    };
+    assert!(!ask(&liar), "a host's noise was taken for the version");
+    assert!(
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+            .expect("bring back"),
+        "a version made of a host's noise was published to every machine"
+    );
+    assert!(
+        ask(&host),
+        "a host keeping every chunk of the version gave none"
+    );
+    assert!(
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+            .expect("bring back")
+    );
+    assert_eq!(
+        phone.store.read_file("essay.txt").expect("read"),
+        Some(b"the good draft".to_vec())
+    );
+}
+
+/// A file listed here and on none of the account's machines that answer is
+/// fetched from a host of another account that keeps its chunks.
+#[test]
+fn a_file_only_listed_here_is_fetched_from_a_host() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    let host = node(&MasterSecret::from_bytes([0xC5; 32]), 56);
+    let chunks = laptop
+        .store
+        .write_file("photo.jpg", b"kept by a stranger")
+        .expect("write")
+        .chunks;
+    laptop.store.flush_segment().expect("flush");
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &laptop.device, laptop.store.owner(), None).expect("dial");
+        session::push(&laptop.store, &mut client).expect("push");
+    });
+    pull_listing(&phone, &laptop);
+    drop(laptop);
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::fetch_only(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            &chunks.into_iter().collect(),
+        )
+        .expect("fetch");
+    });
+    assert_eq!(
+        phone.store.read_file("photo.jpg").expect("read"),
+        Some(b"kept by a stranger".to_vec()),
+        "a host keeping every chunk of the file gave nothing"
+    );
+}
+
 #[test]
 fn deleting_what_the_account_does_not_have_deletes_nothing() {
     let master = alice();

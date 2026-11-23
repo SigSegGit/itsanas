@@ -4286,8 +4286,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     it, its chunks fetched from a machine of the account first (`session::fetch_version`, CLI and
     phone, `red_team_a_version_never_held_here_comes_back_from_another_machine`), and the desktop
     page's file list has Versions, Bring back and Rename
-    (`red_team_the_page_brings_a_version_back_and_renames`). **Left:** the iPhone's screens for
-    both; chunks are asked of the account's machines, not of other accounts' hosts; a
+    (`red_team_the_page_brings_a_version_back_and_renames`). Then the hosts of other accounts the
+    coordinator names are asked too, for a version and for `itsanas get` alike
+    (`red_team_a_version_comes_back_from_a_host_and_never_from_its_noise`,
+    `a_file_only_listed_here_is_fetched_from_a_host`). **Left:** the iPhone's screens for both; a
     rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
 
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
@@ -4330,8 +4332,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     `red_team_the_page_trash_acts_only_on_what_is_in_it`, `red_team_a_rule_that_keeps_less_waits_for_who_you_are`,
     the folder tests and the bench's phase T (a delete on machine 1, restored and emptied from
     machine 3). **Left:** the iPhone's trash screen changes (identity, Empty) have only been
-    compiled by CI; a machine that downloads nothing protects from its index alone, so a phone
-    may keep a protected copy of a file deleted out of the trash (it goes after its days); a
+    compiled by CI; a machine that downloads nothing reads its noted trash as well as its index, so
+    a file emptied out of the trash is not kept there
+    (`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`), but a
+    file restored and then deleted outright before the next note may go unprotected; a
     stolen device not yet withdrawn can still trash then empty, the same as before.
 
 12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'

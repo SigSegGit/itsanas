@@ -3129,19 +3129,31 @@ fn over_budget(node: &Node, error: itsanas_store::StoreError) -> CliError {
     ))
 }
 
-/// Bring here the chunks of version `at` of `path` from the first machine of
-/// the account that serves them all, so a version comes back on a machine
-/// that never held it (HANDOVER §8 15). Each chunk is checked as it arrives.
+/// Bring here the chunks of version `at` of `path`: from the account's
+/// machines first, then from the hosts of other accounts the coordinator
+/// names, which keep the account's chunks too (HANDOVER §8 15). Each chunk is
+/// checked as it arrives, and one source can finish what another began.
+pub(crate) fn host_targets(node: &Node) -> Vec<(String, Option<DeviceId>)> {
+    itsanas_node::coordinator::hosts(node)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(device, address)| (address, Some(device)))
+        .collect()
+}
+
 pub(crate) fn fetch_version_here(node: &Node, path: &str, at: usize) -> bool {
-    account_targets(node, None).iter().any(|(target, pinned)| {
-        connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned).is_ok_and(
-            |mut client| {
-                let _ = node.introduce(&mut client, itsanas_discover::now_unix());
-                session::fetch_version(&node.store, &node.vault, &mut client, path, at)
-                    .unwrap_or(false)
-            },
-        )
-    })
+    let from = |targets: &[(String, Option<DeviceId>)]| {
+        targets.iter().any(|(target, pinned)| {
+            connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned).is_ok_and(
+                |mut client| {
+                    let _ = node.introduce(&mut client, itsanas_discover::now_unix());
+                    session::fetch_version(&node.store, &node.vault, &mut client, path, at)
+                        .unwrap_or(false)
+                },
+            )
+        })
+    };
+    from(&account_targets(node, None)) || from(&host_targets(node))
 }
 
 /// Go and get a file this device knows about and has not downloaded.
@@ -3160,16 +3172,29 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
     // home with a storage budget answered "there is no peer to fetch it from"
     // while the coordinator listed its other machines and the address book
     // knew them, a parked one included (§8 0v).
-    let targets = account_targets(node, None);
+    // The account's machines first, then the hosts of other accounts the
+    // coordinator names, which keep its chunks too: asked only when no machine
+    // of the account served the file.
+    let mut targets = account_targets(node, None);
+    let mine = targets.len();
+    if mine == 0 {
+        targets = host_targets(node);
+    }
     if targets.is_empty() {
         return Err(CliError::Usage(format!(
             "{path} is in this account and not on this device, and no machine of this account is known to fetch it from. Try `itsanas peer add <host:port>` or `itsanas peer find <username>`."
         )));
     }
 
-    for (target, pinned) in &targets {
+    let mut at = 0;
+    while at < targets.len() {
+        let (target, pinned) = targets[at].clone();
+        at += 1;
+        if at == mine {
+            targets.extend(host_targets(node));
+        }
         let Ok(mut client) =
-            connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned)
+            connect_peer(target.as_str(), &node.device, node.store.owner(), pinned)
         else {
             continue;
         };
