@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-20 — 1712 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 649 are red-team tests.**
+**Last updated: 2026-11-20 — 1715 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 652 are red-team tests.**
 
-**1596 of the 1712 tests have an entry of their own on this page** — an *entry*,
+**1599 of the 1715 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -166,7 +166,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 5 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 70 |
+| `itsanas-net` unit | 72 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 75 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
-| `itsanas-discover` unit | 51 |
+| `itsanas-discover` unit | 52 |
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
@@ -217,13 +217,13 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
-| `wire` | peer and coordinator framing, versions, verb numbering | 6 |
+| `wire` | peer and coordinator framing, versions, verb numbering | 7 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 83 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 67 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 76 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 77 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
-| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 42 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 228 |
@@ -941,9 +941,9 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (70)
+# `itsanas-net` — unit tests (72)
 
-## `protocol` — messages and challenges (14)
+## `protocol` — messages and challenges (15)
 
 | Test | What it proves |
 | --- | --- |
@@ -960,9 +960,10 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
-| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
+| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`, the current version), appended so older numbers are unchanged. |
+| **`red_team_a_peer_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every peer request and response, folded (FNV-1a), one row per published `PROTOCOL_VERSION` from 12, never edited, the last row the current version: the coordinator's twin. A field added to a message at the same version is read as garbage by every peer of the release before; the number test sees only a variant moved. Sabotaged (a `Head` written without its `length`): red. |
 
-## `service` — what a peer may obtain (34)
+## `service` — what a peer may obtain (35)
 
 | Test | What it proves |
 | --- | --- |
@@ -997,6 +998,7 @@ about reading.
 | **`red_team_a_host_that_bounds_accounts_asks_before_every_store`** | §8 1c: with `with_owners`, both `StoreChunk` and `StoreSegment` ask the bound, a claim is credited to the device TLS proved, never another, and a host answers it with its own claim (`claiming`) so a machine that is never dialled can bound what it pulls. Sabotaged four ways: skip the gate on chunks, on segments, credit a fixed device, answer without the host's claim. |
 | `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
 | **`red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`** | `MayEvict` is honoured only from a caller the `Owners` gate confirms speaks for `owner`; another account's device, an unconfirmed one, and a host with no gate are refused. |
+| **`red_team_a_summary_root_is_the_root_of_the_summary_it_stands_for`** | `SummaryRoot` (protocol 12) answers the root of exactly what `ChunkSummary` would, for a hosted account with a marked chunk and for the host's own: an owner whose root matches re-stamps copies without asking, so a root over another set would have it count copies the host no longer has. Sabotaged (the store's summary for every owner; a constant): red each. |
 | **`red_team_a_marked_chunk_is_answered_missing_and_left_out_of_the_summary`** | A chunk its owner released reads as absent to that owner's next audit and summary, so the owner does not count it. |
 | **`red_team_eviction_is_asked_for_the_real_overage`** | Evicting for an `ACCOUNT_FULL` store frees what the incoming chunk exceeds the cap by, not a blanket amount. |
 | `a_full_account_makes_room_from_its_own_marks_and_never_from_anothers` | A store refused for `ACCOUNT_FULL` evicts that account's marked chunks and is admitted once more; it never touches another account. |
@@ -1240,7 +1242,7 @@ two real daemons) are `scripts/idle-writes.sh` with `CHECK=1`, a step of the
 
 | Test | What it proves |
 |---|---|
-| `an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory` | No idle round moves content; one costs at most 20 KiB on Wi-Fi and 8 KiB metered, coordinator included; the 80 rounds after the 40th keep at most 512 KiB of resident memory (Linux, in a child run with glibc's per-thread arenas and stack cache off, which grew 573 KB on x86 with no leak; 0 B since; not under CI's ARM emulator, whose own translated code grew 28 MB). Sabotaged (32 KB leaked a round): red. |
+| `an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory` | No idle round moves content; one costs at most 8 KiB on Wi-Fi (5.7 KB since peer protocol 12 sends the summary's root first; 13.9 KB before) and 8 KiB metered, coordinator included; the 80 rounds after the 40th keep at most 512 KiB of resident memory (Linux, in a child run with glibc's per-thread arenas and stack cache off, which grew 573 KB on x86 with no leak; 0 B since; not under CI's ARM emulator, whose own translated code grew 28 MB). Sabotaged (32 KB leaked a round; `reconcile` not asking the root): red each. |
 
 # `itsanas-cli` — test C's route, two accounts on one machine (3, `#[ignore]`d)
 
@@ -2510,7 +2512,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (51)
+# `itsanas-discover` — serverless local discovery (52)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -2540,11 +2542,12 @@ hardware it will actually run on.
 | `a_zero_port_is_refused` | An announcement nothing can serve is either a bug or bait for a connection that cannot succeed. |
 | `an_announcement_round_trips` | The basic path. |
 
-## `neighbours` — the bounded table (16)
+## `neighbours` — the bounded table (17)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_copies_of_a_beacon_over_virtual_networks_do_not_move_a_device`** | Hand test, 2026-10-22: Windows sends a broadcast out of every adapter, so the laptop heard the portable key beside it at 192.168.1.142, 192.168.19.1 and 192.168.117.1 each interval and logged a move at each. A copy heard over a virtual network (`record_via`) of a device heard on a real one within `EXPIRY` moves nothing and, since 2026-10-23, refreshes nothing; a device heard only over a virtual network (a VM on a host-only network) is recorded, and a real network takes over from it at once and again after `EXPIRY` of silence. Sabotaged (copies move the device): red. |
+| **`red_team_copies_over_two_virtual_networks_do_not_swap_a_device`** | Three accounts on one laptop hear one another only over its virtual adapters (Hyper-V, VMware's two), one copy per adapter, and each copy moved the entry: 15 945 "moved from" lines in 59 404 of one daemon's log, 2026-11-23. The first virtual address holds while fresh; a real network still takes over. Sabotaged (only a real entry holds): red. |
 | **`red_team_replays_over_a_virtual_network_do_not_keep_a_real_entry_alive`** | Red team, 2026-10-23: a captured beacon replayed every 30 s over a VM's host-only network kept the laptop's Wi-Fi entry fresh for ever, so it counted as heard here (and its private addresses as dialable) long after it left. The Wi-Fi entry keeps the time of its last real beacon and is gone from its Wi-Fi address past `EXPIRY`. Sabotaged (the copy refreshes `heard_unix`): red. |
 | **`a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`** | Why the *receiver's* clock decides and the sender's is ignored. Superseding by sender clock would leave a rebooted Pi pinned to a stale address until NTP ran — exactly when someone is waiting for it to come back. |
 | **`the_table_never_grows_past_its_capacity`** | A device id is a free keypair, so anyone on the network can mint valid announcements without limit. Unbounded means an out-of-memory kill on the Pi, triggered by a stranger. |

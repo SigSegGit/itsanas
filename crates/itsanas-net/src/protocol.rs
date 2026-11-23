@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 11;
+pub const PROTOCOL_VERSION: u16 = 12;
 
 /// The oldest version this node will still talk to.
 ///
@@ -146,6 +146,14 @@ pub const PROTOCOL_WITH_EVICTION: u16 = 10;
 /// A peer at 10 is not asked: the owner learns siblings only from sessions
 /// with them, and a chain from one it never met waits.
 pub const PROTOCOL_WITH_ROSTER: u16 = 11;
+
+/// The first version in which a peer answers the root of its chunk summary
+/// alone ([`Request::SummaryRoot`]): 32 bytes where the 256 digests were about
+/// 8 KB, asked every round of every pair whatever changed. An idle phone round
+/// on Wi-Fi was 13.9 KB, most of it this (`tests/idle.rs`, 2026-11-23).
+///
+/// A peer at 11 is asked the whole summary, as before.
+pub const PROTOCOL_WITH_SUMMARY_ROOT: u16 = 12;
 
 /// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
 /// integers, a flag and a signature: under 200 bytes.
@@ -404,6 +412,11 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     Claims { owner: UserId },
+    /// The root of what [`Request::ChunkSummary`] would answer: equal to the
+    /// asker's own, the two hold the same set and nothing more is asked.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    SummaryRoot { owner: UserId },
 }
 
 /// What a peer answers.
@@ -489,6 +502,10 @@ pub enum Response {
     ///
     /// Appended last: postcard numbers variants by position.
     Claims(Vec<Vec<u8>>),
+    /// The answer to [`Request::SummaryRoot`].
+    ///
+    /// Appended last: postcard numbers variants by position.
+    SummaryRoot([u8; 32]),
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -655,6 +672,7 @@ mod tests {
                 chunks: vec![ChunkId::from_bytes([11; 32])],
             },
             Request::Claims { owner: user() },
+            Request::SummaryRoot { owner: user() },
         ]
     }
 
@@ -689,6 +707,7 @@ mod tests {
             Request::Splice { .. } => {}
             Request::MayEvict { .. } => {}
             Request::Claims { .. } => {}
+            Request::SummaryRoot { .. } => {}
         }
     }
 
@@ -707,9 +726,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_response_variant_round_trips_through_the_wire() {
-        let responses = vec![
+    fn one_of_each_response() -> Vec<Response> {
+        vec![
             Response::Hello {
                 protocol: PROTOCOL_VERSION,
                 device: device(),
@@ -735,9 +753,55 @@ mod tests {
             Response::Spliced,
             Response::MayEvict { marked: 7 },
             Response::Claims(vec![vec![1, 2], Vec::new()]),
-        ];
+            Response::SummaryRoot([3; 32]),
+        ]
+    }
 
-        for response in responses {
+    /// The bytes of every peer message, folded (FNV-1a; postcard writes
+    /// fields in declaration order), one row per published
+    /// [`PROTOCOL_VERSION`] from 12, when the pin began. A row is never edited
+    /// once its version shipped: new bytes are a new row and a new version.
+    const WIRE_BY_VERSION: &[(u16, u64)] = &[(12, 4_349_036_195_717_396_686)];
+
+    #[test]
+    fn red_team_a_peer_message_that_changes_its_bytes_changes_the_version() {
+        // The coordinator's twin (`itsanas-coord`, #443): #435 changed what a
+        // message wrote and left the version, and the release before read
+        // garbage for a week. The number test below sees a variant moved, not
+        // a field added. Any change to what a message writes changes this
+        // figure: raise PROTOCOL_VERSION, keep the older peers' path behind
+        // a PROTOCOL_WITH_ constant, and set the new figure here.
+        let mut folded: u64 = 0xcbf2_9ce4_8422_2325;
+        let requests = one_of_each();
+        let responses = one_of_each_response();
+        let bytes = requests
+            .iter()
+            .map(|request| postcard::to_stdvec(request).unwrap())
+            .chain(
+                responses
+                    .iter()
+                    .map(|response| postcard::to_stdvec(response).unwrap()),
+            );
+        for message in bytes {
+            for byte in message {
+                folded = (folded ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        assert_eq!(
+            WIRE_BY_VERSION.last().map(|row| row.0),
+            Some(PROTOCOL_VERSION),
+            "PROTOCOL_VERSION has no row: add one with this build's figure, {folded}"
+        );
+        assert_eq!(
+            (PROTOCOL_VERSION, folded),
+            *WIRE_BY_VERSION.last().unwrap(),
+            "a peer message writes other bytes at the same version: every deployed peer of the release before reads it as garbage. Raise PROTOCOL_VERSION"
+        );
+    }
+
+    #[test]
+    fn every_response_variant_round_trips_through_the_wire() {
+        for response in one_of_each_response() {
             let frame = wire::encode(&response).unwrap();
             assert_eq!(wire::decode::<Response>(&frame).unwrap(), response);
         }
@@ -880,6 +944,7 @@ mod tests {
             Request::Splice { .. } => 17,
             Request::MayEvict { .. } => 18,
             Request::Claims { .. } => 19,
+            Request::SummaryRoot { .. } => 20,
         }
     }
 
@@ -904,6 +969,7 @@ mod tests {
             Response::Spliced => 15,
             Response::MayEvict { .. } => 16,
             Response::Claims(_) => 17,
+            Response::SummaryRoot(_) => 18,
         }
     }
 
@@ -953,6 +1019,7 @@ mod tests {
             Response::Spliced,
             Response::MayEvict { marked: 0 },
             Response::Claims(Vec::new()),
+            Response::SummaryRoot([0; 32]),
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();
@@ -1064,8 +1131,9 @@ mod tests {
     fn eviction_is_a_verb_of_the_current_version_and_of_no_older_one() {
         // The client gates `MayEvict` on this number; a version bump that
         // forgot it would send the verb to a peer that closes the connection
-        // on it. Sabotage: leave `PROTOCOL_VERSION` at 10.
-        assert_eq!(PROTOCOL_WITH_ROSTER, PROTOCOL_VERSION);
+        // on it. Sabotage: leave `PROTOCOL_VERSION` at 11.
+        assert_eq!(PROTOCOL_WITH_SUMMARY_ROOT, PROTOCOL_VERSION);
+        const { assert!(PROTOCOL_WITH_SUMMARY_ROOT > PROTOCOL_WITH_ROSTER) };
         const { assert!(PROTOCOL_WITH_ROSTER > PROTOCOL_WITH_EVICTION) };
         const { assert!(PROTOCOL_WITH_EVICTION > PROTOCOL_WITH_RELAY) };
     }

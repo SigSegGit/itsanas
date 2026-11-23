@@ -15,6 +15,15 @@ WRITTEN-AT: 2026-11-17
 BASE: 25720ae
 -->
 
+**2026-11-23, after #443: deployed, and two more found on the laptop.** The VM's coordinator was
+rebuilt by hand from `main` at `bb91d43` (the agents rebuild on release tags only; the next tag
+fast-forwards over it); the laptop's accounts read their listing again. Its logs then showed (1)
+the three accounts swapping each other's address every round between the Hyper-V and VMware
+adapters, a quarter of a daemon's log: a virtual copy now moves nothing while the address held is
+fresh (`red_team_copies_over_two_virtual_networks_do_not_swap_a_device`); (2) the 0.1.21 update
+read the address book as "damaged (Hit the end of buffer)" and restarted it empty, the same #435
+format change in a file that keeps presences: it recovers by itself, and was not known before.
+
 **2026-11-23: the fleet red for a week, and what an idle node costs.** Every fleet run from
 11-16 failed; the last ones on `B runner -> pi/vm` and C, because every machine of `test` and
 `mandarine` read the coordinator's listing as "Hit the end of buffer". Cause: #435 changed the
@@ -36,10 +45,10 @@ bytes), a step of `acceptance-local`. Trap: Git Bash rewrites `/mnt/c/...` given
 Rodin, on the batch: the coordinator's `COORD_VERSION` existed, with a readable "upgrade one
 side" refusal, and #435 did not raise it, so the old clients got garbage instead; a pin of the
 full bytes of every coordinator message now fails on any such change
-(`red_team_a_message_that_changes_its_bytes_changes_the_version`). Left: (1) the peer protocol
-pins only variant numbers, the same hole; (2) a Wi-Fi idle round asks the peer's 256-bucket
-summary (about 8 KB) though nothing changed: one hash of the 256 first would make it a few
-hundred bytes; (3) on CI's runner two idle daemons and their coordinator put 56 KB a round on `lo` (each
+(`red_team_a_message_that_changes_its_bytes_changes_the_version`). Both debts it named are
+paid in the PR after: peer protocol 12 sends the summary's root first (`Request::SummaryRoot`;
+an idle Wi-Fi round 13.9 KB to 5.7 KB, budget 8 KiB), and the peer messages' full bytes are
+pinned too (`red_team_a_peer_message_that_changes_its_bytes_changes_the_version`). And on CI's runner two idle daemons and their coordinator put 56 KB a round on `lo` (each
 byte counted twice), budget 160 KB. **Rule from this week: read the fleet before anything** (`gh run list --workflow
 fleet.yml --limit 3`, and issue "fleet: red"): it was red seven days with an issue nobody read.
 

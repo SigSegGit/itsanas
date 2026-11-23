@@ -137,6 +137,7 @@ pub const fn read_owner(request: &Request) -> Option<UserId> {
         | Request::Chunk { owner, .. }
         | Request::HaveChunks { owner, .. }
         | Request::ChunkSummary { owner }
+        | Request::SummaryRoot { owner }
         | Request::Challenge { owner, .. }
         | Request::Claims { owner } => Some(*owner),
         // Writes, bounded by `Owners::admits` and the pledge; `Dropped`,
@@ -596,24 +597,10 @@ impl<'a> PeerService<'a> {
 
             Request::WantHosted { limit } => self.want_hosted(*limit, caller),
 
-            Request::ChunkSummary { owner } => {
-                // Over the same set this node would answer `HaveChunks` from:
-                // its own store when the account is its own, its vault when it
-                // is holding for somebody else. Any other set and the summary
-                // would disagree with the exchange that follows it, which is
-                // the one way this mechanism can be worse than none.
-                // `held_summary`, not `chunk_summary`: since §8 4c an agreeing
-                // bucket re-stamps holder records without asking, so this node
-                // must not say it holds a chunk its own disk is known to have
-                // lost. The vault's index is kept honest by its rolling check.
-                let digests = if *owner == self.store.owner() {
-                    self.store.held_summary()?
-                } else {
-                    self.vault
-                        .chunk_summary_at(*owner, itsanas_store::now_unix())?
-                };
-                Ok(Response::ChunkSummary(digests))
-            }
+            Request::ChunkSummary { owner } => Ok(Response::ChunkSummary(self.summary_of(*owner)?)),
+            Request::SummaryRoot { owner } => Ok(Response::SummaryRoot(
+                itsanas_store::summary::root(&self.summary_of(*owner)?),
+            )),
 
             Request::Dropped { owner, chunks } => {
                 // Only the owner keeps a ledger about its own chunks. A node
@@ -1070,6 +1057,25 @@ impl<'a> PeerService<'a> {
         self.disk_room
             .and_then(|room| room())
             .is_some_and(|room| incoming as u64 > room)
+    }
+
+    /// What this node holds of `owner`'s chunks, summarised.
+    ///
+    /// Over the same set this node would answer `HaveChunks` from: its own
+    /// store when the account is its own, its vault when it is holding for
+    /// somebody else. Any other set and the summary would disagree with the
+    /// exchange that follows it, which is the one way this mechanism can be
+    /// worse than none. `held_summary`, not `chunk_summary`: since §8 4c an
+    /// agreeing bucket re-stamps holder records without asking, so this node
+    /// must not say it holds a chunk its own disk is known to have lost. The
+    /// vault's index is kept honest by its rolling check.
+    fn summary_of(&self, owner: UserId) -> Result<Vec<itsanas_store::summary::Digest>> {
+        Ok(if owner == self.store.owner() {
+            self.store.held_summary()?
+        } else {
+            self.vault
+                .chunk_summary_at(owner, itsanas_store::now_unix())?
+        })
     }
 
     fn would_exceed_pledge(&self, incoming: usize) -> Result<bool> {
@@ -2365,6 +2371,45 @@ mod tests {
             Response::Missing(Vec::new())
         );
         assert_eq!(summary(&service), before);
+    }
+
+    #[test]
+    fn red_team_a_summary_root_is_the_root_of_the_summary_it_stands_for() {
+        // `SummaryRoot` lets an idle round skip the 256 digests (#443's
+        // budgets: 13.9 KB a Wi-Fi round, most of it them). An owner whose
+        // root matches takes the sets for equal and re-stamps without asking,
+        // so a root over another set than the summary's -- the blobs rather
+        // than what is held, or a marked chunk counted -- would have it count
+        // copies a host no longer has. Sabotage: the root of the store's own
+        // summary for every owner; a constant.
+        let node = node(&alice(), 6);
+        let gate = bound(1_000);
+        let service = service(&node).with_owners(&gate);
+        for byte in [1, 2, 3] {
+            service.handle(&store_for(bob(), byte), BOBS).unwrap();
+        }
+        service.handle(&may_evict(bob(), &[2]), BOBS).unwrap();
+        let root_of = |owner| match service
+            .handle(&Request::ChunkSummary { owner }, BOBS)
+            .unwrap()
+        {
+            Response::ChunkSummary(digests) => itsanas_store::summary::root(&digests),
+            other => panic!("expected a summary, got {other:?}"),
+        };
+        for owner in [bob(), node.store.owner()] {
+            assert_eq!(
+                service
+                    .handle(&Request::SummaryRoot { owner }, BOBS)
+                    .unwrap(),
+                Response::SummaryRoot(root_of(owner)),
+                "the root answered is not the root of the summary: an owner re-stamps copies on a set the host does not hold"
+            );
+        }
+        assert_ne!(
+            root_of(bob()),
+            root_of(node.store.owner()),
+            "the two owners' sets are alike here, so the test proves nothing"
+        );
     }
 
     #[test]

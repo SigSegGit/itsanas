@@ -180,15 +180,20 @@ impl Neighbours {
         };
 
         if let Some(existing) = self.entries.get_mut(&announcement.device) {
-            let real_and_fresh = !existing.via_virtual
-                && now.saturating_sub(existing.heard_unix) <= crate::EXPIRY.as_secs();
+            // Fresh, real or virtual: the laptop's own accounts hear one
+            // another only over its virtual adapters (Hyper-V, two of
+            // VMware's), one copy per adapter, and each copy moved the entry
+            // to its address -- a quarter of a daemon's log, 2026-11-23. A
+            // real network still takes over (`via_virtual` false below), and
+            // an entry gone stale is replaced.
+            let fresh_here = now.saturating_sub(existing.heard_unix) <= crate::EXPIRY.as_secs();
             // Moves nothing and refreshes nothing: a copy over a virtual
             // network is no news of the real one, and anything on a VM or a
             // container network can replay a captured beacon at will. Taken
             // as a refresh, such a replay kept a machine heard here -- and
             // its private addresses dialled -- long after it left (red team,
             // 2026-10-23). The real network's own beacons keep it fresh.
-            if via_virtual && existing.address != address && real_and_fresh {
+            if via_virtual && existing.address != address && fresh_here {
                 return Heard::Refreshed;
             }
             // A device heard speaking version 2 does not go back to version 1
@@ -449,6 +454,37 @@ mod tests {
         assert_ne!(
             table.record_via(&beacon, vmnet1, late, true),
             Heard::Refreshed
+        );
+    }
+
+    /// 2026-11-23: three accounts on one laptop hear one another only over
+    /// its virtual adapters, a copy of each beacon per adapter, and every copy
+    /// moved the entry: 15 945 "moved from" lines in 59 404 of one daemon's
+    /// log, and the address it dialled changed every round. The first virtual
+    /// address heard holds while it is fresh. Sabotage: only a real entry
+    /// holds against a virtual copy.
+    #[test]
+    fn red_team_copies_over_two_virtual_networks_do_not_swap_a_device() {
+        let mut table = Neighbours::new(8);
+        let sibling = DeviceKeys::generate().unwrap();
+        let hyper_v = IpAddr::V4(Ipv4Addr::new(172, 30, 160, 1));
+        let vmnet1 = IpAddr::V4(Ipv4Addr::new(192, 168, 117, 1));
+        let first = announce(&sibling, &owner_a(), 9799, 1000);
+        assert_eq!(table.record_via(&first, hyper_v, 1000, true), Heard::New);
+        for round in 0..10u64 {
+            let now = 1000 + 30 * round;
+            let beacon = announce(&sibling, &owner_a(), 9799, now);
+            for copy in [vmnet1, hyper_v] {
+                assert_eq!(
+                    table.record_via(&beacon, copy, now, true),
+                    Heard::Refreshed,
+                    "round {round}: a copy over {copy} swapped the address a sibling is dialled at"
+                );
+            }
+        }
+        assert_eq!(
+            table.get(&sibling.device_id()).unwrap().address,
+            SocketAddr::new(hyper_v, 9799)
         );
     }
 
