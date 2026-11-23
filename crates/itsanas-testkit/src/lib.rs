@@ -292,6 +292,36 @@ pub fn corpus_digest() -> String {
 /// Pinned value of [`corpus_digest`].
 pub const CORPUS_DIGEST: &str = "72a9f85576aaf16ecfe6a7ad8079c00690a03a9d7c9d3aec9ec05895ca88ae02";
 
+/// FNV-1a over `bytes`: the figure a format pin compares (HANDOVER §8 17).
+/// postcard writes fields in declaration order, so a value's figure is the
+/// same on every build and moves only when what is written moves.
+#[must_use]
+pub fn fold(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |folded, byte| {
+        (folded ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// Panic naming every `(name, figure)` of `found` that `pinned` does not
+/// hold: each is a format that writes other bytes to disk than the release
+/// before read.
+///
+/// # Panics
+///
+/// When any figure moved, with the rows to add once the old form is read.
+pub fn check_pinned(found: &[(&str, u64)], pinned: &[(&str, u64)]) {
+    let moved: Vec<String> = found
+        .iter()
+        .filter(|(name, figure)| !pinned.contains(&(name, *figure)))
+        .map(|(name, figure)| format!("(\"{name}\", {figure})"))
+        .collect();
+    assert!(
+        moved.is_empty(),
+        "these types write other bytes to disk than the release before read: a node upgraded in place cannot open what it wrote. Read the old form too, or tolerate it, then add a row: {}",
+        moved.join(", ")
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

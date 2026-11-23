@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1719 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 654 are red-team tests.**
+**Last updated: 2026-11-23 — 1723 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 658 are red-team tests.**
 
-**1603 of the 1719 tests have an entry of their own on this page** — an *entry*,
+**1607 of the 1723 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 25 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 231 |
+| `itsanas-store` unit | 232 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 136 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 137 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
@@ -186,7 +186,7 @@ guarantee and is not one.
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 182 |
+| `itsanas-node` unit | 184 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -219,13 +219,13 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 7 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 83 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 67 |
+| `identity` | keys, accounts, devices, claims, invitations | 84 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 68 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 77 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 42 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 64 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 66 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 230 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -473,8 +473,9 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (189, plus the 42 vault tests below)
+# `itsanas-store` — unit tests (190, plus the 42 vault tests below)
 
+| **`red_team_what_the_store_writes_to_disk_keeps_its_bytes`** | One sample of each type the store writes to its index, its segments and its protected list (`FileEntry`, `Tombstone`, `LogEntry`, `SegmentEnvelope`, `SegmentBody`, `LocalState`, `Reliability`, `Uptime`, the protected map), folded and pinned one row per type and format (`disk_bytes.rs`, §8 17): a format that moves without a reader for the old one is a node that cannot open what it wrote. Sabotaged (two fields of `Reliability` swapped): red. |
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
 
@@ -1935,7 +1936,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (205)
+# `itsanas-node` — a node on disk (207)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1979,7 +1980,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all, and never this node for another device (42)
+## `contact` — when the coordinator is dialled at all, and never this node for another device (43)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -2034,10 +2035,12 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (30)
+## `node` — identity on disk, and where its vault lives (31)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_sealed_secrets_keep_their_bytes`** | The plaintext a node seals its master secret and device seed in is pinned: a change is a node that can no longer open its own account after an upgrade (§8 17). Sabotaged (the two fields swapped): red. |
+| **`red_team_the_address_book_keeps_its_bytes`** | Both versions of `<home>/address-book` are pinned, the current one and `BookFileV1`, which every upgrade from before claims still reads: #435 cost every laptop its book, found by chance in a log (§8 17). Sabotaged (`BookEntry`'s `worked` and `claim` reordered): red. |
 | **`red_team_an_open_node_admits_to_its_roster_only_what_its_account_signed`** | `Node::create`/`open` arm the roster with this device; `admit_roster` admits a sibling on this account's signature, never a claim signed by another key or naming another account, and a revocation sticks. |
 | **`red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty`** | A configured vault (`vault = PATH`, HANDOVER §8 0s) whose directory is missing or empty, as when a NAS mount drops, refuses to open and creates nothing there, so hosted chunks are never mistaken for lost; another device's marker is refused too. Sabotaged twice (configured check off; marker contents ignored): red. |
 | `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
@@ -2980,6 +2983,12 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | **`red_team_standing_answers_the_withdrawal_not_the_claim_presented`** | A withdrawn device re-signs a live claim and presents it; the coordinator answers with the withdrawal it holds. Sabotaged by echoing the presented claim. |
 | **`red_team_standing_tells_nothing_about_a_device_the_caller_was_not_shown`** | A claim that does not verify is refused, and one signed under another account than the device's own is answered `None`: the question cannot be asked about a device the caller was never shown. Sabotaged by dropping either check. |
 | `standing_answers_a_live_device_with_its_claim_and_an_unknown_one_with_nothing` | The ordinary answers: a live device's claim, and nothing for a device never enrolled. |
+
+# `itsanas-coord` — what it writes to disk (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_what_the_coordinator_writes_to_disk_keeps_its_bytes`** | Every value the directory keeps (`Account`, signed claims and presences, `ClaimedPresence`, `LodgedInvitation`, `DepartureRecord`, `AvailabilityRecord`, `UsageRecord`) is folded and pinned one row per type and format (`directory/disk_bytes.rs`, §8 17): #435 made the coordinator read its own presence rows as garbage after an upgrade in place. Sabotaged (two fields of `UsageRecord` reordered): red. |
 
 # `itsanas-coordinator` — crash (`tests/crash.rs`), the real binary killed (2)
 

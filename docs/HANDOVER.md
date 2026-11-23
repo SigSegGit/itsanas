@@ -4248,7 +4248,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
     oldest release (the daily look reaches it, the coordinator still answers it). Gate for the
     announcement, not for the next release.
 
-17. ⬜ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23). #435
+17. ✅ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23; done the same day: `red_team_what_the_store_writes_to_disk_keeps_its_bytes`, `red_team_what_the_coordinator_writes_to_disk_keeps_its_bytes`, `red_team_the_address_book_keeps_its_bytes`, `red_team_the_sealed_secrets_keep_their_bytes`, the fold and the check shared in `itsanas-testkit`; `backup.rs` writes lists of segment and claim bytes, both pinned through their types). #435
     changed one structure and broke three places: coordinator messages and its presence rows
     (both handled in #443) and the laptop's address book, found by chance in a log. The wire is
     pinned now (`red_team_a_message_that_changes_its_bytes_changes_the_version`, both

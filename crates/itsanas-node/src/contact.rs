@@ -3051,3 +3051,75 @@ mod tests {
         );
     }
 }
+
+/// The address book's bytes, both versions, pinned (HANDOVER §8 17): #435
+/// changed a presence and every laptop lost its book on the upgrade, found by
+/// chance in a log. A version whose figure moves needs a reader for the old
+/// file first (as `BookFileV1` is), then a row; a shipped row is never edited.
+#[cfg(test)]
+mod disk_bytes {
+    use itsanas_coord::claim::{NodeClaim, Presence};
+    use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+
+    use super::{BookEntry, BookEntryV1, BookFile, BookFileV1};
+
+    const PINNED: &[(&str, u64)] = &[
+        ("BookFile v2", 4_736_550_793_510_739_214),
+        ("BookFile v1", 1_760_494_900_918_826_549),
+    ];
+
+    #[test]
+    fn red_team_the_address_book_keeps_its_bytes() {
+        // Sabotage: reorder `BookEntry`'s `worked` and `claim`.
+        let owner = UserKeys::derive(&MasterSecret::from_bytes([1; 32]));
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([2; 32]));
+        let presence = Presence {
+            device: keys.device_id(),
+            address: "a:1".to_owned(),
+            at_unix: 1_700_000_001,
+            head: 4,
+        }
+        .sign(&keys);
+        let claim = NodeClaim {
+            owner: owner.user_id(),
+            device: keys.device_id(),
+            pledged_bytes: 3 << 30,
+            issued_unix: 1_700_000_000,
+            revoked: false,
+        }
+        .sign(&owner);
+        let fold = |bytes: Vec<u8>| itsanas_testkit::fold(&bytes);
+        let found = [
+            (
+                "BookFile v2",
+                fold(
+                    postcard::to_stdvec(&BookFile {
+                        version: 2,
+                        signs: true,
+                        entries: vec![BookEntry {
+                            presence: presence.clone(),
+                            worked: Some(1_700_000_002),
+                            claim: Some(claim),
+                        }],
+                    })
+                    .expect("encode"),
+                ),
+            ),
+            (
+                "BookFile v1",
+                fold(
+                    postcard::to_stdvec(&BookFileV1 {
+                        version: 1,
+                        signs: true,
+                        entries: vec![BookEntryV1 {
+                            presence,
+                            worked: Some(1_700_000_002),
+                        }],
+                    })
+                    .expect("encode"),
+                ),
+            ),
+        ];
+        itsanas_testkit::check_pinned(&found, PINNED);
+    }
+}

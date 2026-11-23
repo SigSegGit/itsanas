@@ -54,6 +54,7 @@ SURFACES = [
     ]),
     ('coordinator', 'directory, presences, accounting, the coordinator as an adversary', [
         'itsanas-coord/src/directory.rs',
+        'itsanas-coord/src/directory/disk_bytes.rs',
         'itsanas-coord/src/service.rs',
         'itsanas-coord/src/server.rs',
         'itsanas-coord/src/accounting.rs',
@@ -100,6 +101,7 @@ SURFACES = [
     ]),
     ('local-store', 'the index, packs, folders, the virtual drive, crash', [
         'itsanas-store/src/index.rs',
+        'itsanas-store/src/disk_bytes.rs',
         'itsanas-store/src/pack.rs',
         'itsanas-store/tests/store.rs',
         'itsanas-store/tests/packs.rs',

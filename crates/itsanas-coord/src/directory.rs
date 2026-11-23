@@ -1836,6 +1836,9 @@ fn redeem_in(
 }
 
 #[cfg(test)]
+mod disk_bytes;
+
+#[cfg(test)]
 mod tests {
 
     /// THE LEAK THIS SHAPE INVITES: one account's devices are now a *range*
