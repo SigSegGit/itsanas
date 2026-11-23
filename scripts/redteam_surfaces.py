@@ -107,6 +107,7 @@ SURFACES = [
         'itsanas-store/tests/packs.rs',
         'itsanas-store/tests/keyed_chunking.rs',
         'itsanas-folder/tests/',
+        'itsanas-folder/src/scan.rs',
         'itsanas-drive/src/projfs.rs',
         'itsanas-node/src/node.rs',
         'itsanas-node/src/config.rs',

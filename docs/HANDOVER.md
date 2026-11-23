@@ -4478,6 +4478,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 9. Known gaps, deliberately open
 
+- ✅ **Fixed 2026-11-23 (red team): "do you have it" read the whole chunk.**
+  `HaveChunks` checked each address by reading the chunk, so a 32 KB batch of
+  1024 addresses cost a host up to 256 MB of disk, repeatable by any peer it
+  served (`red_team_asking_whether_chunks_are_held_reads_none_of_them`).
+- ✅ **Fixed 2026-11-23 (red team): a name Windows cannot hold went into a
+  hidden stream.** `12:30 notes.txt`, valid on Linux and macOS, was written on a
+  Windows folder as the NTFS stream `30 notes.txt` of a file `12`, unseen; now
+  refused there with the file kept in the account
+  (`red_team_a_name_windows_cannot_hold_is_never_written_into_a_hidden_stream`).
+  Left: the virtual drive (ProjFS) presents such names unchecked.
+
 - ✅ **Fixed 2026-11-18: tail truncation is caught.** A host can serve an
   internally consistent *prefix* of a segment chain. Every presence now carries
   the length of its device's chain, signed (`Presence::head`); a machine keeps

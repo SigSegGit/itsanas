@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1735 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 667 are red-team tests.**
+**Last updated: 2026-11-23 — 1737 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 669 are red-team tests.**
 
-**1619 of the 1735 tests have an entry of their own on this page** — an *entry*,
+**1621 of the 1737 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -166,7 +166,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 6 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 72 |
+| `itsanas-net` unit | 73 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 80 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -178,7 +178,7 @@ guarantee and is not one.
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
 | `itsanas-policy` unit | 27 |
-| `itsanas-folder` unit | 32 |
+| `itsanas-folder` unit | 33 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
@@ -221,11 +221,11 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 69 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 78 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 46 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 66 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 67 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 233 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -943,7 +943,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (72)
+# `itsanas-net` — unit tests (73)
 
 ## `protocol` — messages and challenges (15)
 
@@ -965,10 +965,11 @@ about reading.
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`, the current version), appended so older numbers are unchanged. |
 | **`red_team_a_peer_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every peer request and response, folded (FNV-1a), one row per published `PROTOCOL_VERSION` from 12, never edited, the last row the current version: the coordinator's twin. A field added to a message at the same version is read as garbage by every peer of the release before; the number test sees only a variant moved. Sabotaged (a `Head` written without its `length`): red. |
 
-## `service` — what a peer may obtain (35)
+## `service` — what a peer may obtain (36)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_asking_whether_chunks_are_held_reads_none_of_them`** | `HaveChunks` is answered from the index (`holds`), never by reading each chunk: a batch of 1024 addresses, 32 KB on the wire, cost the host up to 256 MB of disk reads, as often as any peer cared to ask (red team, 2026-11-23; `Vault::chunk_reads` counts them). Sabotaged (answer by reading again): red. |
 | **`red_team_a_host_that_bounds_nobody_serves_no_read`** | A service built without an `Owners` refuses every read `read_owner` names (`Heads`, `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary`, `Challenge`, `Claims`) with `NOT_YOUR_ACCOUNT`: the default is the safe side. |
 | **`red_team_an_away_node_serves_its_own_account_and_refuses_hosting_as_away`** | A node opened on the stand-in vault (`Node::open_away`, in `home/vault-while-away`) because the real disk is absent still serves its own account's sync, and refuses to host any other account with `HOSTING_AWAY`. Sabotaged (hosts as normal; own account refused): red. |
 | **`red_team_no_node_serves_with_the_unscoped_owners`** | `Unscoped`, the test double that lets anyone read, is named nowhere in the CLI, node or Android code outside their test modules. Its first version cut each file at the first `#[cfg(test)]` and missed code after a test helper in `daemon.rs`; sabotage found it. |
@@ -2460,7 +2461,7 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 
 ---
 
-# `itsanas-folder` — unit tests (32)
+# `itsanas-folder` — unit tests (33)
 
 ## `decision` — what should happen to one path (15)
 
@@ -2479,10 +2480,11 @@ destructive if wrong.
 | **`no_input_combination_panics_or_is_undecided`** | All 27 shapes of the problem are decided. |
 | `a_new_local_file_is_imported` / `an_edited_local_file_is_imported` / `a_file_the_user_deleted_is_removed_from_the_store` / `a_remote_edit_is_written_out` / `a_remotely_deleted_file_is_removed_from_disk` / `two_different_edits_keep_both` / `both_sides_deleting_agrees` / `nothing_to_do_when_all_three_agree` | The ordinary cases. |
 
-## `scan` — reading the folder safely (12)
+## `scan` — reading the folder safely (13)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_name_windows_cannot_hold_is_never_written_into_a_hidden_stream`** | A file another system names with one of `: * ? " < > |` is not written on Windows (`NotOnThisSystem`, the file stays in the account and the rest of the folder goes on): `12:30 notes.txt` from Linux or a Mac would have gone, unseen, into an NTFS stream of a file `12` (red team, 2026-11-23). Sabotaged (`fits` always true): red. |
 | **`a_logical_path_can_never_escape_the_folder`** | Traversal, absolute paths, drive letters and Windows device names all refused. These strings arrive in a peer's log, so a path that escaped would let a peer write anywhere on the disk. |
 | **`symlinks_are_skipped_rather_than_followed`** (unix) | A link inside the folder pointing at `~/.ssh` would otherwise quietly upload a private key, and the user would see only a harmless-looking file. |
 | **`operating_system_debris_is_ignored`** | Every machine writes its own `.DS_Store`; syncing them means they fight forever. |
