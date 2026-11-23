@@ -1884,9 +1884,28 @@ fn listen_line(node: &Node, listening: Option<&str>) -> String {
 /// `status`'s "used" line, and the warning when the disk can no longer
 /// hold the pledge, or the vault no longer takes a write: `unwritable` is
 /// why the last probe of it failed (`pledges::probe_write`).
+/// Free space on the vault's disk as the pledge sees it: the reserve file
+/// (`reserve = on`) holds this node's own pledge, so it counts as free to it.
+pub(crate) fn free_for_pledge(node: &Node) -> Option<u64> {
+    fs4::available_space(node.vault_dir())
+        .ok()
+        .map(|free| free.saturating_add(itsanas_node::pledges::reserved(&node.vault_dir())))
+}
+
 fn used_line(node: &Node, hosted: u64, unwritable: Option<&str>) -> String {
     let mut used = format!("  used            {}", format_size(hosted));
-    let free = fs4::available_space(node.vault_dir()).ok();
+    // The reserve file holds the pledge: free to it, never a reason to say
+    // the disk cannot keep it.
+    let reserved = itsanas_node::pledges::reserved(&node.vault_dir());
+    if node.config.reserve {
+        let _ = write!(
+            used,
+            "
+  held on disk    {} (reserve = on)",
+            format_size(reserved)
+        );
+    }
+    let free = free_for_pledge(node);
     let keepable = itsanas_node::pledges::keepable(node.config.pledge_bytes, hosted, free);
     if keepable < node.config.pledge_bytes {
         let _ = write!(
@@ -5141,7 +5160,7 @@ fn space_on(node: &mut Node, pledge: Option<&str>, keep: Option<&str>, apply: bo
     // laptop with a small C: and a large D: is the ordinary case, and telling
     // somebody they have room they do not have is the one answer this must
     // never give.
-    let free = fs4::available_space(node.vault_dir()).unwrap_or(0);
+    let free = free_for_pledge(node).unwrap_or(0);
     let held = node.store.stats()?.bytes_on_disk;
     let hosted = node.vault.stats()?.bytes;
 

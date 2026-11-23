@@ -632,9 +632,12 @@ impl Node {
     /// way around the other.
     #[must_use]
     pub fn disk_refusal(&self, bytes: u64, held: u64) -> Option<crate::pledges::DiskRefusal> {
+        // The reserve file holds this node's own pledge: free to it.
+        let reserved = crate::pledges::reserved(&self.vault_dir());
         let free = fs4::available_space(self.vault_dir())
             .ok()
-            .filter(|free| *free > 0);
+            .filter(|free| *free > 0)
+            .map(|free| free.saturating_add(reserved));
         self.disk_refusal_given(free, bytes, held)
     }
 

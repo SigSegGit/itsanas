@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1735 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 668 are red-team tests.**
+**Last updated: 2026-11-23 — 1737 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 669 are red-team tests.**
 
-**1619 of the 1735 tests have an entry of their own on this page** — an *entry*,
+**1621 of the 1737 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -186,7 +186,7 @@ guarantee and is not one.
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 184 |
+| `itsanas-node` unit | 186 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 69 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 78 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 46 |
@@ -1945,7 +1945,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (207)
+# `itsanas-node` — a node on disk (209)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2140,7 +2140,7 @@ to the peer, each turns the matching test red.
 | **`red_team_a_forged_chain_does_not_stop_a_budgeted_round`** | §8 2c, the phone's door. A budgeted round lists the account from its vault and fetches what it chose; a stranger's segment the host kept lands in that vault, and both the listing and the fetch failed on it, so every budgeted round errored for good and the phone fetched nothing again. Now the chosen file arrives and the round names the refused device. Sabotaged (the catalogue walk strict again; `fetch_only` back on one `apply_replaying`): red both times. Not proven here: the switch to `refresh_tolerant`, which no honest test server can reach (see `red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`). |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (15)
+## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (16)
 
 `src/pledges.rs`. Two accounts on the Freebox VM each pledged 30 GB on a disk
 that could not hold 60 (ROADMAP, "Pledges are not reserved"). Each red-team
@@ -2149,6 +2149,7 @@ not read, the pledge kept whatever the free space.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_reserve_holds_the_pledge_and_never_the_owners_last_space`** | `reserve = on`: a file the size of what is promised and not held, less a round's intake, allocated on disk; it shrinks as chunks arrive, never grows into the space kept free for the machine's owner, and goes when nothing is left to hold (ROADMAP "Pledges are not reserved", step 2). The pledge checks, the room for incoming chunks and `status` count it as free to the pledge. Sabotaged (the cap by what is free dropped): red. |
 | `the_same_promise_is_written_once_a_step_and_a_new_one_at_once` | The daemon published its promise several times a round, each a file rewritten for nothing: the same promise inside `PUBLISH_STEP` (an hour, against a seven-day staleness) is not written, a changed one is at once, an unchanged one again after the step, and a lost shared entry is written back. Sabotaged (always write): red. |
 | **`red_team_a_sibling_promise_on_the_same_disk_is_counted`** | A second home on the same disk sees the first one's pledge, so `itsanas pledge` refuses to promise the same free space twice. |
 | **`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`** | A Docker client sees a neighbour container's promise through `ITSANAS_PLEDGES_DIR`; an entry not updated for seven days is not counted and is named, so a removed container neither holds the disk for ever nor vanishes unsaid. |
@@ -2165,7 +2166,7 @@ not read, the pledge kept whatever the free space.
 | `a_promise_the_disk_cannot_keep_is_refused_with_its_figures` | `disk_refusal` and `overcommitted` as values each shell words itself: fits, does not fit, not known. No limit on keep still owes the pledge. |
 | `a_phones_slider_leaves_ten_gb_and_takes_the_others_value_only_if_it_fits` | The slider stops 10 GB short of the free space, and the other machines' value is taken only if it fits: otherwise the system runs out of room. |
 
-## `config` — settings (31)
+## `config` — settings (32)
 
 | Test | What it proves |
 | --- | --- |
@@ -2190,6 +2191,7 @@ not read, the pledge kept whatever the free space.
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
+| `reserve_is_off_unless_the_file_says_on` | `reserve` is off by default and not written; `reserve = on` reads and writes back; any other value is refused. |
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
