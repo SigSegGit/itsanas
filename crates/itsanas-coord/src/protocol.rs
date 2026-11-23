@@ -628,9 +628,12 @@ mod tests {
         (requests, responses)
     }
 
-    /// The bytes of every message at [`COORD_VERSION`] 1, folded (FNV-1a, so
-    /// the figure is the same on every build and every Rust).
-    const WIRE_AT_VERSION_1: u64 = 3_629_543_649_988_875_695;
+    /// The bytes of every message, folded (FNV-1a: postcard writes fields in
+    /// declaration order, so the figure is the same on every build), one row
+    /// per published [`COORD_VERSION`]. A row is never edited once its
+    /// version shipped: new bytes are a new row, which the last-row check
+    /// below makes a new version.
+    const WIRE_BY_VERSION: &[(u16, u64)] = &[(1, 3_629_543_649_988_875_695)];
 
     #[test]
     fn red_team_a_message_that_changes_its_bytes_changes_the_version() {
@@ -662,8 +665,13 @@ mod tests {
             }
         }
         assert_eq!(
+            WIRE_BY_VERSION.last().map(|row| row.0),
+            Some(COORD_VERSION),
+            "COORD_VERSION has no row: add one with this build's figure, {folded}"
+        );
+        assert_eq!(
             (COORD_VERSION, folded),
-            (1, WIRE_AT_VERSION_1),
+            *WIRE_BY_VERSION.last().unwrap(),
             "a coordinator message writes other bytes at the same version: every deployed client and coordinator of the release before reads it as garbage. Raise COORD_VERSION and read the old rows"
         );
     }
