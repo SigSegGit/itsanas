@@ -23,6 +23,11 @@ adapters, a quarter of a daemon's log: a virtual copy now moves nothing while th
 fresh (`red_team_copies_over_two_virtual_networks_do_not_swap_a_device`); (2) the 0.1.21 update
 read the address book as "damaged (Hit the end of buffer)" and restarted it empty, the same #435
 format change in a file that keeps presences: it recovers by itself, and was not known before.
+Rodin then: a virtual address held while fresh could be dialled for ever if it never answers
+(its adapter still hears the beacon); a failed dial now marks it (`note_unanswered`) and the next
+virtual copy moves it. Pinning what is written to disk is §8 17. Flaky:
+`the_space_question_is_answered_by_the_one_rule_every_platform_shares` failed once in a parallel
+run on Windows and passed alone and in the next full run (it reads real free space).
 
 **2026-11-23: the fleet red for a week, and what an idle node costs.** Every fleet run from
 11-16 failed; the last ones on `B runner -> pi/vm` and C, because every machine of `test` and
@@ -4212,6 +4217,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+17. ⬜ **Pin the bytes of what is written to disk, as the wire's are** (Rodin, 2026-11-23). #435
+    changed one structure and broke three places: coordinator messages and its presence rows
+    (both handled in #443) and the laptop's address book, found by chance in a log. The wire is
+    pinned now (`red_team_a_message_that_changes_its_bytes_changes_the_version`, both
+    protocols); nothing pins what a node writes. Files that persist postcard: `itsanas-cli`
+    `backup.rs`, `daemon.rs`; `itsanas-coord` `directory.rs`; `itsanas-node` `contact.rs`
+    (the address book), `coordinator.rs`, `node.rs`, `owners.rs`; `itsanas-store`
+    `deletion.rs`, `index.rs`, `index/placement.rs`, `version.rs`. Each type written gets a row
+    of folded bytes in one test, one row per format version, or is read tolerantly (unreadable
+    = absent) with a test that an old row does not stop the read. Done when every
+    `postcard::to_stdvec` that reaches a file or a table is in that test.
 
 16. ⬜ **A small database's backup in a dedicated account, and companies as hosts** (asked by
     Nicolas, 2026-11-23, "a main point to do soon"). First the owner's own case: itsaresume's data
