@@ -106,9 +106,9 @@ echo "  network $((net / 1024)) KB/round on loopback, both nodes and the coordin
 DISK_KB=${DISK_KB:-100}
 CPU_MS=${CPU_MS:-60}
 MEMORY_KB=${MEMORY_KB:-256}
-# Not measured yet: WSL counts nothing on lo. Generous until CI's first run
-# prints the figure (the "network" line), then three times that.
-NET_KB=${NET_KB:-128}
+# Measured on CI's ubuntu-24.04 (#443): 56 KB a round, every byte counted
+# twice on lo (sent and received). WSL counts nothing there.
+NET_KB=${NET_KB:-160}
 failed=0
 over() {
     if [ "$1" -gt "$2" ]; then

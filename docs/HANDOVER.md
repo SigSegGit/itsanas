@@ -29,7 +29,7 @@ so this needs a release (or the rebuild by hand in §8 0a). Also: the client ima
 failure); `.gitignore` has `/ios/build/` (it blocked `release.cmd`). New, asked by Nicolas: idle
 budgets. `tests/idle.rs` meters a phone's idle sync on the wire, coordinator included: 13.9 KB a
 round on Wi-Fi (most of it the peer's 256-bucket chunk summary, asked every round), 5.6 KB
-metered, 68 KB of memory over 120 rounds (Linux); budgets 20 KiB, 8 KiB, 1 MiB.
+metered, 68 KB of memory over 120 rounds (Linux); budgets 20 KiB, 8 KiB, 512 KiB after round 40 (glibc arenas grow first: 1.1 MB on CI).
 `scripts/idle-writes.sh` with `CHECK=1` budgets two real daemons (disk, CPU, memory, loopback
 bytes), a step of `acceptance-local`. Trap: Git Bash rewrites `/mnt/c/...` given to `wsl`; use
 `MSYS_NO_PATHCONV=1 wsl -e bash -l script`, `-l` for cargo on the PATH.
@@ -39,8 +39,8 @@ full bytes of every coordinator message now fails on any such change
 (`red_team_a_message_that_changes_its_bytes_changes_the_version`). Left: (1) the peer protocol
 pins only variant numbers, the same hole; (2) a Wi-Fi idle round asks the peer's 256-bucket
 summary (about 8 KB) though nothing changed: one hash of the 256 first would make it a few
-hundred bytes; (3) `idle-writes.sh`'s network budget (128 KB) waits for CI's first figure on a
-real `lo`. **Rule from this week: read the fleet before anything** (`gh run list --workflow
+hundred bytes; (3) on CI's runner two idle daemons and their coordinator put 56 KB a round on `lo` (each
+byte counted twice), budget 160 KB. **Rule from this week: read the fleet before anything** (`gh run list --workflow
 fleet.yml --limit 3`, and issue "fleet: red"): it was red seven days with an issue nobody read.
 
 **2026-11-19: #409's iPhone run, the end check.** Every UI test passed; then the computer still

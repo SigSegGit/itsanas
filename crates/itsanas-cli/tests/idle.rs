@@ -31,10 +31,14 @@ const BYTES_PER_IDLE_ROUND: u64 = 20 * 1024;
 const BYTES_PER_METERED_ROUND: u64 = 8 * 1024;
 /// Metered rounds measured.
 const METERED_ROUNDS: usize = 20;
-/// Resident memory the measured rounds may add, all of it: allocator noise
-/// and caches that settle, never a few KB per round (a 16 KB-a-round leak
-/// is 1.9 MB here).
-const MEMORY_GROWTH: u64 = 1024 * 1024;
+/// Measured rounds after which memory is read the first time. Until then it
+/// grows without leaking: glibc gives each new thread of the relay its own
+/// arena until there are eight a core (CI, 2026-11-23: 1.1 MB over the first
+/// 120 rounds, 68 KB under WSL). A leak grows after that as before it.
+const MEMORY_SETTLES: usize = 40;
+/// Resident memory the rounds after [`MEMORY_SETTLES`] may add, all of them:
+/// a leak of 8 KB a round is 640 KB there.
+const MEMORY_GROWTH: u64 = 512 * 1024;
 
 /// A relay to `target` that counts every byte it carries, both ways.
 fn metered(target: SocketAddr) -> (SocketAddr, Arc<AtomicU64>) {
@@ -103,8 +107,12 @@ fn an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory() {
             for _ in 0..WARM_ROUNDS {
                 sync_node(&phone, false, unix_now()).expect("a warm-up round");
             }
-            let (bytes_before, memory_before) = (wire(), resident());
+            let bytes_before = wire();
+            let mut memory_before = None;
             for round in 0..ROUNDS {
+                if round == MEMORY_SETTLES {
+                    memory_before = resident();
+                }
                 let answer = sync_node(&phone, false, unix_now()).expect("an idle round");
                 let said: serde_json::Value = serde_json::from_str(&answer).expect("json");
                 assert_eq!(
@@ -114,6 +122,7 @@ fn an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory() {
                 );
             }
             let per_round = (wire() - bytes_before) / ROUNDS as u64;
+            let memory_after = resident();
             let metered_before = wire();
             for _ in 0..METERED_ROUNDS {
                 sync_node(&phone, true, unix_now()).expect("an idle metered round");
@@ -130,13 +139,14 @@ fn an_idle_phone_sync_costs_few_bytes_and_keeps_no_memory() {
                     cost * 4 * 24 * 30 / 1_000_000
                 );
             }
-            if let (Some(before), Some(after)) = (memory_before, resident()) {
+            if let (Some(before), Some(after)) = (memory_before, memory_after) {
                 let grown = after.saturating_sub(before);
-                println!("{ROUNDS} idle rounds: resident memory grew {grown} B");
+                let rounds = (ROUNDS - MEMORY_SETTLES) as u64;
+                println!("{rounds} idle rounds: resident memory grew {grown} B");
                 assert!(
                     grown <= MEMORY_GROWTH,
-                    "{ROUNDS} idle rounds kept {grown} bytes of memory, over {MEMORY_GROWTH}: a leak of about {} B a round, which a phone or a Pi pays until it runs out",
-                    grown / ROUNDS as u64
+                    "{rounds} idle rounds kept {grown} bytes of memory, over {MEMORY_GROWTH}: a leak of about {} B a round, which a phone or a Pi pays until it runs out",
+                    grown / rounds
                 );
             }
         });
