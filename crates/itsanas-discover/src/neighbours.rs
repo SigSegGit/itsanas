@@ -70,6 +70,10 @@ pub struct Neighbour {
     /// Whether it came in over one of this machine's virtual networks
     /// ([`crate::interfaces::LocalNets::via_virtual`]).
     pub via_virtual: bool,
+    /// Dialled at this address and no answer ([`Neighbours::note_unanswered`]).
+    /// A copy over a virtual network may then move it: the address held is
+    /// fresh because beacons keep arriving there, not because it answers.
+    pub unanswered: bool,
 }
 
 /// What recording an announcement changed.
@@ -177,6 +181,7 @@ impl Neighbours {
             sent_unix: announcement.sent_unix,
             heard_unix: now,
             via_virtual,
+            unanswered: false,
         };
 
         if let Some(existing) = self.entries.get_mut(&announcement.device) {
@@ -193,7 +198,7 @@ impl Neighbours {
             // as a refresh, such a replay kept a machine heard here -- and
             // its private addresses dialled -- long after it left (red team,
             // 2026-10-23). The real network's own beacons keep it fresh.
-            if via_virtual && existing.address != address && fresh_here {
+            if via_virtual && existing.address != address && fresh_here && !existing.unanswered {
                 return Heard::Refreshed;
             }
             // A device heard speaking version 2 does not go back to version 1
@@ -245,6 +250,16 @@ impl Neighbours {
     /// Protected devices survive going quiet on purpose: a laptop that is
     /// switched off has not stopped being your laptop, and forgetting its last
     /// known address means a slower reconnection when it wakes.
+    /// `device` was dialled at `address` and did not answer. Only that
+    /// address is marked: an entry that moved since is not.
+    pub fn note_unanswered(&mut self, device: &DeviceId, address: SocketAddr) {
+        if let Some(entry) = self.entries.get_mut(device)
+            && entry.address == address
+        {
+            entry.unanswered = true;
+        }
+    }
+
     pub fn expire(&mut self, cutoff: u64) -> usize {
         let doomed: Vec<DeviceId> = self
             .entries
@@ -485,6 +500,19 @@ mod tests {
         assert_eq!(
             table.get(&sibling.device_id()).unwrap().address,
             SocketAddr::new(hyper_v, 9799)
+        );
+
+        // Held there, an address that does not answer would be dialled for
+        // ever while its adapter keeps receiving the beacon (Rodin, #445):
+        // once dialled in vain, the next virtual copy moves it.
+        table.note_unanswered(&sibling.device_id(), SocketAddr::new(hyper_v, 9799));
+        let beacon = announce(&sibling, &owner_a(), 9799, 1400);
+        assert_eq!(
+            table.record_via(&beacon, vmnet1, 1400, true),
+            Heard::Moved {
+                from: SocketAddr::new(hyper_v, 9799)
+            },
+            "an address that did not answer was kept for ever, its adapter still hearing the beacon"
         );
     }
 

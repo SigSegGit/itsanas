@@ -1914,6 +1914,32 @@ fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
     }
 }
 
+/// Whether this run stops for its vault's disk. It dropped under a running
+/// daemon: stop rather than run a round that writes hosted data to the local
+/// mount point; `itsanas daemon` then waits for the disk and starts again by
+/// itself. Away, the disk coming back is the news: this run stops, and
+/// `itsanas daemon` opens the node again on its real vault.
+fn stops_for_vault(node: &Node, shutdown: &AtomicBool) -> bool {
+    let present = vault_present(&node.vault_dir());
+    if node.away == present {
+        if present {
+            eprintln!(
+                "itsanas: the vault's disk is back at {}; hosting again",
+                node.vault_dir().display()
+            );
+        } else {
+            eprintln!(
+                "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
+                node.vault_dir().display()
+            );
+        }
+        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+        shutdown.store(true, Ordering::SeqCst);
+        return true;
+    }
+    false
+}
+
 /// One pass over every way this node knows of reaching a peer.
 ///
 /// In order: the coordinator, if this round owes it anything; addresses
@@ -1937,27 +1963,7 @@ fn one_round(
     folder: Option<&Folder>,
     interval: Duration,
 ) -> (BTreeSet<DeviceId>, bool, Option<String>) {
-    // The vault's disk dropped under a running daemon: stop this run, rather
-    // than run a round that writes hosted data to the local mount point.
-    // `itsanas daemon` then waits for the disk and starts again by itself.
-    // Away, the disk coming back is the news: this run stops, and `itsanas
-    // daemon` opens the node again on its real vault.
-    if node.away && vault_present(&node.vault_dir()) {
-        eprintln!(
-            "itsanas: the vault's disk is back at {}; hosting again",
-            node.vault_dir().display()
-        );
-        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
-        shutdown.store(true, Ordering::SeqCst);
-        return (BTreeSet::new(), false, None);
-    }
-    if !node.away && !vault_present(&node.vault_dir()) {
-        eprintln!(
-            "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
-            node.vault_dir().display()
-        );
-        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
-        shutdown.store(true, Ordering::SeqCst);
+    if stops_for_vault(node, shutdown) {
         return (BTreeSet::new(), false, None);
     }
     // The coordinator first, and only with a reason: this machine has not
@@ -2086,6 +2092,8 @@ fn one_round(
                 neighbourhood.confirm(outcome.device);
                 hosts.push((outcome.device, candidate.address.to_string()));
             }
+        } else {
+            neighbourhood.unanswered(&candidate.device, candidate.address);
         }
     }
     contact.hosts_reached(hosts, Instant::now());
