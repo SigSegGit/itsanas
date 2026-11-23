@@ -178,6 +178,28 @@ fn red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies()
     );
 }
 
+/// A machine whose index holds no trash marker (a phone that downloads
+/// nothing) still knows from its noted trash that a delete emptied the trash,
+/// and keeps nothing. Sabotage: drop the noted trash from `deletion::protect`.
+#[test]
+fn red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash() {
+    let swarm = swarm();
+    swarm.device(PHONE).write("emptied.txt", b"bytes").unwrap();
+    swarm.settle_and_check().unwrap();
+    let pc = swarm.device(PC).store();
+    deletion::note_shared(
+        pc.root(),
+        &std::collections::BTreeMap::from([("emptied.txt".to_owned(), now())]),
+    )
+    .unwrap();
+    swarm.device(PHONE).remove("emptied.txt").unwrap();
+    swarm.settle_and_check().unwrap();
+    assert!(
+        !deletion::protected(pc.root()).contains_key("emptied.txt"),
+        "a file emptied from the trash was kept for days by a machine that held no marker"
+    );
+}
+
 /// Each machine's rules are read the same everywhere, two changes made apart
 /// settle on the one that keeps more, and "apply to all" leaves one set.
 /// Sabotage: make `rules_under` take the first record instead of the most

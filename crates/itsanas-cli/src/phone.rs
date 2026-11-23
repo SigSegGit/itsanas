@@ -130,11 +130,15 @@ pub fn fetch(node: &Node, path: &str) -> Result<Vec<u8>, Failure> {
     // A machine that answered and did not serve them is not asked again at
     // its other addresses.
     let mut asked = std::collections::BTreeSet::new();
-    for (target, pinned) in &targets {
+    // The account's machines, then the hosts of other accounts the
+    // coordinator names, which keep its chunks too: the coordinator is asked
+    // only once every machine of the account was tried.
+    let hosts = std::iter::once_with(|| crate::host_targets(node)).flatten();
+    for (target, pinned) in targets.into_iter().chain(hosts) {
         if pinned.is_some_and(|device| asked.contains(&device)) {
             continue;
         }
-        let Ok(mut client) = crate::rounds::connect(node, target, *pinned) else {
+        let Ok(mut client) = crate::rounds::connect(node, &target, pinned) else {
             continue;
         };
         asked.insert(client.peer_device());
