@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1731 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 664 are red-team tests.**
+**Last updated: 2026-11-23 — 1733 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 666 are red-team tests.**
 
-**1615 of the 1731 tests have an entry of their own on this page** — an *entry*,
+**1617 of the 1733 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 387 |
+| `itsanas-cli` unit | 388 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -198,7 +198,7 @@ guarantee and is not one.
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-cli` idle (`tests/idle.rs`) | 1 |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-release` release (`tests/release.rs`) | 17 |
+| `itsanas-release` release (`tests/release.rs`) | 18 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -226,7 +226,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 46 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 66 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 231 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 233 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1302,7 +1302,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (387)
+# `itsanas-cli` — unit tests (388)
 
 ## `bench` — measuring this machine (4)
 
@@ -1741,11 +1741,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (41)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (42)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_command_that_opens_the_store_stops_the_daemon_first`** | A command that opens the store (`keep`, `peer`, `device`...) asks the daemon holding it to stop and goes on once the store is let go, instead of refusing; the service is started again after. Sabotaged (opened without stopping it): red. |
+| **`red_team_an_old_store_converts_itself_but_never_fills_its_disk`** | At the daemon's start, a store still in one file per chunk goes into packs on its own (`conversion_due`, ROADMAP M10), unless packs are off, and never when its disk lacks room for the copy the conversion makes before it deletes (the store's bytes, a quarter more and a gigabyte). Sabotaged (the free-space check dropped): red. |
 | **`red_team_convert_packs_while_the_service_runs_stops_the_run_and_waits_for_the_store`** | `itsanas convert-packs` handed to the daemon stops its run with the job left for `start_daemon`, as a vault move, since packs cannot be written beside an open store; converted once the store is closed, the store is in packs. Sabotaged (the daemon reports it done and converts nothing): red. |
 | **`red_team_the_file_commands_work_while_the_daemon_holds_the_store`** | `itsanas put`, `ls`, `get`, `rm`, `trash` (list, rules, days, restore) and `rm --now` run while a node holds the store, as the service always does: each is handed to the daemon's job loop, `get` gives back what `put` stored and `rm` leaves the account without the file. They refused to start before. Sabotaged (the daemon refuses file jobs): red. |
 | **`red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause`** | The adapter `dial_book` is tested through, run against a real serving machine: a round with the device expected at the address runs, one expecting another device there does not; a pause written on disk and a shutdown halt it. Sabotaged (no device pinned; the pause not read): red. |
@@ -3116,7 +3117,7 @@ the `slow-tests` CI job runs it in release.
 
 ---
 
-# `itsanas-release` — signed release manifests (17)
+# `itsanas-release` — signed release manifests (18)
 
 `crates/itsanas-release` (`tests/release.rs`): the manifest (`itsanas-release 1`,
 one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
@@ -3130,6 +3131,7 @@ holds Nicolas's public key since 2026-10-07.
 | --- | --- |
 | **`red_team_a_phone_installs_only_a_newer_signed_apk`** | The phone's update check (`android_update`): a newer signed release with an APK is offered with the entry its download is checked against; the same version, an older one or a release without an APK is nothing to do; a release signed by another key is an error, never "up to date". Sabotaged (a bad signature read as no update; the version comparison dropped): red. |
 | **`red_team_the_apk_entry_does_not_break_an_older_node_reading_the_manifest`** | A manifest carrying the APK (`android-apk`, `itsanas-android-apk`) still verifies for a desktop node: a `....apk` name would have made every 0.1.13 node reject the manifest and its own update. Sabotaged (the target renamed `android.apk`): red. |
+| **`red_team_every_older_release_still_reads_the_manifests_written_today`** | A manifest with every kind of line, written out as the first keyed release wrote it, still parses and is written back byte for byte, and a manifest written today holds no other kind of line: the parser is strict, so a new line kind is an update every older release refuses for ever (§8 18). A new platform is another `file` line. Sabotaged (a `signed-at` line added): red. |
 | **`red_team_a_newer_version_always_has_a_larger_android_code`** | `Version::android_code` rises with every version (Android installs an update only over a smaller `versionCode`, which was 1 for every build), and a version that does not fit has none. Sabotaged (`MAJOR * 1000 + MINOR`): red. |
 | `a_release_signed_by_the_trusted_key_is_accepted_end_to_end` | The honest path holds: manifest from a dir, sealed key signs it, verify_release + check_file accept the real binary (a refusal here would block every tester's update). |
 | **`red_team_a_manifest_signed_by_another_key_is_refused`** | A release signed by anyone but the trusted key is refused (else anyone could push binaries to every node); Sabotaged (signature check accepts any key): red. |

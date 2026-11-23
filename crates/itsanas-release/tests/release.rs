@@ -534,3 +534,44 @@ fn red_team_a_newer_version_always_has_a_larger_android_code() {
         "a minor that would collide was given a code"
     );
 }
+
+/// A manifest with every kind of line, as the first release with a key wrote
+/// it. The parser is strict on purpose, an unknown line being damage, so a
+/// new kind of line in a manifest is an update that every older release
+/// refuses for ever: the member who opens the app once a month is never
+/// updated again (HANDOVER §8 18). A new platform is only another `file` line.
+const EVERY_LINE: &str = "itsanas-release 1
+version 0.1.22
+file x86_64-pc-windows-msvc itsanas-x86_64-pc-windows-msvc.exe 12 0101010101010101010101010101010101010101010101010101010101010101 0202020202020202020202020202020202020202020202020202020202020202
+file aarch64-unknown-linux-ohos itsanas-aarch64-unknown-linux-ohos 34 0303030303030303030303030303030303030303030303030303030303030303 0404040404040404040404040404040404040404040404040404040404040404
+next-key 0505050505050505050505050505050505050505050505050505050505050505
+";
+
+/// Sabotage: add a line kind to `Manifest::to_text`, or rename the header.
+#[test]
+fn red_team_every_older_release_still_reads_the_manifests_written_today() {
+    let parsed = Manifest::parse(EVERY_LINE).expect("the first form no longer parses");
+    assert_eq!(
+        parsed.to_text(),
+        EVERY_LINE,
+        "a manifest is written in another form than every older release reads: they all refuse the update"
+    );
+    let today = Manifest {
+        version: v("9.9.9"),
+        files: vec![FileEntry {
+            target: ANDROID_TARGET.to_owned(),
+            name: format!("itsanas-{ANDROID_TARGET}"),
+            size: 1,
+            blake3: [6; 32],
+            sha256: [7; 32],
+        }],
+        next_key: Some([8; 32]),
+    };
+    let known = ["itsanas-release 1", "version ", "file ", "next-key "];
+    for line in today.to_text().lines() {
+        assert!(
+            known.iter().any(|kind| line.starts_with(kind)),
+            "a manifest line older releases refuse as damage: {line}"
+        );
+    }
+}

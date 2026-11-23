@@ -4243,8 +4243,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
     coordinator runs a build with it (the one deployed refuses any other version: redeploy it
     before a release raises `COORD_VERSION`); a machine at the oldest peer version kept (4) syncs
     both ways (`red_team_a_machine_of_the_oldest_release_in_the_window_still_syncs`); stored
-    formats are pinned (§8 17). Left below: the fleet scenario and the update path from the
-    oldest release. Until the
+    formats are pinned (§8 17); the release manifest's form is pinned, so every older release
+    still reads today's update (`red_team_every_older_release_still_reads_the_manifests_written_today`).
+    Left below: the fleet scenario. Until the
     public announcement, a version may break compatibility: 0.1.21 (peer protocol 12, presence
     with `head`) cut off the Mac and phones still on 0.1.19 until they update, and that is
     accepted. Before the announcement and any commercial offer, it is not: a member who opens
