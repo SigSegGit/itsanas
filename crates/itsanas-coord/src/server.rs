@@ -631,7 +631,11 @@ impl CoordClient {
         match client.ask(&Request::Hello {
             version: COORD_VERSION,
         })? {
-            Response::Welcome { version } if version == COORD_VERSION => Ok(client),
+            // A coordinator older than this build answers at its own version,
+            // which this build still speaks when it is in the window.
+            Response::Welcome { version } if crate::protocol::agreed(version) == Some(version) => {
+                Ok(client)
+            }
             Response::Refused(why) => Err(CoordError::Transport(why)),
             other => Err(CoordError::Transport(format!(
                 "expected a version agreement, got {other:?}"

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1729 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 662 are red-team tests.**
+**Last updated: 2026-11-23 — 1731 test functions across 47 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 664 are red-team tests.**
 
-**1613 of the 1729 tests have an entry of their own on this page** — an *entry*,
+**1615 of the 1731 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,13 +167,13 @@ guarantee and is not one.
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 6 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 72 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 79 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 80 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 137 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 19 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
@@ -220,11 +220,11 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 7 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 68 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 69 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 77 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 45 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 46 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 66 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 231 |
 
@@ -1053,7 +1053,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (79)
+# `itsanas-net` — two-node tests (80)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1113,6 +1113,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `a_file_deleted_for_good_comes_back_from_a_machine_that_still_holds_it` | A file deleted for good lists its last version, not current, and comes back on every machine from the one that still holds its chunks: nothing collects them but `itsanas gc`. |
 | **`red_team_a_version_never_held_here_comes_back_from_another_machine`** | A phone that only listed a file brings back the earlier version the laptop wrote: `session::fetch_version` asks the laptop for each missing chunk, checks it as any chunk (`accept_chunk`), and the version is the file on both machines (§8 15: a version came back only on a machine that had kept every chunk). Sabotaged (`fetch_version` answers true without fetching): red. |
 | `a_version_no_machine_holds_stays_out` | Collected on the laptop too: nothing comes, nothing is published, the file stays as it is. |
+| **`red_team_a_machine_of_the_oldest_release_in_the_window_still_syncs`** | A machine offering peer protocol 4, the oldest the window keeps (written out in the test), pulls, pushes, is pulled from and has a host keep its data: a member a month behind is not cut off (§8 18; `PeerClient::connect_offering`). Sabotaged (`MIN_PROTOCOL_VERSION` raised to 12): red. |
 | **`red_team_a_version_comes_back_from_a_host_and_never_from_its_noise`** | The account's machines gone, a host of another account that keeps the version's chunks gives them back, and one that answers with noise gives nothing: no chunk is stored, nothing is published (§8 15). Sabotaged (a refused chunk counted as fetched): red. |
 | `a_file_only_listed_here_is_fetched_from_a_host` | `fetch_only` against a host of another account: a file the account's machines no longer serve opens from the copies a stranger keeps. `itsanas get` and the phone ask the coordinator's hosts once every machine of the account was tried. |
 | **`red_team_a_version_whose_chunks_are_gone_is_never_brought_back`** | After `itsanas gc` collected a deleted file's chunks, its version says `not here` and is never published again: every machine would list a file that opens nowhere. Sabotaged (the check that its chunks are here dropped): red. |
@@ -2771,7 +2772,7 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (26)
+# `itsanas-coord` — the coordinator server (27)
 
 Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
@@ -2800,7 +2801,8 @@ two numbers made `itsanas-coord` look eight short.
 | `a_member_registers_enrols_a_device_and_is_then_findable_by_name` | The ordinary path end to end: after this, somebody who knows only a username can reach the machines. |
 | `a_connection_that_asks_too_much_is_told_why_rather_than_cut_off` | A silent close surfaces as "connection aborted by your host software", which reads like a firewall and sends whoever is debugging it an hour in the wrong direction. |
 | `the_peer_list_is_bounded_however_many_devices_a_user_enrols` | A member with a thousand devices is not a way to make the coordinator send a thousand records to anybody who asks. |
-| `a_version_mismatch_is_refused_rather_than_guessed_at` / `asking_about_an_unknown_name_says_so_rather_than_inventing_one` | No optimistic guessing, no invented answers. |
+| `a_version_below_the_window_is_refused_rather_than_guessed_at` / `asking_about_an_unknown_name_says_so_rather_than_inventing_one` | No optimistic guessing, no invented answers. |
+| **`red_team_a_newer_client_is_answered_at_the_coordinators_version`** | A client ahead of the coordinator is welcomed at the coordinator's version, and a client accepts a Welcome at an older version in the window: both sides speak `min(theirs, ours)` (`MIN_COORD_VERSION`, `agreed`), where any difference used to cut a member off until both sides updated (§8 18). Sabotaged (welcome only an equal version): red. |
 
 Unit tests in `service.rs` and `protocol.rs` cover the limiter's arithmetic and
 the open-request list:

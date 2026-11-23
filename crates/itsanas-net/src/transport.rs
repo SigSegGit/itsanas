@@ -803,6 +803,32 @@ impl PeerClient {
         expect: Option<DeviceId>,
         budget: Option<Duration>,
     ) -> Result<Self> {
+        Self::dial(address, device, owner, expect, budget, PROTOCOL_VERSION)
+    }
+
+    /// [`Self::connect`] as a node of an older release would: offering
+    /// `offering` and speaking no verb added after it. For the tests that keep
+    /// every gate working against the oldest version in the window (HANDOVER
+    /// §8 18); a real node always offers [`PROTOCOL_VERSION`].
+    #[doc(hidden)]
+    pub fn connect_offering(
+        address: impl ToSocketAddrs,
+        device: &DeviceKeys,
+        owner: UserId,
+        expect: Option<DeviceId>,
+        offering: u16,
+    ) -> Result<Self> {
+        Self::dial(address, device, owner, expect, None, offering)
+    }
+
+    fn dial(
+        address: impl ToSocketAddrs,
+        device: &DeviceKeys,
+        owner: UserId,
+        expect: Option<DeviceId>,
+        budget: Option<Duration>,
+        offering: u16,
+    ) -> Result<Self> {
         let addresses: Vec<SocketAddr> = address.to_socket_addrs()?.collect();
 
         let stream = connect_to_one_of(&addresses)?;
@@ -820,6 +846,7 @@ impl PeerClient {
             owner,
             expect,
             direct,
+            offering,
         )
     }
 
@@ -867,6 +894,7 @@ impl PeerClient {
             owner,
             Some(target),
             None,
+            PROTOCOL_VERSION,
         )?;
         spliced.via = via;
         Ok(spliced)
@@ -884,6 +912,7 @@ impl PeerClient {
         owner: UserId,
         expect: Option<DeviceId>,
         direct: Option<std::net::IpAddr>,
+        offering: u16,
     ) -> Result<Self> {
         let identity = Identity::generate()?;
         let Authenticated { peer, connection } =
@@ -900,7 +929,7 @@ impl PeerClient {
         // Version negotiation after authentication, so an incompatible peer
         // fails legibly rather than on some later message.
         match client.request(&Request::Hello {
-            protocol: PROTOCOL_VERSION,
+            protocol: offering,
             device: device.device_id(),
             owner,
         })? {
@@ -915,7 +944,7 @@ impl PeerClient {
                 // with something higher is newer than us and has agreed to come
                 // down; believing its number would have us using verbs we do
                 // not have.
-                client.spoken = protocol.min(PROTOCOL_VERSION);
+                client.spoken = protocol.min(offering);
             }
             Response::Refused(reason) => return Err(NetError::Refused(reason)),
             _ => {

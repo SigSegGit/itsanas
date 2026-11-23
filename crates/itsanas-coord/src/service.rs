@@ -288,15 +288,15 @@ impl<'a> CoordService<'a> {
     }
 
     fn hello(version: u16) -> Response {
-        if version == COORD_VERSION {
-            Response::Welcome {
-                version: COORD_VERSION,
-            }
-        } else {
-            Response::Refused(format!(
-                "this coordinator speaks version {COORD_VERSION}; upgrade one side"
-            ))
-        }
+        crate::protocol::agreed(version).map_or_else(
+            || {
+                Response::Refused(format!(
+                    "this coordinator speaks versions {}..={COORD_VERSION}, not {version}; update this app",
+                    crate::protocol::MIN_COORD_VERSION
+                ))
+            },
+            |version| Response::Welcome { version },
+        )
     }
 
     /// Deleting an account, and asking which accounts were deleted.

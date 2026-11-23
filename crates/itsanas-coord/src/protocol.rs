@@ -29,6 +29,33 @@ use crate::invitation::{Secret, SignedInvitation};
 /// The protocol version this build speaks.
 pub const COORD_VERSION: u16 = 1;
 
+/// The oldest version this build still speaks, as coordinator or client.
+///
+/// Until 2026-11-23 both sides required the *same* version, so every change to
+/// a message cut off every client of the release before until it updated:
+/// 0.1.21 did that to the Mac and the phones still on 0.1.19. A member who
+/// opens the app once a month must still sync (HANDOVER §8 18). So, as the
+/// peer protocol does since 2026-09 (`itsanas_net::protocol::MIN_PROTOCOL_VERSION`),
+/// a window: each side offers its own version and both speak
+/// `min(theirs, ours)` ([`agreed`]); a newer client is answered at the
+/// coordinator's version, and a newer coordinator at the client's. A message
+/// that changes is a new variant, gated on the agreed number; one that shipped
+/// keeps its bytes (`red_team_a_message_that_changes_its_bytes_changes_the_version`).
+pub const MIN_COORD_VERSION: u16 = 1;
+
+/// The version two sides speak when one offers `theirs`, or `None` when it is
+/// older than this build still speaks.
+#[must_use]
+pub const fn agreed(theirs: u16) -> Option<u16> {
+    if theirs < MIN_COORD_VERSION {
+        None
+    } else if theirs < COORD_VERSION {
+        Some(theirs)
+    } else {
+        Some(COORD_VERSION)
+    }
+}
+
 /// Longest username accepted on the wire, before the directory sees it.
 ///
 /// Duplicated from `directory::MAX_USERNAME_LEN` rather than imported, because
@@ -672,7 +699,7 @@ mod tests {
         assert_eq!(
             (COORD_VERSION, folded),
             *WIRE_BY_VERSION.last().unwrap(),
-            "a coordinator message writes other bytes at the same version: every deployed client and coordinator of the release before reads it as garbage. Raise COORD_VERSION and read the old rows"
+            "a coordinator message writes other bytes at the same version: every deployed client and coordinator of the release before reads it as garbage. A message that shipped keeps its bytes: add a new variant, raise COORD_VERSION, use it only when `agreed` reaches it, and add a row"
         );
     }
 
