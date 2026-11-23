@@ -86,11 +86,30 @@ pub fn is_ignored(name: &str) -> bool {
 /// directory.
 pub const MARKER: &str = ".itsanas-folder";
 
-/// Turn a logical path into a real one, refusing anything that escapes.
+/// Characters no Windows file name holds. The colon is worse than refused:
+/// NTFS reads `a:b` as the stream `b` of a file `a`, so a file named
+/// `12:30 notes.txt` on Linux or a Mac would have been written, unseen, into
+/// a hidden stream of a file `12`, and the person would have looked for it
+/// in vain. The others make the write fail on every round.
+const NOT_ON_WINDOWS: [char; 7] = [':', '*', '?', '"', '<', '>', '|'];
+
+/// Whether `logical` can be a file's name here: on Windows, none of
+/// [`NOT_ON_WINDOWS`]. Every other system takes them.
+#[must_use]
+pub fn fits(logical: &str, windows: bool) -> bool {
+    !windows || !logical.contains(NOT_ON_WINDOWS)
+}
+
+/// Turn a logical path into a real one, refusing anything that escapes, or
+/// that this system cannot name ([`fits`]): that file stays in the account,
+/// and the rest of the folder goes on.
 pub fn to_filesystem(root: &Path, logical: &str) -> Result<PathBuf> {
     // First line of defence: the logical path's own grammar.
     itsanas_store::path::validate(logical)
         .map_err(|_| FolderError::Escapes(PathBuf::from(logical)))?;
+    if !fits(logical, cfg!(windows)) {
+        return Err(FolderError::NotOnThisSystem(logical.to_owned()));
+    }
 
     let joined = root.join(logical);
 
@@ -215,6 +234,32 @@ fn walk(root: &Path, directory: &Path, out: &mut BTreeMap<String, DiskFile>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A name another system allows and Windows cannot hold is refused on
+    /// Windows, not written: `12:30 notes.txt` would have gone into a hidden
+    /// NTFS stream of a file `12`, unseen. Elsewhere it is an ordinary file.
+    /// Sabotage: make `fits` answer true.
+    #[test]
+    fn red_team_a_name_windows_cannot_hold_is_never_written_into_a_hidden_stream() {
+        for name in [
+            "12:30 notes.txt",
+            "work/a:b",
+            "what?.txt",
+            "a|b",
+            "x/\"q\".md",
+        ] {
+            assert!(!fits(name, true), "{name} would be written on Windows");
+            assert!(fits(name, false), "{name} refused where it is a valid name");
+        }
+        assert!(fits("ordinary/notes.txt", true));
+        if cfg!(windows) {
+            let root = folder();
+            assert!(matches!(
+                to_filesystem(root.path(), "12:30 notes.txt"),
+                Err(FolderError::NotOnThisSystem(_))
+            ));
+        }
+    }
 
     fn folder() -> tempfile::TempDir {
         tempfile::tempdir().expect("temp dir")

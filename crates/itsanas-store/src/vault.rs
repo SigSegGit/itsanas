@@ -303,6 +303,9 @@ pub struct Vault {
     /// one length while the disk keeps the other, and the total would lie by
     /// the difference -- in the direction that lets the pledge be overrun.
     chunk_writes: std::sync::Mutex<()>,
+    /// Chunks read whole: what a request that only asks "do you have it"
+    /// must never cost ([`Self::chunk_reads`]).
+    reads: std::sync::atomic::AtomicU64,
     /// This process may have left the disk and the index apart, so `Drop`
     /// must not mark the close clean.
     ///
@@ -540,6 +543,7 @@ impl Vault {
             root,
             db,
             chunk_writes: std::sync::Mutex::new(()),
+            reads: std::sync::atomic::AtomicU64::new(0),
             // Suspect until the rebuild below has finished: if it fails, the
             // vault is dropped here and must leave the mark as it found it.
             suspect: std::sync::atomic::AtomicBool::new(true),
@@ -673,7 +677,15 @@ impl Vault {
 
     /// Serve a sealed chunk.
     pub fn get_chunk(&self, owner: UserId, address: &ChunkId) -> Result<Option<Vec<u8>>> {
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.blobs_for(owner)?.get(address)
+    }
+
+    /// How many chunks this vault has read whole since it opened.
+    #[must_use]
+    pub fn chunk_reads(&self) -> u64 {
+        self.reads.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether this vault holds a chunk.

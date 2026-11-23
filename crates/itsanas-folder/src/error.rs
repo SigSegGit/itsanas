@@ -22,6 +22,11 @@ pub enum FolderError {
     )]
     Escapes(PathBuf),
 
+    #[error(
+        "{0} cannot be a file on Windows: its name holds one of : * ? \" < > |.          It stays in the account, untouched; rename it on another machine to          have it here."
+    )]
+    NotOnThisSystem(String),
+
     #[error("the synced folder {0} does not exist")]
     NoFolder(PathBuf),
 

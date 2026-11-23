@@ -776,7 +776,10 @@ fn choose_language(ctx: &Context, request: &Request) -> Response {
     let Some(language) = field(&form, "lang")
         .and_then(|asked| LANGUAGES.into_iter().find(|language| *language == asked))
     else {
-        return Response::refuse(400, "this page speaks English (en) and French (fr)");
+        return Response::refuse(
+            400,
+            "this page speaks English (en), French (fr) and Simplified Chinese (zh)",
+        );
     };
     *lock(&ctx.language) = Some(language);
     let kept = save_language(&ctx.home, language);

@@ -569,9 +569,13 @@ impl<'a> PeerService<'a> {
                     self.vault
                         .marked_among(*owner, addresses, itsanas_store::now_unix())?
                 };
+                // Asked whether it is there, never read: reading each chunk
+                // whole to answer made a 32 KB request of 1024 addresses cost
+                // the host up to 256 MB of disk, as often as a peer cared to
+                // ask (red team, 2026-11-23).
                 let mut missing = Vec::new();
                 for address in addresses {
-                    if marked.contains(address) || self.chunk(*owner, address)?.is_none() {
+                    if marked.contains(address) || !self.holds(*owner, address)? {
                         missing.push(*address);
                     }
                 }
@@ -1040,6 +1044,15 @@ impl<'a> PeerService<'a> {
         Ok(self.vault.get_chunk(owner, address)?)
     }
 
+    /// Whether this node holds `address` for `owner`, from the same places
+    /// [`Self::chunk`] would read it, without reading it.
+    fn holds(&self, owner: UserId, address: &itsanas_crypto::ChunkId) -> Result<bool> {
+        if owner == self.store.owner() && self.store.blobs().contains(address) {
+            return Ok(true);
+        }
+        Ok(self.vault.has_chunk(owner, address)?)
+    }
+
     /// The storing lock, recovered if a panic poisoned it.
     ///
     /// Poisoning here means one request panicked between a check and a write.
@@ -1149,6 +1162,38 @@ mod tests {
 
     fn alice() -> MasterSecret {
         MasterSecret::from_bytes([0xA1; 32])
+    }
+
+    /// "Do you have these?" is answered from the index, never by reading
+    /// each chunk: a batch of 1024 addresses cost the host up to 256 MB of
+    /// disk for a 32 KB request, as often as any peer cared to ask.
+    /// Sabotage: answer with `self.chunk(..).is_none()` again.
+    #[test]
+    fn red_team_asking_whether_chunks_are_held_reads_none_of_them() {
+        let host = node(&alice(), 1);
+        let stranger = UserId::from_bytes([0x5E; 32]);
+        let held: Vec<ChunkId> = (0..64u8).map(|n| ChunkId::from_bytes([n; 32])).collect();
+        for address in &held {
+            host.vault
+                .put_chunk(stranger, address, &[7; 4096])
+                .expect("hosted");
+        }
+        let absent = ChunkId::from_bytes([0xEE; 32]);
+        let mut asked = held.clone();
+        asked.push(absent);
+        let before = host.vault.chunk_reads();
+        let answer = service(&host)
+            .handle_from_test(&Request::HaveChunks {
+                owner: stranger,
+                addresses: asked,
+            })
+            .expect("answered");
+        assert_eq!(answer, Response::Missing(vec![absent]));
+        assert_eq!(
+            host.vault.chunk_reads(),
+            before,
+            "answering whether chunks are held read them whole: a cheap request a peer can repeat costs the host its disk"
+        );
     }
 
     #[test]
