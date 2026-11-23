@@ -47,6 +47,11 @@ if ($colon -lt 1 -or $colon -eq $Target.Length - 1) {
 }
 $sshHost = $Target.Substring(0, $colon)
 $dir = $Target.Substring($colon + 1).TrimEnd('/')
+# Both go into commands the remote shell reads: only characters no shell
+# treats specially, as the tag below is only v1.2.3.
+if ($sshHost -notmatch '^[A-Za-z0-9._@-]+$' -or $dir -notmatch '^[A-Za-z0-9._/-]+$') {
+    Stop-Plain "ITSANAS_MIRROR may hold only letters, digits and . _ - / @, not '$Target'"
+}
 
 if (-not $Tag) {
     $Tag = (& gh release view -R $Repo --json tagName -q .tagName) | Select-Object -First 1
