@@ -2595,6 +2595,69 @@ fn a_file_only_listed_here_is_fetched_from_a_host() {
     );
 }
 
+/// A machine of the oldest release the window keeps open (`MIN_PROTOCOL_VERSION`)
+/// still syncs with this one, both ways, and has a host keep its data: a member
+/// who opens the app once a month is not cut off by a release (HANDOVER §8 18).
+/// Sabotage: raise `MIN_PROTOCOL_VERSION` to `PROTOCOL_VERSION`.
+#[test]
+fn red_team_a_machine_of_the_oldest_release_in_the_window_still_syncs() {
+    // The oldest version kept, written out: closing the window on a release
+    // still in use is a decision (§8 18), made by changing this line too.
+    const OLDEST_KEPT: u16 = 4;
+    let master = alice();
+    let laptop = node(&master, 1);
+    let old = node(&master, 2);
+    let host = node(&MasterSecret::from_bytes([0xC6; 32]), 57);
+    laptop
+        .store
+        .write_file("new.txt", b"from today")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    old.store
+        .write_file("old.txt", b"from last month")
+        .expect("write");
+    old.store.flush_segment().expect("flush");
+
+    let dial_old = |address| {
+        let client = PeerClient::connect_offering(
+            address,
+            &old.device,
+            old.store.owner(),
+            None,
+            OLDEST_KEPT,
+        )
+        .expect("a machine of the oldest release in the window was refused");
+        assert_eq!(client.spoken(), OLDEST_KEPT);
+        client
+    };
+    with_server(&laptop, Pledge::gigabytes(1), |address| {
+        let mut client = dial_old(address);
+        session::pull_scoped(
+            &old.store,
+            &old.vault,
+            &mut client,
+            session::Scope::Everything,
+        )
+        .expect("the old machine pulls");
+        session::push(&old.store, &mut client).expect("the old machine pushes");
+    });
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client = dial_old(address);
+        session::push(&old.store, &mut client).expect("a host keeps the old machine's data");
+    });
+    pull_all(&laptop, &old);
+    assert_eq!(
+        old.store.read_file("new.txt").expect("read"),
+        Some(b"from today".to_vec()),
+        "the old machine did not get today's file"
+    );
+    assert_eq!(
+        laptop.store.read_file("old.txt").expect("read"),
+        Some(b"from last month".to_vec()),
+        "today's machine did not get the old machine's file"
+    );
+}
+
 #[test]
 fn deleting_what_the_account_does_not_have_deletes_nothing() {
     let master = alice();

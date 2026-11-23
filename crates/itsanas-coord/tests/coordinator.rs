@@ -353,18 +353,48 @@ fn escrow_is_off_until_a_blob_is_stored_and_can_be_withdrawn_again() {
 }
 
 #[test]
-fn a_version_mismatch_is_refused_rather_than_guessed_at() {
+fn a_version_below_the_window_is_refused_rather_than_guessed_at() {
     with_coordinator(|address, _| {
         let mut client = dial(address, &device(2), &user(2));
         assert!(matches!(
             client
                 .ask(&Request::Hello {
-                    version: COORD_VERSION + 1
+                    version: itsanas_coord::protocol::MIN_COORD_VERSION - 1
                 })
                 .unwrap(),
             Response::Refused(_)
         ));
     });
+}
+
+/// A client newer than the coordinator is answered at the coordinator's
+/// version, not refused: until 2026-11-23 any difference cut a member off
+/// until both sides updated (§8 18). Sabotage: welcome only an equal version.
+#[test]
+fn red_team_a_newer_client_is_answered_at_the_coordinators_version() {
+    with_coordinator(|address, _| {
+        let mut client = dial(address, &device(2), &user(2));
+        assert_eq!(
+            client
+                .ask(&Request::Hello {
+                    version: COORD_VERSION + 3
+                })
+                .unwrap(),
+            Response::Welcome {
+                version: COORD_VERSION
+            },
+            "a client one release ahead of the coordinator was cut off"
+        );
+    });
+    assert_eq!(
+        itsanas_coord::protocol::agreed(COORD_VERSION),
+        Some(COORD_VERSION)
+    );
+    assert_eq!(
+        itsanas_coord::protocol::agreed(COORD_VERSION + 1),
+        Some(COORD_VERSION),
+        "a client accepts no Welcome from a coordinator older than it"
+    );
 }
 
 #[test]

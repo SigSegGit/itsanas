@@ -4236,7 +4236,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
     the English BIP-39 list, which every existing account uses; (f) whether the coordinator in
     France and the peers answer from China at a usable latency is what the test is for.
 
-18. ⬜ **An occasional user is never cut off by an update** (Nicolas, 2026-11-23). Until the
+18. 🟨 **An occasional user is never cut off by an update** (Nicolas, 2026-11-23). Done
+    2026-11-23: the coordinator protocol has the peer protocol's window (`MIN_COORD_VERSION`,
+    `agreed`: a newer client is answered at the coordinator's version,
+    `red_team_a_newer_client_is_answered_at_the_coordinators_version`), effective once the
+    coordinator runs a build with it (the one deployed refuses any other version: redeploy it
+    before a release raises `COORD_VERSION`); a machine at the oldest peer version kept (4) syncs
+    both ways (`red_team_a_machine_of_the_oldest_release_in_the_window_still_syncs`); stored
+    formats are pinned (§8 17). Left below: the fleet scenario and the update path from the
+    oldest release. Until the
     public announcement, a version may break compatibility: 0.1.21 (peer protocol 12, presence
     with `head`) cut off the Mac and phones still on 0.1.19 until they update, and that is
     accepted. Before the announcement and any commercial offer, it is not: a member who opens
