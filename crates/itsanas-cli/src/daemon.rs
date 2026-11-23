@@ -3235,6 +3235,42 @@ mod tests {
         );
     }
 
+    /// An old store in one file per chunk goes into packs on its own at the
+    /// daemon's start, never on a disk without room for the copy the
+    /// conversion makes first, and never with packs turned off. Sabotage:
+    /// drop the free-space check from `conversion_due`.
+    #[test]
+    fn red_team_an_old_store_converts_itself_but_never_fills_its_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("store");
+        let blobs = itsanas_store::BlobStore::open_files(&root).expect("files");
+        blobs
+            .put(
+                &itsanas_crypto::ChunkId::from_bytes([1; 32]),
+                &vec![7u8; 300_000],
+            )
+            .expect("put");
+        drop(blobs);
+        let roots = vec![root.clone()];
+        assert!(
+            !crate::conversion_due(&roots, true, &|_| Some(u64::MAX)),
+            "converted although packs are turned off"
+        );
+        assert!(
+            !crate::conversion_due(&roots, false, &|_| Some(1 << 20)),
+            "a conversion was started on a disk without room for its copy: it fills the disk"
+        );
+        assert!(
+            crate::conversion_due(&roots, false, &|_| Some(u64::MAX)),
+            "an old store with room to spare is never converted"
+        );
+        itsanas_store::BlobStore::convert_to_packs(&root).expect("convert");
+        assert!(
+            !crate::conversion_due(&roots, false, &|_| Some(u64::MAX)),
+            "a store already in packs is converted again"
+        );
+    }
+
     /// The adapter `dial_book` is tested through, run for real: a round with
     /// the machine expected at an address happens, one with another device
     /// expected there does not, and a pause on disk or a shutdown halts it.

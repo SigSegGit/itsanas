@@ -4807,6 +4807,23 @@ fn start_daemon(
         passphrase(false)?
     };
     jobs::clear_stale(home);
+    // Before the store opens: an old store in one file per chunk goes into
+    // packs on its own when its disk has room (ROADMAP M10). A failure leaves
+    // it as it was and the daemon runs on it.
+    if store_roots(home).is_ok_and(|roots| {
+        conversion_due(
+            &roots,
+            std::env::var(itsanas_store::blob::PACKS_ENV).as_deref() == Ok("0"),
+            &|root| itsanas_node::pledges::disk_space(root).free,
+        )
+    }) {
+        match convert_stores(home) {
+            Ok(said) => eprintln!("itsanas: {said}"),
+            Err(error) => {
+                eprintln!("itsanas: pack files not made, the store is as it was: {error}");
+            }
+        }
+    }
     // A vault on a removable disk comes and goes. Unplugged, this machine is
     // simply away -- its hosts' audits read it as unreachable, never as a
     // host that lost their data -- and it comes back by itself when the disk
@@ -5859,6 +5876,51 @@ fn convert_packs(home: &Path) -> Result<()> {
     Ok(())
 }
 
+/// This machine's store and every store it hosts.
+fn store_roots(home: &Path) -> Result<Vec<PathBuf>> {
+    let config = itsanas_node::config::Config::load(&itsanas_node::node::Node::config_path(home))?;
+    let mut roots = vec![itsanas_node::node::Node::store_path(home)];
+    let owners = itsanas_node::node::Node::vault_path(home, &config).join("owners");
+    if let Ok(entries) = std::fs::read_dir(&owners) {
+        roots.extend(entries.filter_map(|entry| entry.ok().map(|e| e.path())));
+    }
+    Ok(roots)
+}
+
+/// Whether the daemon converts `roots` to pack files on its own before it
+/// opens the node: one is still one file per chunk (14.7 million files a
+/// terabyte, all walked every round: ROADMAP M10), packs are not turned off
+/// (`ITSANAS_PACKS=0`), and each such store's disk, as `free_of` measures
+/// it, has room for the copy the conversion makes before it deletes, plus a
+/// quarter and a gigabyte. A disk too full is left as it is, never filled.
+pub(crate) fn conversion_due(
+    roots: &[PathBuf],
+    packs_off: bool,
+    free_of: &dyn Fn(&Path) -> Option<u64>,
+) -> bool {
+    if packs_off {
+        return false;
+    }
+    let mut any = false;
+    for root in roots {
+        let Ok(blobs) = itsanas_store::BlobStore::open(root) else {
+            return false;
+        };
+        if blobs.packs().is_some() {
+            continue;
+        }
+        let Ok(bytes) = blobs.total_bytes() else {
+            return false;
+        };
+        let needed = bytes.saturating_add(bytes / 4).saturating_add(1 << 30);
+        if free_of(root).is_none_or(|free| free < needed) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
 /// Move this machine's store and every store it hosts into pack files; what
 /// it says. The stores must be closed.
 fn convert_stores(home: &Path) -> Result<String> {
@@ -5868,12 +5930,7 @@ fn convert_stores(home: &Path) -> Result<String> {
             "the daemon holds this node: stop it, then run convert-packs again".to_owned(),
         ));
     }
-    let config = itsanas_node::config::Config::load(&itsanas_node::node::Node::config_path(home))?;
-    let mut roots = vec![store];
-    let owners = itsanas_node::node::Node::vault_path(home, &config).join("owners");
-    if let Ok(entries) = std::fs::read_dir(&owners) {
-        roots.extend(entries.filter_map(|entry| entry.ok().map(|e| e.path())));
-    }
+    let roots = store_roots(home)?;
     let mut moved = 0u64;
     for root in &roots {
         moved += itsanas_store::BlobStore::convert_to_packs(root)?;
