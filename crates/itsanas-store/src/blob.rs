@@ -356,10 +356,14 @@ impl BlobStore {
         if let Some(packs) = &self.packs {
             return packs.total_bytes();
         }
+        // One address at a time: a list of every address is 470 MB a terabyte
+        // in one file per chunk, and the daemon asks this of such a store at
+        // start, to know whether it has room to convert it.
         let mut total = 0u64;
-        for address in self.addresses()? {
+        self.for_each_address(&mut |address| {
             total = total.saturating_add(self.size_of(&address)?.unwrap_or(0));
-        }
+            Ok(())
+        })?;
         Ok(total)
     }
 
