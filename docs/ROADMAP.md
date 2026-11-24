@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1752 test functions, 20 of them `#[ignore]`d into the slow job, and 682 of
+**1756 test functions, 20 of them `#[ignore]`d into the slow job, and 685 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -736,10 +736,14 @@ device and reaching a different one is refused.
 
 **Still outstanding for M4:**
 
-- **A real fuzzing campaign** (`cargo-fuzz`) against the decoder. It is currently
-  exercised against every truncation and every single-bit corruption of a valid
-  frame, and against arbitrary garbage — a hand-written adversarial suite, which
-  covers the inputs somebody thought of.
+- **A real fuzzing campaign** (`cargo-fuzz`) against the decoder. 🟨 Since
+  2026-11-24 every peer and coordinator message is decoded in tens of
+  thousands of damaged copies on every CI run, deterministically
+  (`itsanas_testkit::mutate`; `red_team_no_damaged_frame_crashes_or_stalls_the_decoder`,
+  `red_team_no_damaged_message_crashes_or_stalls_the_decoder`), on top of every
+  truncation and single-bit corruption of a valid frame. Not coverage-guided:
+  a fuzzer that steers by the code it reaches finds inputs these seeds never
+  draw, and needs a nightly toolchain CI does not run.
 - ~~**An address lookup costs the coordinator a full table scan.**~~ **Fixed
   2026-09-18, the same day it was measured.** `peers_of`, `devices_of` and
   `contributions` walked `live_claims()`, which deserialises every claim in the
@@ -1044,13 +1048,16 @@ below the floor — but nothing runs that plan yet.
   round, which reaches a given chunk in nine hours on a ten-gigabyte store and
   in **fifty-five days** on a terabyte. Both write to the same queue and repair
   drains it before it samples anything.
-- **Executing the plan.** The planner is wired to nothing. It needs a loop that
-  builds a census by asking peers, runs the plan, and pushes — which needs the
-  daemon (M7) to have somewhere to live and the coordinator (M6) to supply an
-  agreed node set.
-- **Scheduled proof-of-storage.** The challenge primitive works and is tested
-  over the wire; nothing issues challenges periodically or records the results,
-  so a host that quietly discards data is currently detected only by accident.
+- ~~**Executing the plan.**~~ Done: the daemon's round runs `session::repair`
+  on every peer it reaches (`REPAIR_SCAN_PER_ROUND`), loss found by `doctor`
+  first (`what_doctor_finds_is_what_repair_fixes_first`,
+  `red_team_a_host_cannot_answer_a_repair_request_with_rubbish`).
+- ~~**Scheduled proof-of-storage.**~~ Done: each round challenges what a host
+  holds (`session::audit`, `CHALLENGES_PER_ROUND`) and records the result
+  (`an_audit_confirms_a_host_that_is_still_holding_the_data`,
+  `red_team_an_audit_answered_away_is_no_failed_audit`); a failed challenge
+  reaches the icon and `status`
+  (`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`).
 - Fair-share accounting beyond the single pledged-bytes ceiling.
 
 ---
@@ -1155,11 +1162,11 @@ quota (Explorer still believes the volume's free space).
 
 Still to build:
 
-- **Repair execution.** The daemon is the loop M5's planner needs, but building
-  a census means asking every peer what it holds, and knowing who "every peer"
-  is needs M6's node set.
-- **Scheduled storage challenges**, for the same reason.
-- Windows service and systemd unit definitions.
+- ~~**Repair execution.**~~ Done in the daemon's round, see M5 above.
+- ~~**Scheduled storage challenges**~~ Done in the daemon's round, see M5 above.
+- ~~Windows service and systemd unit definitions.~~ Done: `itsanas setup` writes
+  the scheduled task, the user unit or the launch agent
+  (`itsanas-cli/src/setup/service.rs`).
 - Alerting on the conditions in
   [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). One is
   wired (2026-10-23, MVP.md test L): fewer than two complete copies
@@ -1593,9 +1600,15 @@ Still open, each with its reason:
 - What the simulated censor does not do: packet loss (a userspace proxy on
   loopback cannot drop TCP segments; `tc netem` on Linux could), and residual
   blocking, where a censor that cut a flow refuses that address and port for
-  minutes. The daemon dials the coordinator once a round and keeps syncing
-  with the peers it knows while it cannot reach it; a test of several minutes
-  of blocking is not written.
+  minutes. A member keeps syncing with the machines it already knows while
+  the coordinator cannot be reached: the address book outlives a round and a
+  restart that reached nobody
+  (`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`),
+  a sibling relays where a machine moved
+  (`red_team_a_machine_a_sibling_relays_is_dialled_next_round_and_a_forged_one_never`),
+  and a machine that did not answer waits before it is dialled again
+  (`red_team_a_machine_that_did_not_answer_waits_before_it_is_dialled_again`).
+  The coordinator itself is asked once a round.
 - HarmonyOS 5 runs no APK (§8 19 (b)); nothing here was run on one. Which
   version the tester's Huawei runs decides whether any of this reaches them.
 

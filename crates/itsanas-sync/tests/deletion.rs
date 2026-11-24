@@ -200,6 +200,43 @@ fn red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_tr
     );
 }
 
+/// A file restored from the account's trash and then deleted outright is a
+/// delete like any other, and a machine that protects keeps it. A machine
+/// that downloads nothing reads the trash it last noted: until its next note,
+/// that note still named the restored file, and the outright delete read as
+/// the trash being emptied, so nothing was kept (§8 13, "Left"). Sabotage:
+/// leave the note alone when a marker goes while its file stays.
+#[test]
+fn red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note() {
+    let swarm = swarm();
+    swarm.device(PHONE).write("lettre.txt", b"words").unwrap();
+    swarm.settle_and_check().unwrap();
+    let phone = swarm.device(PHONE).store();
+    let due = now() + 30 * 24 * 3600;
+    deletion::trash_shared(phone, "lettre.txt", now(), 30).unwrap();
+    swarm.settle_and_check().unwrap();
+    let pc = swarm.device(PC).store();
+    deletion::note_shared(
+        pc.root(),
+        &std::collections::BTreeMap::from([("lettre.txt".to_owned(), due)]),
+    )
+    .unwrap();
+
+    deletion::restore_shared_known(phone, "lettre.txt").unwrap();
+    phone.flush_segment().unwrap();
+    swarm.settle_and_check().unwrap();
+    assert!(
+        !deletion::noted_shared(pc.root()).contains_key("lettre.txt"),
+        "a file restored elsewhere is still noted as in the trash here"
+    );
+    swarm.device(PHONE).remove("lettre.txt").unwrap();
+    swarm.settle_and_check().unwrap();
+    assert!(
+        deletion::protected(pc.root()).contains_key("lettre.txt"),
+        "a file restored and then deleted outright was let go: the stale note read it as emptied from the trash"
+    );
+}
+
 /// Each machine's rules are read the same everywhere, two changes made apart
 /// settle on the one that keeps more, and "apply to all" leaves one set.
 /// Sabotage: make `rules_under` take the first record instead of the most

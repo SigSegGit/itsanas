@@ -12,8 +12,17 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
 WRITTEN-AT: 2026-11-24
-BASE: b1eb60c
+BASE: 7cdf39a
 -->
+
+**2026-11-24, after #456: three more.** A file restored from the account's trash and deleted
+outright before a phone's next note was let go there; a marker leaving while its file stays is
+now read as a restore (§8 13). Every peer and coordinator message is decoded in tens of thousands
+of damaged copies on every run (`itsanas_testkit::mutate`). ROADMAP's M5 and M7 still listed
+repair, scheduled challenges and service units as unbuilt: the daemon's round has run
+`session::repair` and `session::audit` for weeks, and `setup` writes the units; struck, with
+their tests. What is left in §8 waits on the fleet, a device, or a decision of Nicolas's
+(tombstone pruning's age, §8 16's promises).
 
 **2026-11-24: listing names made slow and silent, and a censored path (asked by Nicolas, §8 19
 (g)).** A stranger could list accounts three ways, free and unmetered: `Lookup`; `GetEscrow`,
@@ -4367,8 +4376,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
     machine 3). **Left:** the iPhone's trash screen changes (identity, Empty) have only been
     compiled by CI; a machine that downloads nothing reads its noted trash as well as its index, so
     a file emptied out of the trash is not kept there
-    (`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`), but a
-    file restored and then deleted outright before the next note may go unprotected; a
+    (`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`), and
+    since 2026-11-24 a file restored and then deleted outright before the next note is protected
+    (`red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note`); a
     stolen device not yet withdrawn can still trash then empty, the same as before.
 
 12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'
