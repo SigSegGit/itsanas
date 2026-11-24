@@ -382,6 +382,13 @@ the founder whoever finds the port first.
 Members already registered are never asked for a code. Re-registering is how you
 refresh your keys, and it keeps working.
 
+**Questions about names are counted per address.** Each address may ask 30 an
+hour (`Lookup`, a recovery fetch, a refused registration), and an IPv6 /48
+four times that, so a list of the accounts costs addresses and time. Past it,
+that address is told to try again later. If many of your members reach the
+coordinator from one address (a campus, a carrier's shared NAT), raise it with
+`--name-questions <n>` or `ITSANAS_COORD_NAME_QUESTIONS`.
+
 ## A machine that cannot hold everything
 
 A phone, or a laptop you do not want to give the whole account to. Say how much
