@@ -30,7 +30,14 @@ targets:
         CFBundleDisplayName: ITSaNAS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UILaunchStoryboardName: ""
+        # The launch screen, in the form Apple documents since iOS 14: what
+        # tells iOS the app draws at the screen's own size. An app with none
+        # runs in the first SE's box on every newer iPhone. The empty
+        # storyboard name it replaces already gave the full screen (the test
+        # below passed with it on an SE and an iPhone 16 Plus, 2026-11-24);
+        # CoreTests.testTheAppFillsTheScreenOfAnyIPhoneRatherThanTheFirstSEsBox
+        # holds either form to it.
+        UILaunchScreen: {}
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSFaceIDUsageDescription: Unlock your ITSaNAS account with your face.
