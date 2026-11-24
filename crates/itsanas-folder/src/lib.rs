@@ -87,6 +87,54 @@ pub struct ReconcileReport {
     /// Files another device moved or renamed, as `(from, to)`, out of
     /// `deleted_from_disk` and `exported` in the same way.
     pub renamed_elsewhere: Vec<(String, String)>,
+    /// Files that changed while they were being read: something was still
+    /// writing them. Nothing of them was taken; the next pass reads them again.
+    pub still_writing: Vec<String>,
+}
+
+/// A file read to its end, checked at the end against what it was when
+/// opened: the same length and the same modification time, or the read fails
+/// and says why. What `write_stream` takes is then a version of the file that
+/// existed on disk, not the half of one a writer had reached.
+struct Steady<R> {
+    inner: R,
+    real: PathBuf,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    moved: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl<R> Steady<R> {
+    fn new(inner: R, real: &Path, opened: &std::fs::Metadata) -> Self {
+        Self {
+            inner,
+            real: real.to_owned(),
+            len: opened.len(),
+            modified: opened.modified().ok(),
+            moved: std::rc::Rc::default(),
+        }
+    }
+
+    /// Set once the end was reached and the file was no longer what it was.
+    fn moved(&self) -> std::rc::Rc<std::cell::Cell<bool>> {
+        std::rc::Rc::clone(&self.moved)
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for Steady<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        if read == 0 && !buf.is_empty() {
+            let now = std::fs::metadata(&self.real)?;
+            if now.len() != self.len || now.modified().ok() != self.modified {
+                self.moved.set(true);
+                return Err(std::io::Error::other(
+                    "the file changed while it was read; it is read again on the next pass",
+                ));
+            }
+        }
+        Ok(read)
+    }
 }
 
 /// How many file lines [`ReconcileReport::lines`] gives before it stops
@@ -127,6 +175,15 @@ impl ReconcileReport {
         );
         if here + elsewhere > 0 {
             let _ = write!(line, ", {} renamed", here + elsewhere);
+        }
+        // Said, or a file a writer is still filling waits silently, and its
+        // owner sees "0 in" with no idea why it is not on the other machines.
+        if !self.still_writing.is_empty() {
+            let _ = write!(
+                line,
+                ", {} still being written (read again next pass)",
+                self.still_writing.len()
+            );
         }
         line
     }
@@ -604,7 +661,10 @@ impl Folder {
             }
 
             Decision::Import => {
-                Self::import(store, path, &real)?;
+                if !Self::import(store, path, &real)? {
+                    report.still_writing.push(path.to_owned());
+                    return Ok(());
+                }
                 report.imported.push(path.to_owned());
                 if let Some(hash) = disk_hash {
                     contents.came_here.push((path.to_owned(), hash));
@@ -805,7 +865,9 @@ impl Folder {
         Ok(Some(*hasher.finalize().as_bytes()))
     }
 
-    fn import(store: &Store, path: &str, real: &Path) -> Result<()> {
+    /// Take `real` into the store as `path`. False, with nothing taken, when
+    /// the file changed while it was read: something is still writing it.
+    fn import(store: &Store, path: &str, real: &Path) -> Result<bool> {
         let file =
             std::fs::File::open(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
 
@@ -813,14 +875,26 @@ impl Folder {
         // the bytes go past, and a folder pass retries a refused file every
         // round: without this, each round re-reads and re-seals the part of it
         // that fits before throwing that work away.
-        let incoming = file
+        let opened = file
             .metadata()
-            .map_err(|error| FolderError::io(real.to_owned(), error))?
-            .len();
-        store.check_room(path, incoming)?;
+            .map_err(|error| FolderError::io(real.to_owned(), error))?;
+        store.check_room(path, opened.len())?;
 
-        let entry = store.write_stream(path, std::io::BufReader::new(file))?;
-        Self::record(store, path, real, entry.content_hash)
+        let steady = Steady::new(std::io::BufReader::new(file), real, &opened);
+        let moved = steady.moved();
+        match store.write_stream(path, steady) {
+            Ok(entry) => {
+                Self::record(store, path, real, entry.content_hash)?;
+                Ok(true)
+            }
+            // A file still being written (a database dumped, a large copy)
+            // read half-way was a version of it that never existed, sent to
+            // every machine until the next pass replaced it, and the only one
+            // left if this machine went first. Nothing of it is recorded: the
+            // error comes before `write_stream` writes its entry.
+            Err(_) if moved.get() => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Write a file out of the store, streamed and atomically.
@@ -993,7 +1067,12 @@ impl Folder {
         // a conflict on a large file does not need the file in memory — and
         // the original stays untouched until the copy has landed.
         self.copy_aside(real, &sibling_real)?;
-        Self::import(store, &sibling, &sibling_real)?;
+        if !Self::import(store, &sibling, &sibling_real)? {
+            return Err(FolderError::io(
+                sibling_real,
+                std::io::Error::other("the copy kept aside changed while it was read"),
+            ));
+        }
 
         // Now the incoming version takes the original path.
         self.export(store, path, real)?;
@@ -1103,4 +1182,91 @@ fn pair_renames(
 /// Sibling naming, borrowed from the sync engine so the rules cannot drift.
 mod itsanas_sync_naming {
     pub use itsanas_sync::conflict::with_marker;
+}
+
+#[cfg(test)]
+mod steady_tests {
+    use super::*;
+    use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+    use itsanas_store::ChunkerConfig;
+    use std::io::{Read, Write};
+
+    /// Appends to the file on disk after the first piece it hands over: a
+    /// writer still at work while the pass reads.
+    struct StillWritten {
+        inner: std::fs::File,
+        real: PathBuf,
+        appended: bool,
+    }
+
+    impl Read for StillWritten {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let room = buf.len().min(4096);
+            let read = self.inner.read(&mut buf[..room])?;
+            if !self.appended {
+                self.appended = true;
+                let mut more = std::fs::OpenOptions::new().append(true).open(&self.real)?;
+                more.write_all(&vec![7u8; 50_000])?;
+                more.sync_all()?;
+            }
+            Ok(read)
+        }
+    }
+
+    /// THE ATTACK, by accident: a database dumped, a large copy, read by a
+    /// pass before its writer finished. What was taken was half a file, a
+    /// version that never existed, sent to every machine until the next pass
+    /// replaced it, and the only one left if this machine went first. The
+    /// read now fails at its end when the file is not what it was opened as,
+    /// and the store records nothing. Sabotage: drop the check at the end of
+    /// `Steady::read`.
+    #[test]
+    fn red_team_a_file_still_being_written_is_not_taken_half_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = Store::open_for_testing(
+            dir.path().join("store"),
+            UserKeys::derive(&MasterSecret::from_bytes([0xA1; 32])),
+            DeviceKeys::from_seed(&SecretBytes::new([1; 32])),
+            ChunkerConfig::default(),
+        )
+        .expect("store");
+        let real = dir.path().join("dump.db");
+        std::fs::write(&real, vec![3u8; 200_000]).expect("first half");
+
+        let file = std::fs::File::open(&real).expect("open");
+        let opened = file.metadata().expect("metadata");
+        let steady = Steady::new(
+            StillWritten {
+                inner: file,
+                real: real.clone(),
+                appended: false,
+            },
+            &real,
+            &opened,
+        );
+        let moved = steady.moved();
+        let taken = store.write_stream("dump.db", steady);
+
+        assert!(
+            taken.is_err(),
+            "a file that grew while it was read was taken as it was half-way"
+        );
+        assert!(
+            moved.get(),
+            "the read failed for another reason than the file moving"
+        );
+        assert!(
+            store.stat("dump.db").expect("stat").is_none(),
+            "the half-read file is in the account: every machine gets a version that never existed"
+        );
+
+        let whole = std::fs::File::open(&real).expect("reopen");
+        let opened = whole.metadata().expect("metadata");
+        let again = store.write_stream("dump.db", Steady::new(whole, &real, &opened));
+        assert_eq!(
+            again.expect("a file no longer written is taken").size,
+            250_000,
+            "the next read did not take the whole file"
+        );
+    }
 }

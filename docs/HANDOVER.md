@@ -4388,7 +4388,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
     trace-keeping choice (§8 13). Checked against the code: a host sees an owner's key, blinded
     chunk ids, sizes and timing, never a name (a `Lookup` turns a name into a key, nothing turns a
     key into a name); what a regular hourly snapshot's timing and sizes tell a host is (c)'s to
-    measure. Left: (a) and (c).
+    measure. (a), ITSaNAS's half, done 2026-11-24: a file that changes while a pass reads it
+    is not taken, the pass says it is still being written and reads it again next time
+    (`red_team_a_file_still_being_written_is_not_taken_half_read`). The app's half stays: a
+    writer that pauses between writes looks finished to a read made in the pause, so the app
+    writes its snapshot aside and renames it into the folder (`VACUUM INTO` a temporary name,
+    then a rename). (c), estimated, not measured on the app's data: an edit costs the chunks
+    around it, over 90 % of a 4 MB file reused after an insertion
+    (`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`); chunks are 16 to
+    256 KiB, so a snapshot with one small change sends at most about half a megabyte, and a
+    `VACUUM INTO` that reorders pages may send far more. Measure on itsaresume's real database
+    before choosing the interval.
 
 15. 🟨 **Rename, and earlier versions** (asked by Nicolas, 2026-11-19: more for the next version to
     test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
