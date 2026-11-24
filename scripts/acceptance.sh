@@ -379,15 +379,20 @@ o_away() {
     local folder=$1
     need_dir "$folder"
 
-    local out
-    if ! out=$("$BIN" register 2>&1); then
+    local out announced
+    if out=$("$BIN" register 2>&1); then
+        announced=$(printf '%s' "$out" | sed -n 's/^announced //p' | tail -1)
+        [ -n "$announced" ] || announced="nothing (register did not say what it published)"
+    elif out=$("$BIN" doctor 2>&1) && printf '%s\n' "$out" | grep -q 'the coordinator at .* answered'; then
+        # `register` refuses while the daemon holds the node, and on a test day
+        # it always does: the daemon publishes its address itself, and
+        # `doctor`, which runs beside it, says whether the coordinator answered
+        # from this network (found by scripts/kit-day.sh, 2026-11-24).
+        announced="by the running daemon; doctor: $(printf '%s\n' "$out" | grep -o 'the coordinator at .* answered' | head -n 1)"
+    else
         verdict FAIL O away "the coordinator could not be reached from this network: $(printf '%s' "$out" | tail -1)"
         return
     fi
-
-    local announced
-    announced=$(printf '%s' "$out" | sed -n 's/^announced //p' | tail -1)
-    [ -n "$announced" ] || announced="nothing (register did not say what it published)"
 
     local name
     name="acceptance-O-$(date -u +%Y%m%dT%H%M%SZ)-$$.bin"

@@ -15,6 +15,19 @@ WRITTEN-AT: 2026-11-24
 BASE: 0d24be3
 -->
 
+**2026-11-24, after #459: the test day scripted.** Nicolas's Mac hand test (8.0c) is for
+Wednesday or Thursday; he wants as much of it as possible run by the machines. `scripts/kit-day.sh`,
+started on every machine of the day at once (`--away` on the one away from home), runs B, O and
+F between all of them through the account itself (`kit-day/<machine>/manifest.txt`) and ends in
+`PASS kit-day`; `acceptance-local.sh` runs it on two machines with real daemons, and alone, where it
+must fail. Writing it found that the kit's `O away` failed on every real test day: it called
+`itsanas register`, which refuses while the daemon holds the node; it now asks `doctor` there. The
+partner's page (TEST-PARTENAIRE.md) leads with it. The phone was not on adb that day, so
+`android-e2e.sh` on it waits for it to be plugged in. Traps: `acceptance-local.sh` cannot run on
+Windows (a debug `itsanas init` overflows the main thread's 1 MB stack); run it in WSL, where the
+three LAN-discovery checks fail on WSL's network and nothing else does. §8 20 records Nicolas's
+paid-ratio market idea, not to build yet.
+
 **2026-11-24, after #457: the traces of deletes, and two machines deleting one file.** Nicolas
 chose: the account keeps the traces of deletes ten days to five years or for ever, a year by
 default, in Settings' Trash section (§8 13). Writing its test found a sync defect older than it:
@@ -4255,6 +4268,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+20. ⬜ **Paying for a better ratio, a market and not a bank** (Nicolas, 2026-11-24: an idea
+    for a business, not to build yet). Today a member stores for others to be stored
+    (ECONOMICS, the space bargain). The idea: a member may instead pay others to provide their
+    share of storage, and the project takes a small commission. Nicolas's conditions, each of
+    which must hold before anything is built: (a) **no unwanted centralisation, proved**: no
+    host, payer or the project's own coordinator becomes where the data or the money
+    concentrates (today's placement caps and owner affinity are where to start, placement and
+    ECONOMICS); (b) **a bidding system** whose price follows offer and demand, so that paid
+    storage always finds hosts and hosts are never left with nothing to sell; (c) **the network
+    keeps far more capacity than data**: one member adding large files must not be able to fill
+    it; the target is spare capacity at all times, the margin to be stated as a number with its
+    arithmetic; (d) the Apple developer membership waits for this (Nicolas will not pay 99 USD a
+    year before a business exists). First step when it is opened: a design with Rodin, the
+    attacks first (a rich payer buying the whole network, hosts colluding on price, a market
+    that empties in a week), and nothing public says it exists before it does (AGENTS.md).
 
 19. 🟨 **A phone in China** (asked by Nicolas, 2026-11-23; a tester in China, on a Huawei).
     Done in 0.1.22: the page speaks Simplified Chinese (`zh` in `LANGUAGES`, 435 entries of

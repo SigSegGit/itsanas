@@ -217,6 +217,61 @@ expect_pass F check "$WORK/folder-m3" "$e_name"
 expect_fail F check "$WORK/folder-m3" "$b_name"
 [ -f "$WORK/folder-m3/$b_name" ] || { echo "  WRONG the delete took $b_name with it"; failures=$((failures + 1)); }
 
+say "kit day: two machines run B, O and F on each other, with nobody typing"
+# scripts/kit-day.sh is what a test day runs on every machine at once. Here two
+# of them, each with its own daemon as a real machine has, and nothing else
+# moving their files; m2 is the machine away from home. Both must pass, and a
+# machine alone must fail.
+kit_daemons=()
+for m in m1 m2; do
+    port=$((CPORT + 20 + ${m#m}))
+    ITSANAS_HOME="$WORK/$m" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" daemon --interval 2 \
+        --listen "127.0.0.1:$port" </dev/null >"$WORK/kit-daemon-$m.log" 2>&1 &
+    kit_daemons+=($!)
+    pids+=($!)
+    wait_port "$port" || { cat "$WORK/kit-daemon-$m.log"; echo "the $m daemon did not start"; exit 1; }
+done
+kit_day() {
+    local m=$1
+    shift
+    ITSANAS_HOME="$WORK/$m" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_BIN="$BIN" \
+        ITSANAS_RECEIPTS="$WORK/receipts-$m" KIT_DAY_POLL=2 \
+        bash scripts/kit-day.sh "$WORK/folder-$m" --minutes 4 --name "$m" "$@" </dev/null
+}
+kit_day m1 >"$WORK/kit-day-m1.log" 2>&1 &
+kd1=$!
+kit_day m2 --away >"$WORK/kit-day-m2.log" 2>&1 &
+kd2=$!
+for kd in "$kd1:m1" "$kd2:m2"; do
+    if wait "${kd%%:*}"; then
+        printf '  ok    kit day on %s: %s\n' "${kd##*:}" "$(grep '^PASS  kit-day' "$WORK/kit-day-${kd##*:}.log")"
+    else
+        printf '  WRONG kit day on %s failed:\n' "${kd##*:}"
+        sed 's/^/        /' "$WORK/kit-day-${kd##*:}.log"
+        failures=$((failures + 1))
+    fi
+done
+check "the kit day's O file from the machine away arrived on the other" \
+    sh -c 'grep -q "^seen m2 acceptance-O-" "$1/m1/manifest.txt" || { cat "$1"/*/manifest.txt "$2"; false; }' _ \
+    "$WORK/folder-m1/kit-day" "$WORK/kit-day-m2.log"
+check "the kit day's receipt holds the kit's own lines" \
+    grep -q '^PASS  F check' "$WORK/receipts-m1/acceptance.txt"
+kill "${kit_daemons[@]}" 2>/dev/null
+wait "${kit_daemons[@]}" 2>/dev/null
+for m in m1 m2; do
+    for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$((CPORT + 20 + ${m#m}))") 2>/dev/null || break; sleep 0.1; done
+done
+# The negative control: alone, nothing crosses, and the day must not pass.
+mkdir -p "$WORK/folder-alone"
+if ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_BIN="$BIN" \
+    ITSANAS_RECEIPTS="$WORK/receipts-alone" KIT_DAY_POLL=1 \
+    bash scripts/kit-day.sh "$WORK/folder-alone" --minutes 0 --name alone >"$WORK/kit-day-alone.log" 2>&1 </dev/null; then
+    echo "  WRONG a kit day with no other machine passed"
+    failures=$((failures + 1))
+else
+    echo "  ok    a kit day with no other machine fails"
+fi
+
 say "H: a file freed on machine 3 leaves its folder, not the account, and comes back"
 must node m3 free "$b_name"
 [ ! -f "$WORK/folder-m3/$b_name" ] || { echo "  WRONG freeing left $b_name in machine 3's folder"; failures=$((failures + 1)); }

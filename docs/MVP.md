@@ -560,6 +560,16 @@ night on the Pi, the VM and a CI runner away from home ([FLEET-CI.md](FLEET-CI.m
 once set up). What stays by hand is A, J, H, N, the laptop, and the partners'
 machines ([TEST-PARTENAIRE.md](TEST-PARTENAIRE.md)).
 
+**A test day, without typing between machines:** start
+`bash scripts/kit-day.sh ~/ITSaNAS` on every machine of the day at about the
+same time, `--away` on the one away from home. Each machine writes its B file
+(and its O file) into the account under `kit-day/<machine>/`, checks every other
+machine's, then deletes its own once all have it and checks theirs are gone (F).
+It ends in `PASS kit-day` or a `FAIL` naming what never arrived, and leaves the
+kit's own lines in the receipt. What stays by hand is what it prints at the end:
+A, J, H and the phones. `scripts/acceptance-local.sh` runs it on two machines
+at once, and once alone, where it must fail.
+
 `scripts/acceptance.sh` turns each test into phases that end in `PASS` or `FAIL`
 with the numbers, and appends every verdict to
 `~/.itsanas-receipts/acceptance.txt` — paste that file, not an impression. It
