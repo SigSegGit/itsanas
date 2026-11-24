@@ -11,9 +11,19 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-24
+WRITTEN-AT: 2026-11-25
 BASE: 0d24be3
 -->
+
+**2026-11-25, in #462: the last buildable open finding, and what is left.** The device ids a
+limit refusal names are checked against the account's signed roster: one known withdrawn is not
+offered, one with no signed claim here is labelled as named by the coordinator alone (ROADMAP,
+"Android's cap-named ids"). MVP.md §6 now has rows for K, L, M and N. What §8 still holds needs a
+person or hardware: the Mac day (8.0c), the phone on adb (offline overnight), Windows Hello's own
+prompt, Android's scheduler over hours, two real networks. One open question is Nicolas's: people
+behind one address (carrier NAT, common in China) share the name-question budget; a proof of work
+past it would let them through but would let a GPU list names cheaply, so it changes the bound
+the budget exists for (ROADMAP "Names a stranger can list").
 
 **2026-11-24, after #459: the test day scripted.** Nicolas's Mac hand test (8.0c) is for
 Wednesday or Thursday; he wants as much of it as possible run by the machines. `scripts/kit-day.sh`,
