@@ -87,13 +87,20 @@ fn red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same() {
             let _ = sealed.unlock("not the passphrase", "a label");
             started.elapsed()
         };
-        let quickest = |name: &str, passphrase: &str| {
-            let tries: Vec<_> = (0..3).map(|_| attempt(name, passphrase)).collect();
-            let fastest = tries.iter().map(|(_, took)| *took).min().expect("three");
-            (tries[0].0.clone(), fastest)
-        };
-        let (wrong_passphrase, slow) = quickest("alice", "not the passphrase");
-        let (wrong_name, fast) = quickest("personne", PASSPHRASE);
+        // Taken in turns, the quickest of four each (a name's budget is
+        // `ESCROW_ATTEMPTS`, five, and one opened above): a slow stretch of a
+        // shared runner (a macOS one put 140 ms between two blocks of three
+        // taken one after the other) then falls on both alike.
+        let (mut wrong_passphrase, mut wrong_name) = (None, None);
+        let (mut slow, mut fast) = (std::time::Duration::MAX, std::time::Duration::MAX);
+        for _ in 0..4 {
+            let (said, took) = attempt("alice", "not the passphrase");
+            wrong_passphrase.get_or_insert(said);
+            slow = slow.min(took);
+            let (said, took) = attempt("personne", PASSPHRASE);
+            wrong_name.get_or_insert(said);
+            fast = fast.min(took);
+        }
         assert_eq!(
             wrong_name, wrong_passphrase,
             "a wrong name and a wrong passphrase read differently: whoever types names learns which exist"
