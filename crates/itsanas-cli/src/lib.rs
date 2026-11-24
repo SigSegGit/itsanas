@@ -1519,11 +1519,36 @@ fn login(
     Ok(())
 }
 
+/// Name the machines of the account resting past a week, calmly: a key in a
+/// drawer is not a fault, and the copy count leaves them out until they are
+/// heard from again, which a person would otherwise read as copies lost.
+fn report_dormant_members(node: &Node, out: &mut String, now: u64) -> Result<()> {
+    let dormant = node.store.dormant_members(now)?;
+    if dormant.is_empty() {
+        return Ok(());
+    }
+    let _ = writeln!(
+        out,
+        "\nresting machines of this account (not heard from for over a week; their copies count again once they are)"
+    );
+    for (device, seen) in &dormant {
+        let when = seen.map_or_else(
+            || "never heard from here".to_owned(),
+            |at| format!("last heard {}", describe_age(now.saturating_sub(at))),
+        );
+        let _ = writeln!(out, "  {}  {when}", device.short());
+    }
+    Ok(())
+}
+
 /// Say which peers have failed a storage challenge, if any have.
 ///
 /// Silence means every peer that has ever been audited answered, which is the
 /// ordinary case and worth no words at all.
 fn report_unreliable_peers(node: &Node, out: &mut String) -> Result<()> {
+    // The machines resting past a week first: the other half of "which of my
+    // machines is not doing its part", and the calm one.
+    report_dormant_members(node, out, itsanas_store::now_unix())?;
     let unreliable = node.store.unreliable_devices()?;
     if unreliable.is_empty() {
         return Ok(());
@@ -3631,7 +3656,7 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
             }
             match &enrolled {
                 Some(list) => {
-                    for entry in list {
+                    for entry in by_silence(list) {
                         println!("{}", describe_enrolled(entry, entry.device == mine));
                     }
                     // The coordinator stops at this many. Saying so is the
@@ -3709,6 +3734,26 @@ fn describe_folder(folder: &std::path::Path) -> String {
     out
 }
 
+/// The enrolled devices, the most silent first: never announced, then the
+/// longest silence. The machine somebody opens the list to find is the one
+/// that has gone quiet, and it should not be at the bottom of twenty.
+fn by_silence(
+    list: &[itsanas_coord::protocol::EnrolledDevice],
+) -> Vec<&itsanas_coord::protocol::EnrolledDevice> {
+    let mut sorted: Vec<_> = list.iter().collect();
+    sorted.sort_by_key(|entry| std::cmp::Reverse(entry.silent_for.unwrap_or(u64::MAX)));
+    sorted
+}
+
+/// Whether a device silent for `silent_for` is resting past a week: said in
+/// words, never in colour, because a key in a drawer is not a fault.
+const fn dormant(silent_for: Option<u64>) -> bool {
+    match silent_for {
+        Some(seconds) => seconds > itsanas_store::holders::LIVE_FOR,
+        None => true,
+    }
+}
+
 /// One line of `itsanas device list`.
 ///
 /// The silence is the coordinator's own measurement, so it is what decides
@@ -3720,8 +3765,13 @@ fn describe_enrolled(entry: &itsanas_coord::protocol::EnrolledDevice, here: bool
     };
     let address = entry.address.as_deref().unwrap_or("no address");
     let this = if here { "  (this machine)" } else { "" };
+    let resting = if dormant(entry.silent_for) && !here {
+        "  resting"
+    } else {
+        ""
+    };
     format!(
-        "{}  {address}  pledges {}  {heard}{this}",
+        "{}  {address}  pledges {}  {heard}{resting}{this}",
         entry.device,
         config::format_size(entry.pledged_bytes)
     )
@@ -6092,6 +6142,60 @@ const UNPINNED_RELAY: &str = "a relayed address needs the device it reaches";
 
 #[cfg(test)]
 mod tests {
+    /// `itsanas device list` puts the machine somebody opened it to find --
+    /// the one gone quiet -- first, never announced before any silence, and
+    /// says "resting" past a week in a word, for no other machine and never
+    /// for this one. Sabotage: drop the sort in `by_silence`.
+    #[test]
+    fn red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting() {
+        use itsanas_coord::protocol::EnrolledDevice;
+        let id = |seed: u8| {
+            itsanas_crypto::DeviceKeys::from_seed(&itsanas_crypto::SecretBytes::new([seed; 32]))
+                .device_id()
+        };
+        let day = 24 * 3600;
+        let row = |seed: u8, silent_for: Option<u64>| EnrolledDevice {
+            device: id(seed),
+            pledged_bytes: 0,
+            silent_for,
+            address: None,
+        };
+        let listed = vec![
+            row(1, Some(60)),
+            row(2, Some(30 * day)),
+            row(3, None),
+            row(4, Some(8 * day)),
+        ];
+        let order: Vec<_> = super::by_silence(&listed)
+            .iter()
+            .map(|entry| entry.device)
+            .collect();
+        assert_eq!(
+            order,
+            vec![id(3), id(2), id(4), id(1)],
+            "the quiet machines are not first"
+        );
+        let line = |seed: u8, here: bool| {
+            let entry = listed
+                .iter()
+                .find(|entry| entry.device == id(seed))
+                .expect("row");
+            super::describe_enrolled(entry, here)
+        };
+        assert!(
+            line(2, false).contains("resting"),
+            "a month silent is not said: {}",
+            line(2, false)
+        );
+        assert!(
+            !line(1, false).contains("resting"),
+            "a machine heard a minute ago is called resting"
+        );
+        assert!(
+            !line(2, true).contains("resting"),
+            "this machine calls itself resting"
+        );
+    }
     /// `itsanas mv` while the daemon holds the store: the job carries both
     /// names, and the daemon's node renames. Sabotage: split the job's name on
     /// a space (a name with a space moves nothing, or to the wrong place).

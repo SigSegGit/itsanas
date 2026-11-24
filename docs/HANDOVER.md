@@ -2154,8 +2154,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
          coordinator forgot after 7 days is not an `Account::Unknown` host.
       3. ✅ `Request::Hosted` records only chunks this account references (`CHUNK_REFS`) and nothing
          for a paused host: today any handshaken device writes rows for any ids.
-      4. Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
+      4. ✅ Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
          `status`, the page's device list (sorted most silent first) and the phone; no colour.
+         Done 2026-11-24: `status` lists "resting machines of this account", `device list` sorts
+         by silence and says `resting`, `/api/devices` sorts and flags `dormant`, which the page
+         (and so the phone) shows as a word
+         (`red_team_a_machine_silent_past_a_week_is_named_resting_the_most_silent_first`,
+         `red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting`).
       5. Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
          instead of `isolated`, and the key says when its changes reached another machine, so it
          can be unplugged.

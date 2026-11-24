@@ -930,7 +930,8 @@
       const item = document.createElement('li');
       const label = document.createElement('span');
       label.textContent = device.short + (device.address ? ' \u00b7 ' + device.address : '') +
-        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '');
+        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '') +
+        (device.dormant ? ' \u00b7 ' + t('resting, not heard from for over a week') : '');
       item.appendChild(label);
       if (!device.thisPhone) {
         const button = document.createElement('button');

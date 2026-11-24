@@ -1426,6 +1426,29 @@ impl Store {
         self.index.members()
     }
 
+    /// The members of the account this node has not heard from within
+    /// [`LIVE_FOR`](crate::holders::LIVE_FOR) at `now`, with when it last
+    /// did, the most silent first (never heard before any date).
+    ///
+    /// Resting, not lost: in a network of machines that are usually off, a
+    /// key in a drawer and a laptop on holiday are this. Named so a person
+    /// knows which machines the copy count leaves out, and why.
+    pub fn dormant_members(&self, now: u64) -> Result<Vec<(DeviceId, Option<u64>)>> {
+        let me = self.device_id();
+        let mut dormant = Vec::new();
+        for member in self.index.members()? {
+            if member == me {
+                continue;
+            }
+            let seen = self.index.last_seen(&member)?;
+            if seen.is_none_or(|at| now.saturating_sub(at) > crate::holders::LIVE_FOR) {
+                dormant.push((member, seen));
+            }
+        }
+        dormant.sort_by_key(|(device, seen)| (seen.unwrap_or(0), *device));
+        Ok(dormant)
+    }
+
     /// The chunks among `chunks` that this account's files use: what a
     /// holder record may name. A device id is free to mint, and a record
     /// for a chunk nobody here uses is a row for ever.

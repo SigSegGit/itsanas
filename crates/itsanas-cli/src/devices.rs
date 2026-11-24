@@ -136,6 +136,19 @@ pub fn list(node: &Node) -> Result<Value, Failure> {
         }
     }
 
+    // The most silent first, and resting past a week said as a word: the
+    // machine somebody opens this list to find is the one gone quiet.
+    for device in &mut devices {
+        let silent = device["silentForSeconds"].as_u64();
+        let resting = device["thisPhone"] != true
+            && device.get("silentForSeconds").is_some()
+            && silent.is_none_or(|seconds| seconds > itsanas_store::holders::LIVE_FOR);
+        device["dormant"] = json!(resting);
+    }
+    devices.sort_by_key(|device| {
+        std::cmp::Reverse(device["silentForSeconds"].as_u64().unwrap_or(u64::MAX))
+    });
+
     Ok(json!({
         "devices": devices,
         "complete": complete,

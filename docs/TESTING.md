@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1763 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 691 are red-team tests.**
+**Last updated: 2026-11-23 — 1765 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 693 are red-team tests.**
 
-**1647 of the 1763 tests have an entry of their own on this page** — an *entry*,
+**1649 of the 1765 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -160,7 +160,7 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 235 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 52 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 27 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 389 |
+| `itsanas-cli` unit | 390 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -226,8 +226,8 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 51 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 69 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 234 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 70 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 235 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -757,7 +757,7 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (51)
+# `itsanas-store` — integration tests (52)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -767,6 +767,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | **`alices_entire_corpus_round_trips_byte_identical`** | M2 exit criterion. Every fixture file survives chunking, sealing, storage and reassembly unchanged. |
 | **`no_users_plaintext_ever_touches_the_disk`** | M2 exit criterion, and the single most important property in the project. Both canaries are scanned against both stores — a user's own store must not leak their plaintext either, because that laptop can be stolen. Includes a vacuity check proving the canary really is in the plaintext, so the scan cannot pass by scanning nothing. |
 | **`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`** | M2 exit criterion, end to end through the real store. |
+| **`red_team_a_machine_silent_past_a_week_is_named_resting_the_most_silent_first`** | `Store::dormant_members`: members of the roster not heard from within `LIVE_FOR`, never heard first, then the oldest contact; not this machine, not one heard from yesterday. What `status` names as resting, so a key in a drawer reads as what it is rather than as copies lost (§8 0e step 4). Sabotaged (`<` for `>`): red. |
 | **`two_users_storing_the_same_document_produce_unrelated_chunk_ids`** | Two users storing byte-identical content get disjoint addresses. If addresses were plain content hashes a host could correlate users and confirm guessed files. |
 | **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
 | **`red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log`** | A 1 MiB file offered to an account with 344 KiB left, through `write_file`, so nothing asks its size first and the refusal can only come part-way through the stream -- after chunks were sealed and stored. It must be refused with the account, the limit and the total it would have reached, and leave no blob, no index entry and no log entry behind. A folder pass retries a refused file every round, so debris here is a disk filling with the first part of the same file again and again. Sabotaged twice: without the in-stream check the file is accepted; without the clean-up the blobs stay. (HANDOVER §8 0n.) |
@@ -1319,7 +1320,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (389)
+# `itsanas-cli` — unit tests (390)
 
 ## `bench` — measuring this machine (4)
 
@@ -1811,7 +1812,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised, a rename handed to the daemon, versions numbered as listed (59)
+## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised, a rename handed to the daemon, versions numbered as listed, the quiet machine first in the device list (60)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1820,6 +1821,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting`** | `itsanas device list` lists never-announced, then the longest silence first, and says `resting` past a week, in a word and no colour, never for this machine nor one heard a minute ago. The page and the phone get the same order and a `dormant` flag (`devices::list`). Sabotaged (no sort): red. |
 | **`red_team_files_on_this_machine_alone_are_never_drawn_green`** | MVP.md test L in `brief_status`: `copies 0 of 2` is `exposed 60 0 2` and `1 of 2` is `exposed 60 1 2`; a shortfall that began a round ago (`since`) is still `healthy`, past two intervals it is `exposed`; `2 of 2` and no count are `healthy`; and `exposed` wins over `short` (the pledge the disk cannot hold), since it is about the person's own files. Sabotaged (the `exposed` arm dropped; `short` put before it): red. |
 | **`red_team_a_daemon_that_reaches_nobody_is_never_drawn_green`** | ARCHITECTURE §7, "no successful sync round in N minutes": a fresh snapshot with 2 of 2 copies whose last `reached` is seven hours old, at a five-minute round, is `isolated 60 25200`; five minutes or five hours old is `healthy`; at an hourly round seven hours is `healthy` and twelve `isolated` (the larger of 6 h and 12 rounds); `exposed` wins over it; a node that never reached anybody gets no `isolated`. Neither `stale` (the snapshot is fresh) nor `exposed` (copies count holders for a week) says it. Sabotaged (the arm dropped; the snapshot's age read for the contact's; six hours whatever the interval): red, all three. |
 | **`red_team_a_vault_that_cannot_be_written_is_never_drawn_green`** | ` unwritable` on the header is `unwritable 60`, never `healthy`; `status` given the probe's reason says `CANNOT KEEP    the vault at P cannot be written (why)`, and without one says no CANNOT KEEP. Sabotaged (the arm dropped; the CANNOT KEEP line dropped): red, both. |
