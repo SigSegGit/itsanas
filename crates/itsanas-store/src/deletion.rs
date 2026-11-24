@@ -553,6 +553,15 @@ pub fn noted_shared(dir: &std::path::Path) -> BTreeMap<String, u64> {
         .collect()
 }
 
+/// Take `path` off the noted trash ([`noted_shared`]), if it is on it.
+fn forget_noted(dir: &std::path::Path, path: &str) -> std::io::Result<()> {
+    let mut noted = noted_shared(dir);
+    if noted.remove(path).is_some() {
+        note_shared(dir, &noted)?;
+    }
+    Ok(())
+}
+
 /// What this machine protects: `path` -> (due, the entry it had).
 #[must_use]
 pub fn protected(dir: &std::path::Path) -> BTreeMap<String, (u64, FileEntry)> {
@@ -691,6 +700,16 @@ pub fn protect(
     let Operation::Remove { path, .. } = operation else {
         return Ok(());
     };
+    // A marker going while its file stays is a restore (a purge takes the
+    // file first, then the marker): the file is out of the trash now, not at
+    // the next note, or an outright delete before that note reads as the
+    // trash being emptied and is let go (§8 13).
+    if let Some(trashed) = parse_marker(path)
+        && store.stat(&trashed.path)?.is_some()
+    {
+        forget_noted(store.root(), &trashed.path)
+            .map_err(|error| StoreError::io(&trashed.path, error))?;
+    }
     if *device == store.device_id() || is_reserved(path) {
         return Ok(());
     }

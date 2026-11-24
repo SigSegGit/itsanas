@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1752 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 682 are red-team tests.**
+**Last updated: 2026-11-23 — 1756 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 685 are red-team tests.**
 
-**1636 of the 1752 tests have an entry of their own on this page** — an *entry*,
+**1640 of the 1756 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,15 +164,15 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 6 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 7 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 73 |
+| `itsanas-net` unit | 74 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 81 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 141 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 142 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 25 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
@@ -200,7 +200,7 @@ guarantee and is not one.
 | `itsanas-cli` idle (`tests/idle.rs`) | 1 |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 18 |
-| `itsanas-testkit` unit | 7 |
+| `itsanas-testkit` unit | 8 |
 
 These counts are mechanical — regenerate them with
 `cargo test --workspace -- --list`. If this table disagrees with that command,
@@ -218,14 +218,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
-| `wire` | peer and coordinator framing, versions, verb numbering | 7 |
+| `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 5 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 80 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 47 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 48 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 67 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 233 |
 
@@ -458,12 +458,13 @@ and length bugs hide. 256 cases each, in
 
 ---
 
-# `itsanas-testkit` — fixture integrity (7)
+# `itsanas-testkit` — fixture integrity, and damage for decoders (8)
 
 These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 | Test | What it proves |
 | --- | --- |
+| `the_same_seed_damages_the_same_way_and_a_message_is_damaged` | `mutate::mutations` is the same for a seed on every run and platform, and damages: most copies differ from the honest message, some shorter, some longer. A mutator that left messages whole would make the decoder fuzz test only honest bytes. |
 | **`corpus_matches_its_published_digests`** | Every fixture file hashes to its pinned digest, and the corpus digest matches. The tamper check: since the corpus is generated from seeds in source, altering the test data requires editing reviewed code *and* moves a digest published in the documentation. |
 | **`every_fixture_identity_is_banned_in_production`** | All three published users are refused by production. Their keys are printed in [TEST-USERS.md](TEST-USERS.md); this is what stops that being an attack. Enforcement is tested at the store layer by `the_published_test_identities_are_refused_by_the_normal_constructor`. |
 | `recovery_phrases_rebuild_the_documented_identities` | Each phrase in the docs reconstructs exactly the user id claimed beside it. Ties documentation to code — a stale doc fails CI. |
@@ -815,7 +816,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — deletes between machines with different rules (6)
+# `itsanas-sync` — deletes between machines with different rules (7)
 
 Two machines of one account, each with its own rules (HANDOVER §8 13): the
 account's trash, Protect, and rules every machine reads alike.
@@ -825,6 +826,7 @@ account's trash, Protect, and rules every machine reads alike.
 | **`red_team_a_file_trashed_on_one_machine_is_restored_from_another`** | A file the phone puts in the account's trash is in the computer's trash list and still a file of the account; a restore on the computer takes it out of the phone's trash too. Sabotaged (no marker written): red. |
 | **`red_team_an_edit_made_elsewhere_takes_a_trashed_file_out_of_the_trash`** | The account trash's marker keeps the version deleted (`device@date.size`); a file edited on another machine before the delay ran out is a newer file, taken out of the trash each round before the purge (`deletion::untrash_edited`), and a file nobody touched stays in. Before, the purge deleted the edit. Sabotaged (no edit found): red. |
 | **`red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects`** | A file the phone deletes outright is kept by the computer, which protects by default; publishing it again brings it back on the phone. Sabotaged (nothing protected): red. |
+| **`red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note`** | A machine that downloads nothing reads the trash it last noted. A file restored elsewhere stayed in that note until the next one, so an outright delete before it read as the trash being emptied and was let go. A marker leaving while its file stays is a restore (a purge takes the file first): the path leaves the note at once, and the delete is protected. Sabotaged (the note left alone): red. |
 | **`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`** | A machine whose index holds no trash marker (a phone that downloads nothing) reads its noted trash: a delete that emptied the trash is not kept for days there (§8 13). Sabotaged (the noted trash dropped from `deletion::protect`): red. |
 | **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
@@ -944,9 +946,9 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (73)
+# `itsanas-net` — unit tests (74)
 
-## `protocol` — messages and challenges (15)
+## `protocol` — messages and challenges (16)
 
 | Test | What it proves |
 | --- | --- |
@@ -956,6 +958,7 @@ about reading.
 | **`a_single_bit_of_difference_fails_the_challenge`** | Corruption is caught, not just deletion. |
 | **`an_unbounded_segment_request_is_not_acceptable`** | One request cannot ask a peer to assemble everything it holds. |
 | **`a_maximum_size_chunk_fits_in_one_frame`** | The largest legitimate message fits the frame limit, so normal operation does not hit it. |
+| **`red_team_no_damaged_frame_crashes_or_stalls_the_decoder`** | Every peer request and response, a thousand damaged copies each (`itsanas_testkit::mutate`: bytes changed, inserted, removed, cut, repeated, set to the largest varint), through the frame decoder a node runs on what any authenticated stranger sends: each is decoded or refused, none panics, all in bounded time. Sabotaged (an id decoder that slices 32 bytes without checking): red. |
 | `every_request_variant_round_trips_through_the_wire` | A variant that fails to encode is a runtime failure on a live connection. |
 | `every_response_variant_round_trips_through_the_wire` | The same, for responses. |
 | `a_hello_is_accepted_from_the_floor_upwards_and_refused_below_it` | Version negotiation is a window, not a point: anything at or above the floor is answered with what both sides know. |
@@ -2781,7 +2784,7 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (33)
+# `itsanas-coord` — the coordinator server (34)
 
 Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
@@ -2798,6 +2801,7 @@ two numbers made `itsanas-coord` look eight short.
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_coordinator`** | Every member dials this one address, so a slot held by a caller trickling its handshake is a slot no member gets. The deadline is unit-tested in `itsanas-tls`; this proves the coordinator applies it. Fails when the coordinator ignores its deadline. |
 | **`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`** | `device list` was built on `Peers`, which drops a device silent for a week — the lost laptop the list is opened to find. Every live enrolment is listed, heard-from first; one that never announced reads as never heard from rather than fresh; a withdrawn one is absent. |
 | **`red_team_a_stranger_cannot_list_another_member_s_devices`** | Another member and an unenrolled keypair are both refused the list of pledges and silences. |
+| **`red_team_no_damaged_message_crashes_or_stalls_the_decoder`** | Every coordinator request and response, fifteen hundred damaged copies each, both directions: a coordinator decodes before it knows the sender, a client decodes whatever answered. Each is decoded or refused, none panics, all in bounded time. Sabotaged (an id decoder that slices 32 bytes without checking): red. |
 | **`red_team_a_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every coordinator message, folded (FNV-1a), one row per published `COORD_VERSION` that is never edited, the last row the current version. #435 added a field to a presence and left the version at 1; the number test passed, every client of the release before read "Hit the end of buffer", and the fleet was red a week. Sabotaged (a presence without its `head`, as before #435; the version raised with no row): red each. |
 | **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
 | **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |

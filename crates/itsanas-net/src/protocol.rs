@@ -711,6 +711,38 @@ mod tests {
         }
     }
 
+    /// THE ATTACK: damaged frames where a peer message is expected. A node
+    /// decodes what any authenticated stranger sends, and a device key costs
+    /// nothing: a decoder that panicked, hung or allocated without bound on a
+    /// damaged frame was a crash anybody could send. Every request and every
+    /// response, many thousands of damaged copies through the frame decoder;
+    /// each is decoded or refused, in bounded time.
+    #[test]
+    fn red_team_no_damaged_frame_crashes_or_stalls_the_decoder() {
+        let started = std::time::Instant::now();
+        let mut tried = 0usize;
+        for (seed, request) in (1u64..).zip(one_of_each()) {
+            let honest = wire::encode(&request).expect("encode");
+            for damaged in itsanas_testkit::mutate::mutations(&honest, seed, 1000) {
+                let _ = wire::decode::<Request>(&damaged);
+                tried += 1;
+            }
+        }
+        for (seed, response) in (1000u64..).zip(one_of_each_response()) {
+            let honest = wire::encode(&response).expect("encode");
+            for damaged in itsanas_testkit::mutate::mutations(&honest, seed, 1000) {
+                let _ = wire::decode::<Response>(&damaged);
+                tried += 1;
+            }
+        }
+        assert!(tried > 30_000, "only {tried} damaged frames were tried");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "{tried} damaged frames took {:?}: some decode is far slower than its bytes",
+            started.elapsed()
+        );
+    }
+
     #[test]
     fn every_request_variant_round_trips_through_the_wire() {
         // A variant that fails to encode is a runtime failure on a live

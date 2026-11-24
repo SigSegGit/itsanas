@@ -533,6 +533,42 @@ mod tests {
     /// Every request and every response, each with its deployed number.
     type Numbered = (Vec<(u8, Request)>, Vec<(u8, Response)>);
 
+    /// THE ATTACK: damaged bytes where a message is expected. A coordinator
+    /// decodes a request before it knows anything about the sender, and a
+    /// client decodes whatever answered at the address: a decoder that
+    /// panicked, hung or allocated without bound on a damaged message was a
+    /// crash anybody could send. Every message, many thousands of damaged
+    /// copies, both directions; each is decoded or refused, in bounded time.
+    #[test]
+    fn red_team_no_damaged_message_crashes_or_stalls_the_decoder() {
+        let (mut requests, mut responses) = one_of_each_numbered();
+        let (more_requests, more_responses) = deletions_numbered();
+        requests.extend(more_requests);
+        responses.extend(more_responses);
+        let started = std::time::Instant::now();
+        let mut tried = 0usize;
+        for (seed, (_, request)) in (1u64..).zip(&requests) {
+            let honest = postcard::to_stdvec(request).expect("encode");
+            for damaged in itsanas_testkit::mutate::mutations(&honest, seed, 1500) {
+                let _ = postcard::from_bytes::<Request>(&damaged);
+                tried += 1;
+            }
+        }
+        for (seed, (_, response)) in (1000u64..).zip(&responses) {
+            let honest = postcard::to_stdvec(response).expect("encode");
+            for damaged in itsanas_testkit::mutate::mutations(&honest, seed, 1500) {
+                let _ = postcard::from_bytes::<Response>(&damaged);
+                tried += 1;
+            }
+        }
+        assert!(tried > 30_000, "only {tried} damaged messages were tried");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "{tried} damaged messages took {:?}: some decode is far slower than its bytes",
+            started.elapsed()
+        );
+    }
+
     /// One of every message, with the number it is deployed under.
     /// The deletion messages, numbered apart so the list above stays short.
     fn deletions_numbered() -> Numbered {
