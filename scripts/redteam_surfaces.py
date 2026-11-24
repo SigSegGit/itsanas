@@ -103,6 +103,7 @@ SURFACES = [
     ('local-store', 'the index, packs, folders, the virtual drive, crash', [
         'itsanas-store/src/index.rs',
         'itsanas-store/src/traces.rs',
+        'itsanas-folder/src/lib.rs',
         'itsanas-store/src/disk_bytes.rs',
         'itsanas-store/src/pack.rs',
         'itsanas-store/tests/store.rs',

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1763 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 691 are red-team tests.**
+**Last updated: 2026-11-23 — 1764 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 692 are red-team tests.**
 
-**1647 of the 1763 tests have an entry of their own on this page** — an *entry*,
+**1648 of the 1764 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -178,7 +178,7 @@ guarantee and is not one.
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
 | `itsanas-policy` unit | 27 |
-| `itsanas-folder` unit | 33 |
+| `itsanas-folder` unit | 34 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
@@ -226,7 +226,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 51 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 69 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 70 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 234 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -2480,7 +2480,13 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 
 ---
 
-# `itsanas-folder` — unit tests (33)
+# `itsanas-folder` — unit tests (34)
+
+## `lib` — a file taken while it is still being written (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_file_still_being_written_is_not_taken_half_read`** | A pass that reads a file a writer is still filling (a database dumped, a large copy) took half of it: a version that never existed, sent to every machine until the next pass. The read is checked at its end against the file as it was opened (length, modification time); when it moved, the read fails before the store writes its entry, nothing is in the account, the pass says the file is still being written, and the next read takes it whole. Sabotaged (the check at the end dropped): red. |
 
 ## `decision` — what should happen to one path (15)
 
