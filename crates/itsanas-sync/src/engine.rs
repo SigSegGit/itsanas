@@ -529,7 +529,27 @@ fn apply_remove(
         match existing.version.compare(version) {
             CausalOrder::Equal => return Ok(Applied::AlreadyKnown),
             CausalOrder::After => return Ok(Applied::Superseded),
-            CausalOrder::Before | CausalOrder::Concurrent => {}
+            CausalOrder::Before => {}
+            // Two machines deleted the same file apart. Replacing one trace
+            // with the other, a third machine swapped between them for ever
+            // and the account never settled. Both deletes are kept as one: the
+            // union of what they saw, so any later copy of either is older,
+            // dated and signed by the same rule on every machine.
+            CausalOrder::Concurrent => {
+                let mut seen = existing.version.clone();
+                seen.merge(version);
+                let (removed_unix, author) =
+                    (existing.removed_unix, existing.author).max((entry.recorded_unix, device));
+                store.adopt_tombstone(
+                    path,
+                    &Tombstone {
+                        version: seen,
+                        removed_unix,
+                        author,
+                    },
+                )?;
+                return Ok(Applied::Adopted);
+            }
         }
     }
 

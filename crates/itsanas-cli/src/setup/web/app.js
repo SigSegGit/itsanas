@@ -1022,6 +1022,47 @@
     }
   }
 
+  // How long the traces of deletes are kept (/api/traces): one choice for the
+  // account, on a slider over the durations the engine offers.
+  let traceChoices = [];
+  function traceWords() {
+    return [t('10 days'), t('15 days'), t('20 days'), t('30 days'), t('45 days'),
+      t('2 months'), t('3 months'), t('6 months'), t('1 year'), t('18 months'),
+      t('2 years'), t('3 years'), t('5 years')];
+  }
+  function showTraceValue() {
+    const never = $('st-traces-never').checked;
+    $('st-traces-slider').disabled = never;
+    $('st-traces-value').textContent = never ? '' : (traceWords()[Number($('st-traces-slider').value)] || '');
+  }
+  function showTraces(reply) {
+    traceChoices = reply.choices || [];
+    $('st-traces-slider').max = String(Math.max(traceChoices.length - 1, 0));
+    const days = reply.forever ? reply.default : reply.days;
+    const at = traceChoices.indexOf(days);
+    $('st-traces-slider').value = String(at < 0 ? traceChoices.indexOf(reply.default) : at);
+    $('st-traces-never').checked = !!reply.forever;
+    showTraceValue();
+  }
+  async function loadTraces() {
+    try { showTraces(await api('GET', '/api/traces')); } catch (e) { $('st-traces-said').textContent = e.message; }
+  }
+  async function saveTraces() {
+    const line = $('st-traces-said');
+    line.textContent = '';
+    const keep = $('st-traces-never').checked ? 'never' : String(traceChoices[Number($('st-traces-slider').value)]);
+    let reply;
+    try { reply = await api('POST', '/api/traces', { keep: keep }); } catch (e) { line.textContent = e.message; return; }
+    if (reply.started) {
+      line.textContent = t('A window asks who you are.');
+      await followJob(line);
+      await loadTraces();
+      return;
+    }
+    showTraces(reply);
+    line.textContent = t('Saved.');
+  }
+
   async function saveRules(scope) {
     const line = $('st-del-said');
     line.textContent = '';
@@ -1543,7 +1584,10 @@
     $('st-del-save').addEventListener('click', function () { saveRules('here'); });
     $('st-del-all').addEventListener('click', function () { saveRules('all'); });
     $('st-del-follow').addEventListener('click', function () { saveRules('follow'); });
-    $('st-g-trash').addEventListener('toggle', function () { if ($('st-g-trash').open) { loadRules(); } });
+    $('st-g-trash').addEventListener('toggle', function () { if ($('st-g-trash').open) { loadRules(); loadTraces(); } });
+    $('st-traces-slider').addEventListener('input', showTraceValue);
+    $('st-traces-never').addEventListener('change', showTraceValue);
+    $('st-traces-save').addEventListener('click', saveTraces);
     $('st-files-show').addEventListener('click', function () { files(null, ''); });
     // In the page only: the list is already here, so a long one is narrowed
     // without pausing the machine again.

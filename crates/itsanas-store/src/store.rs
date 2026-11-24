@@ -1014,6 +1014,18 @@ impl Store {
         self.index.files()
     }
 
+    /// Let go of the traces of files deleted before `cutoff` (unix seconds),
+    /// those dated by a clock never set excepted ([`crate::traces`]); how
+    /// many went.
+    ///
+    /// # Errors
+    ///
+    /// When the index cannot be written.
+    pub fn forget_traces_before(&self, cutoff: u64) -> Result<usize> {
+        self.index
+            .forget_tombstones_between(crate::traces::CLOCK_FLOOR, cutoff)
+    }
+
     /// Every path in the store, sorted.
     pub fn list(&self) -> Result<Vec<String>> {
         Ok(self

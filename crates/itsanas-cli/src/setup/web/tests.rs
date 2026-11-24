@@ -2922,6 +2922,69 @@ fn red_team_a_rule_that_keeps_less_waits_for_who_you_are() {
     );
 }
 
+/// How long the traces of deletes are kept is set for the whole account from
+/// Settings: a year until anybody chooses, keeping them longer (or for ever)
+/// at once, keeping them for less time only once the person said who they
+/// are, and nothing else but a duration or `never` taken. Kept less with
+/// nobody asked, anybody at an unlocked screen could set ten days, switch a
+/// machine off, and bring a deleted file back through it. Sabotage: answer
+/// `traces_need_identity` false.
+#[test]
+fn red_team_traces_kept_for_less_time_wait_for_who_you_are() {
+    use itsanas_store::traces::{self, Keep};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (page, slot) = page_with_node(dir.path(), &[], |_| {});
+    let kept = || {
+        let node = slot.lock().expect("slot").clone().expect("node");
+        traces::account(&node.store, &node.vault).expect("traces")
+    };
+    let shown = page.api("GET", "/api/traces", "");
+    assert_eq!(shown.status, 200, "{}", shown.body);
+    assert!(
+        shown.body.contains("\"days\":365"),
+        "the default is not a year: {}",
+        shown.body
+    );
+    assert!(
+        shown.body.contains("1825"),
+        "the durations offered are not sent: {}",
+        shown.body
+    );
+
+    let refused = page.api("POST", "/api/traces", "keep=0");
+    assert_eq!(
+        refused.status, 400,
+        "zero days was taken: every trace would go at once"
+    );
+
+    let more = page.api("POST", "/api/traces", "keep=never");
+    assert_eq!(more.status, 200, "{}", more.body);
+    assert_eq!(
+        kept(),
+        Keep::Forever,
+        "keeping the traces for ever was not set"
+    );
+
+    let less = page.api("POST", "/api/traces", "keep=10");
+    assert_eq!(
+        less.status, 202,
+        "the traces were kept for less time with nobody asked who they are: {}",
+        less.body
+    );
+    assert_eq!(
+        kept(),
+        Keep::Forever,
+        "the shorter choice was written before anybody proved who they are"
+    );
+    let ended = job_ended(&page);
+    assert!(ended.contains("\"phase\":\"done\""), "{ended}");
+    assert_eq!(
+        kept(),
+        Keep::For(10),
+        "the choice proved by the passphrase was not set"
+    );
+}
+
 /// The theme is in the first byte of the page, kept in the node's home for the
 /// next page and the phone's own screens, and told to the shell: a theme set
 /// only by a script would flash the other one first, and be lost at the next page.

@@ -889,6 +889,34 @@ impl Index {
         Ok(())
     }
 
+    /// Forget every tombstone dated from `floor` up to, not including,
+    /// `cutoff`; how many went. One write transaction.
+    ///
+    /// Before `floor` a date is a clock that was never set, and that trace is
+    /// kept: a delete dated 1970 by a machine with no battery would otherwise
+    /// go the moment it arrived. A tombstone that does not decode is kept too.
+    pub fn forget_tombstones_between(&self, floor: u64, cutoff: u64) -> Result<usize> {
+        let txn = self.db.begin_write()?;
+        let gone = {
+            let mut table = txn.open_table(TOMBSTONES)?;
+            let mut old = Vec::new();
+            for row in table.iter()? {
+                let (path, value) = row?;
+                if let Ok(tombstone) = postcard::from_bytes::<Tombstone>(value.value())
+                    && (floor..cutoff).contains(&tombstone.removed_unix)
+                {
+                    old.push(path.value().to_owned());
+                }
+            }
+            for path in &old {
+                table.remove(path.as_str())?;
+            }
+            old.len()
+        };
+        txn.commit()?;
+        Ok(gone)
+    }
+
     /// Look up one path.
     pub fn get_file(&self, path: &str) -> Result<Option<FileEntry>> {
         let txn = self.db.begin_read()?;
@@ -2904,6 +2932,51 @@ mod tests {
             removed_unix: 1_700_000_100,
             author: itsanas_crypto::DeviceId::from_bytes([1; 32]),
         }
+    }
+
+    /// Traces older than the account keeps go; a recent one stays, and so does
+    /// one dated by a clock never set, which looks fifty years old and is not.
+    /// Sabotage: drop the floor, or let the cutoff day itself go.
+    #[test]
+    fn red_team_only_traces_older_than_kept_go_and_a_clock_never_set_keeps_its_own() {
+        let (_dir, index) = fresh();
+        let day = crate::trash::DAY;
+        let now = 1_800_000_000;
+        let dated = |at: u64| Tombstone {
+            removed_unix: at,
+            ..tombstone()
+        };
+        index
+            .remove_file("old.txt", &dated(now - 400 * day))
+            .unwrap();
+        index
+            .remove_file("recent.txt", &dated(now - 10 * day))
+            .unwrap();
+        index
+            .remove_file("on-the-day.txt", &dated(now - 365 * day))
+            .unwrap();
+        index.remove_file("pi-in-1970.txt", &dated(5)).unwrap();
+
+        let floor = crate::traces::CLOCK_FLOOR;
+        let gone = index
+            .forget_tombstones_between(floor, now - 365 * day)
+            .unwrap();
+
+        assert_eq!(gone, 1, "not exactly the one old trace went");
+        assert!(
+            index.get_tombstone("old.txt").unwrap().is_none(),
+            "a trace older than kept stayed"
+        );
+        for kept in ["recent.txt", "on-the-day.txt"] {
+            assert!(
+                index.get_tombstone(kept).unwrap().is_some(),
+                "{kept}: a trace still within its days went"
+            );
+        }
+        assert!(
+            index.get_tombstone("pi-in-1970.txt").unwrap().is_some(),
+            "a delete dated by a clock never set went at once: a machine still holding the file brings it back"
+        );
     }
 
     #[test]

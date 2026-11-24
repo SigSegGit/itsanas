@@ -101,6 +101,50 @@ pub(super) fn trash_change(ctx: &Arc<Context>, request: &Request) -> Response {
     }
 }
 
+/// `GET /api/traces`: how long the account keeps the traces of deleted files.
+pub(super) fn traces(ctx: &Context) -> Response {
+    node_call(ctx, |node| deleting::traces_json(node))
+}
+
+/// `POST /api/traces`: `keep`, a number of days or `never`, for the whole
+/// account. Keeping less than now asks who is there first, as the trash's own
+/// rules do.
+pub(super) fn traces_change(ctx: &Arc<Context>, request: &Request) -> Response {
+    let form = match parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let keep = match field(&form, "keep").map(deleting::traces_from) {
+        Some(Ok(keep)) => keep,
+        Some(Err(failure)) => return Response::refuse(400, &failure.message()),
+        None => return Response::refuse(400, "`keep` is missing"),
+    };
+    let needs = with_node(ctx, |node| {
+        Ok(deleting::traces_need_identity(node, keep)?.to_string())
+    });
+    match needs.as_deref() {
+        Ok("true") => start_boxed(
+            ctx,
+            "traces",
+            "who you are, to keep the traces of deletes for less time",
+            Box::new(move |worker, prompt, _| {
+                crate::setup::keys::prove_identity(
+                    &worker.home,
+                    prompt,
+                    "to keep the traces of deletes for less time",
+                )?;
+                with_node(worker, |node| deleting::set_traces(node, keep))
+                    .map_err(|failure| crate::error::CliError::Usage(failure.message()))
+            }),
+        ),
+        Ok(_) => node_call(ctx, |node| {
+            deleting::set_traces(node, keep)?;
+            deleting::traces_json(node)
+        }),
+        Err(failure) => Response::refuse(409, &failure.message()),
+    }
+}
+
 /// `GET /api/deletion`: the rules of this machine, of the account and of every
 /// machine.
 pub(super) fn rules(ctx: &Context) -> Response {
