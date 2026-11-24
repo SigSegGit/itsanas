@@ -12,8 +12,18 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
 WRITTEN-AT: 2026-11-24
-BASE: 7cdf39a
+BASE: 0d24be3
 -->
+
+**2026-11-24, after #457: the traces of deletes, and two machines deleting one file.** Nicolas
+chose: the account keeps the traces of deletes ten days to five years or for ever, a year by
+default, in Settings' Trash section (§8 13). Writing its test found a sync defect older than it:
+two machines deleting one file apart left each trace replacing the other, a third machine
+swapping between them every round, and the account never settled; the traces now merge
+(`red_team_two_machines_deleting_the_same_file_apart_still_settle`). §8 16 is decided (no
+promise, no difference from any member). Trap: `scripts/check-counts.py` sums only the top `#`
+headings of TESTING.md, not the `##` under them; a new red-team file needs its surface in
+`scripts/redteam_surfaces.py`.
 
 **2026-11-24, after #456: three more.** A file restored from the account's trash and deleted
 outright before a phone's next note was let go there; a marker leaving while its file stays is
@@ -4316,9 +4326,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
     choosing the interval. Then the wider idea, to weigh, not build: a company keeping its
     database's backup here has machines that are on all day with good bandwidth, which the
     placement already prefers once measured (`measured` placement, #437); the space bargain
-    (ECONOMICS) makes it pledge more than it stores, so it hosts the rest of the network. Open for
-    Nicolas before any of it: what such an account is promised (nothing public says it today),
-    whether it joins the open network or an invite-only coordinator, and retention.
+    (ECONOMICS) makes it pledge more than it stores, so it hosts the rest of the network.
+    **Decided by Nicolas, 2026-11-24:** such an account is promised nothing more than any member.
+    It has the same settings and the same quota as everybody, and being indistinguishable is part
+    of its appeal: nothing may let a host tell that the chunks it keeps are a database's backup, or
+    whose, which keeps an attack on it hard. Retention is the account's own trash rules and its
+    trace-keeping choice (§8 13). Checked against the code: a host sees an owner's key, blinded
+    chunk ids, sizes and timing, never a name (a `Lookup` turns a name into a key, nothing turns a
+    key into a name); what a regular hourly snapshot's timing and sizes tell a host is (c)'s to
+    measure. Left: (a) and (c).
 
 15. 🟨 **Rename, and earlier versions** (asked by Nicolas, 2026-11-19: more for the next version to
     test). `itsanas mv`, `itsanas versions`, the daemon's `move` and `versions` jobs, the phone's
@@ -4378,7 +4394,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     a file emptied out of the trash is not kept there
     (`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`), and
     since 2026-11-24 a file restored and then deleted outright before the next note is protected
-    (`red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note`); a
+    (`red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note`). How long
+    the traces of deletes are kept is the account's choice since 2026-11-24 (Nicolas): ten days to
+    five years, or never deleted, a year by default, in Settings' Trash section beside the rules
+    (`/api/traces`, `itsanas trash traces`), swept once a day (`itsanas_store::traces`); a
     stolen device not yet withdrawn can still trash then empty, the same as before.
 
 12. ✅ **Start at login, per account, from Settings** (asked by Nicolas, 2026-11-10). Settings'

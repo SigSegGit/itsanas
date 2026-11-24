@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1756 test functions, 20 of them `#[ignore]`d into the slow job, and 685 of
+**1763 test functions, 20 of them `#[ignore]`d into the slow job, and 691 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -345,14 +345,15 @@ What is missing before this is a *network* rather than a personal sync tool:
   through the escrow) and worked here; what does not exist is any way for the
   legitimate owner to give up a name they can no longer prove.
 
-- **Tombstones are never pruned.** One small record per file ever deleted,
-  kept for the life of the account. `Index::forget_tombstone` exists and cannot
-  be called safely: dropping a tombstone before every device has seen the delete
-  lets a device that missed it resurrect the file, and "every device" needs a
-  membership list this design deliberately does not have — the same problem
-  that killed signed node-set epochs. Bounded in practice by how much somebody
-  deletes; unbounded in principle. The likely answer is an age threshold well
-  past any plausible offline period, which is a decision nobody has taken.
+- ~~**Tombstones are never pruned.**~~ Decided by Nicolas, 2026-11-24, and
+  built: the account keeps the traces of deletes for one of thirteen durations,
+  ten days to five years, or for ever; a year by default, set in Settings'
+  Trash section (`/api/traces`) or with `itsanas trash traces`. The daemon lets
+  older traces go once a day (`traces::sweep`). The trade stays what it was: a
+  machine switched off for longer than the account keeps traces may bring back
+  a file deleted meanwhile, which the page says beside the choice. A delete
+  dated before 2025 by a clock never set keeps its trace. Proved by the five
+  tests named in TESTING.md under `traces`, `index` and `deletion.rs`.
 - ~~**Anyone who can reach the coordinator is a member.**~~ Built.
   `--invite-only` admits a stranger only with a secret an existing member
   signed; the coordinator holds the hash, never a working code, and can refuse

@@ -377,6 +377,16 @@
           <ul id="st-del-machines" class="devices" aria-label="Rules of each machine"></ul>
           <p id="st-del-said" class="said" role="status" aria-live="polite"></p>
         </fieldset>
+        <fieldset id="st-traces" class="plain">
+          <div class="field">
+            <label for="st-traces-slider">Traces of deleted files are kept for</label>
+            <div class="row slider"><input id="st-traces-slider" type="range" min="0" max="12" step="1" aria-describedby="st-traces-help"><output id="st-traces-value" for="st-traces-slider"></output></div>
+            <label class="choice"><input type="checkbox" id="st-traces-never"> Never delete the traces</label>
+          </div>
+          <p class="help" id="st-traces-help">A trace stops a machine that was off when a file was deleted from bringing it back. A machine switched off for longer than this may bring a deleted file back. One choice for the whole account; keeping them for less time asks who you are.</p>
+          <div class="controls"><button type="button" id="st-traces-save">Save for the account</button></div>
+          <p id="st-traces-said" class="said" role="status" aria-live="polite"></p>
+        </fieldset>
         <div class="field" data-feature="folder">
           <span class="label">In the trash</span>
           <div class="controls">

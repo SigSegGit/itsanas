@@ -454,6 +454,8 @@ pub fn purged_trash(node: &Node) -> Result<BTreeMap<String, u64>, Failure> {
     }
     deletion::release_protected(node.store.root(), None, now)
         .map_err(|error| trash_failed(&error))?;
+    // Once a day, the traces older than the account keeps them go.
+    itsanas_store::traces::sweep(&node.store, &node.vault, now)?;
     let mut hidden = trash::list(&node.home);
     let shared: BTreeMap<String, u64> = deletion::shared(&node.store, &node.vault)?
         .into_values()

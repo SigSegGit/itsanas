@@ -237,6 +237,94 @@ fn red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_n
     );
 }
 
+/// How long traces are kept is the account's choice, not a machine's: one
+/// machine forgetting earlier is enough for a machine that was off to bring a
+/// deleted file back through it. Set on the phone, the computer reads it; two
+/// choices made apart read as the one that keeps more, on both. Sabotage:
+/// read the first choice instead of the most protective.
+#[test]
+fn red_team_how_long_traces_are_kept_is_one_choice_for_the_whole_account() {
+    use itsanas_store::traces::{self, Keep};
+    let swarm = swarm();
+    let (phone, pc) = (swarm.device(PHONE).store(), swarm.device(PC).store());
+    assert_eq!(
+        traces::known_here(pc).unwrap(),
+        Keep::For(365),
+        "the default is not a year"
+    );
+
+    traces::set_known(phone, Keep::For(30)).unwrap();
+    swarm.settle_and_check().unwrap();
+    assert_eq!(
+        traces::known_here(pc).unwrap(),
+        Keep::For(30),
+        "a choice made on the phone did not reach the computer"
+    );
+
+    traces::set_known(pc, Keep::Forever).unwrap();
+    traces::set_known(phone, Keep::For(10)).unwrap();
+    swarm.settle_and_check().unwrap();
+    for (name, store) in [("phone", phone), ("computer", pc)] {
+        assert_eq!(
+            traces::known_here(store).unwrap(),
+            Keep::Forever,
+            "the {name} read a shorter choice made apart over keeping forever"
+        );
+    }
+    assert!(
+        swarm
+            .device(PC)
+            .store()
+            .list()
+            .unwrap()
+            .iter()
+            .all(|path| !path.starts_with(traces::PREFIX)
+                || path.ends_with("never")
+                || path.ends_with("10")),
+        "a choice left a file nobody reads"
+    );
+}
+
+/// A trace goes once it is older than the account keeps, at most once a day,
+/// and never while the account keeps them for ever. Sabotage: sweep whatever
+/// the date of the last sweep; or sweep under `Forever`.
+#[test]
+fn red_team_traces_go_after_their_days_once_a_day_and_never_when_kept_for_ever() {
+    use itsanas_store::traces::{self, Keep};
+    let swarm = swarm();
+    let dir = tempfile::tempdir().expect("vault dir");
+    let vault = itsanas_store::Vault::open(dir.path().join("vault")).expect("vault");
+    let phone = swarm.device(PHONE).store();
+    swarm.device(PHONE).write("old.txt", b"bytes").unwrap();
+    swarm.device(PHONE).remove("old.txt").unwrap();
+    phone.flush_segment().unwrap();
+    let day = 24 * 3600;
+
+    traces::set_known(phone, Keep::Forever).unwrap();
+    let later = now() + 2000 * day;
+    assert_eq!(
+        traces::sweep(phone, &vault, later).unwrap(),
+        0,
+        "a trace went while the account keeps them for ever"
+    );
+
+    traces::set_known(phone, Keep::For(10)).unwrap();
+    // Two traces: the file's, and the choice `never` the new choice replaced.
+    assert_eq!(
+        traces::sweep(phone, &vault, later + day).unwrap(),
+        2,
+        "a trace older than the account keeps stayed"
+    );
+    swarm.device(PHONE).write("old2.txt", b"bytes").unwrap();
+    swarm.device(PHONE).remove("old2.txt").unwrap();
+    phone.flush_segment().unwrap();
+    assert_eq!(
+        traces::sweep(phone, &vault, later + day + 3600).unwrap(),
+        0,
+        "a second sweep the same day ran: every round would walk every trace"
+    );
+}
+
 /// Each machine's rules are read the same everywhere, two changes made apart
 /// settle on the one that keeps more, and "apply to all" leaves one set.
 /// Sabotage: make `rules_under` take the first record instead of the most

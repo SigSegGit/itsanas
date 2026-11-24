@@ -7,6 +7,7 @@
 use clap::Subcommand;
 use itsanas_node::Node;
 use itsanas_store::deletion::{self, Mode, Receive, Rules};
+use itsanas_store::traces::{self, Keep};
 use serde_json::json;
 
 use crate::failure::Failure;
@@ -53,6 +54,9 @@ pub enum TrashAction {
     },
     /// Follow the account's rules again, this machine's own taken away.
     Follow,
+    /// How long the traces of deleted files are kept, for the whole account:
+    /// a number of days, or `never` to keep them for ever; nothing shows it.
+    Traces { keep: Option<String> },
 }
 
 fn usage(text: impl Into<String>) -> Failure {
@@ -90,6 +94,64 @@ pub fn rules_json(node: &Node) -> Result<String, Failure> {
         "machines": rows,
     })
     .to_string())
+}
+
+/// How long the traces of deleted files are kept, for a person to read.
+fn traces_words(keep: Keep) -> String {
+    match keep {
+        Keep::For(days) => format!("kept {days} days"),
+        Keep::Forever => "kept for ever".to_owned(),
+    }
+}
+
+/// `GET /api/traces`: the account's choice, and the durations offered.
+///
+/// # Errors
+///
+/// When the store cannot be read.
+pub fn traces_json(node: &Node) -> Result<String, Failure> {
+    let keep = traces::account(&node.store, &node.vault)?;
+    Ok(json!({
+        "days": match keep { Keep::For(days) => Some(days), Keep::Forever => None },
+        "forever": keep == Keep::Forever,
+        "choices": traces::CHOICES,
+        "default": traces::DEFAULT_DAYS,
+    })
+    .to_string())
+}
+
+/// A choice as typed or sent: `never`, or a number of days.
+///
+/// # Errors
+///
+/// When it is neither.
+pub fn traces_from(word: &str) -> Result<Keep, Failure> {
+    Keep::from_word(word.trim()).ok_or_else(|| usage("say a number of days, at least 1, or never"))
+}
+
+/// Whether choosing `next` asks who is there first: it keeps less than now,
+/// and this machine asks before a file is deleted for good.
+///
+/// # Errors
+///
+/// When the store cannot be read.
+pub fn traces_need_identity(node: &Node, next: Keep) -> Result<bool, Failure> {
+    let rules = deletion::rules_here(&node.store, &node.vault)?;
+    let now = traces::account(&node.store, &node.vault)?;
+    Ok(rules.ask_auth && now.loosened_by(next))
+}
+
+/// Make `keep` the account's choice; says what it is now.
+///
+/// # Errors
+///
+/// When the store cannot be written.
+pub fn set_traces(node: &Node, keep: Keep) -> Result<String, Failure> {
+    traces::set(&node.store, &node.vault, keep)?;
+    Ok(format!(
+        "Traces of deleted files are {} on every machine of the account.",
+        traces_words(keep)
+    ))
 }
 
 fn rules_value(rules: &Rules) -> serde_json::Value {
@@ -301,6 +363,9 @@ fn words(action: &TrashAction) -> Vec<String> {
         TrashAction::Receive { rule, all } => with_all("receive", rule, *all),
         TrashAction::Ask { on, all } => with_all("ask", on, *all),
         TrashAction::Confirm { on, all } => with_all("confirm", on, *all),
+        TrashAction::Traces { keep } => std::iter::once("traces".to_owned())
+            .chain(keep.iter().cloned())
+            .collect(),
     }
 }
 
@@ -423,5 +488,12 @@ fn run_on(node: &Node, action: TrashAction) -> Result<String, Failure> {
             changed(node, all, |rules| rules.confirm = on)?
         }
         TrashAction::Follow => format!("{}\n", set_rules(node, Scope::Follow, &Rules::default())?),
+        TrashAction::Traces { keep: None } => format!(
+            "traces of deleted files: {}\n",
+            traces_words(traces::account(&node.store, &node.vault)?)
+        ),
+        TrashAction::Traces { keep: Some(word) } => {
+            format!("{}\n", set_traces(node, traces_from(&word)?)?)
+        }
     })
 }

@@ -1042,3 +1042,27 @@ fn an_unarmed_roster_gates_nothing() {
     swarm.device(LAPTOP).sync().unwrap();
     assert!(swarm.device(LAPTOP).read("plan.txt").unwrap().is_some());
 }
+
+/// Two machines delete the same file apart, and a third hears of both. Each
+/// delete replaced the other's trace, so the third swapped between them every
+/// round and the account never settled: every round sent the traces again
+/// (found 2026-11-24 while writing the trace-keeping choice, whose two
+/// machines replace one file apart). The two traces are now one, the union of
+/// what both deletes saw. Sabotage: adopt the incoming trace when concurrent.
+#[test]
+fn red_team_two_machines_deleting_the_same_file_apart_still_settle() {
+    let swarm = swarm();
+    swarm.device(LAPTOP).write("same.txt", b"bytes").unwrap();
+    swarm.settle_and_check().unwrap();
+    swarm.device(PI).remove("same.txt").unwrap();
+    swarm.device(LAPTOP).remove("same.txt").unwrap();
+    swarm
+        .settle_and_check()
+        .expect("two deletes made apart left the account swapping traces for ever");
+    for device in [LAPTOP, PI, VM] {
+        assert!(
+            swarm.device(device).read("same.txt").unwrap().is_none(),
+            "a file both machines deleted came back on device {device}"
+        );
+    }
+}

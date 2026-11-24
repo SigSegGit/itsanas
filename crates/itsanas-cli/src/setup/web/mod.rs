@@ -848,6 +848,10 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/deletion") if ctx.mode == Mode::Settings => {
             deletion::rules_change(ctx, request)
         }
+        ("GET", "/api/traces") if ctx.mode == Mode::Settings => deletion::traces(ctx),
+        ("POST", "/api/traces") if ctx.mode == Mode::Settings => {
+            deletion::traces_change(ctx, request)
+        }
         ("GET", "/api/files") if ctx.mode == Mode::Settings => {
             node_call(ctx, |node| crate::freeing::files(node))
         }

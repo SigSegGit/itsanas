@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1756 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 685 are red-team tests.**
+**Last updated: 2026-11-23 — 1763 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 691 are red-team tests.**
 
-**1640 of the 1756 tests have an entry of their own on this page** — an *entry*,
+**1647 of the 1763 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,13 +158,13 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 26 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 232 |
+| `itsanas-store` unit | 235 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 51 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 7 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 27 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 9 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 74 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 81 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 388 |
+| `itsanas-cli` unit | 389 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -225,9 +225,9 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 48 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 67 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 233 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 51 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 69 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 234 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -475,7 +475,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (190, plus the 42 vault tests below)
+# `itsanas-store` — unit tests (193, plus the 42 vault tests below)
 
 | **`red_team_what_the_store_writes_to_disk_keeps_its_bytes`** | One sample of each type the store writes to its index, its segments and its protected list (`FileEntry`, `Tombstone`, `LogEntry`, `SegmentEnvelope`, `SegmentBody`, `LocalState`, `Reliability`, `Uptime`, the protected map), folded and pinned one row per type and format (`disk_bytes.rs`, §8 17): a format that moves without a reader for the old one is a node that cannot open what it wrote. Sabotaged (two fields of `Reliability` swapped): red. |
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
@@ -629,10 +629,11 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_blob_is_storable_and_distinguishable_from_a_missing_one` | Zero-length content is not confused with absence. |
 | `total_bytes_counts_stored_bytes` | Size accounting is correct. |
 
-## `index` — transactional metadata, and an idle round that commits nothing (13)
+## `index` — transactional metadata, and an idle round that commits nothing (14)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_only_traces_older_than_kept_go_and_a_clock_never_set_keeps_its_own`** | `forget_tombstones_between`: a trace older than the account keeps goes; one within its days, one on the day itself and one dated 1970 by a machine whose clock was never set stay (before `traces::CLOCK_FLOOR` a date is not believed). Sabotaged (the floor dropped; the cutoff day let go): red each. |
 | `an_idle_round_of_contacts_commits_nothing_and_the_stamp_still_moves` | ROADMAP "An idle node's disk writes": forgetting a loss never recorded, admitting a member already admitted, and a contact inside `SEEN_STEP` (15 min) with nothing new leave the index file's bytes unchanged -- each was a commit a round, about 24 KB on redb. The stamp still moves once the step has passed, a clock set back is written, and a recorded loss is still forgotten. Sabotaged (each of the four read-before-writes removed): red. |
 | **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing every 5 ms while 100 opens run: none fails; a lock held for good is still `Locked`. A probe spinning with no pause starved every open on Linux CI (a load no caller makes; the tray polls every few seconds). Sabotaged (patience 0): red, 78 of 100 opens gave up. |
 | **`two_files_sharing_a_chunk_both_hold_it`** | Deleting one of two files that share a chunk does not take the other's data with it. |
@@ -715,6 +716,13 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
 
 ---
+
+## `traces` — how long the traces of deletes are kept (2)
+
+| Test | What it proves |
+|---|---|
+| `every_choice_reads_back_and_the_default_is_a_year` | Each of the thirteen durations and `never` reads back as written; zero days is no choice; the default, a year, is one of those offered. |
+| **`red_team_two_choices_read_as_the_one_that_keeps_more`** | Choices written apart read as the one that keeps more, `never` above all; none written reads as a year; a shorter choice is a loosening. |
 
 ## `trash` — the record every delete on a machine goes through (3)
 
@@ -816,7 +824,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — deletes between machines with different rules (7)
+# `itsanas-sync` — deletes between machines with different rules (9)
 
 Two machines of one account, each with its own rules (HANDOVER §8 13): the
 account's trash, Protect, and rules every machine reads alike.
@@ -829,6 +837,8 @@ account's trash, Protect, and rules every machine reads alike.
 | **`red_team_a_file_restored_then_deleted_outright_is_protected_before_the_next_note`** | A machine that downloads nothing reads the trash it last noted. A file restored elsewhere stayed in that note until the next one, so an outright delete before it read as the trash being emptied and was let go. A marker leaving while its file stays is a restore (a purge takes the file first): the path leaves the note at once, and the delete is protected. Sabotaged (the note left alone): red. |
 | **`red_team_a_machine_without_the_marker_still_keeps_nothing_emptied_from_the_trash`** | A machine whose index holds no trash marker (a phone that downloads nothing) reads its noted trash: a delete that emptied the trash is not kept for days there (§8 13). Sabotaged (the noted trash dropped from `deletion::protect`): red. |
 | **`red_team_nothing_is_protected_out_of_the_trash_or_on_a_machine_that_applies`** | A file deleted out of the account's trash had its days already and is kept by nobody; a machine set to apply keeps nothing. Sabotaged (the trash check dropped): red. |
+| **`red_team_how_long_traces_are_kept_is_one_choice_for_the_whole_account`** | One machine forgetting traces earlier is enough for a machine that was off to bring a deleted file back through it, so the choice is the account's: set on the phone, the computer reads it; two set apart read as the one that keeps more on both. Sabotaged (the least protective read): red. |
+| **`red_team_traces_go_after_their_days_once_a_day_and_never_when_kept_for_ever`** | `traces::sweep`: nothing goes while the account keeps traces for ever; once the choice is shorter, the old traces go; a second sweep the same day walks nothing. Sabotaged (sweeping whatever the last sweep; sweeping under `never`): red each. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
 
 ---
@@ -846,7 +856,7 @@ new phone, a replacement disk. `tests/replay.rs`.
 
 ---
 
-# `itsanas-sync` — convergence tests (26)
+# `itsanas-sync` — convergence tests (27)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -854,6 +864,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_two_machines_deleting_the_same_file_apart_still_settle`** | Two machines delete one file apart and a third hears of both: each trace replaced the other, the third swapped between them every round, and the account never settled (found 2026-11-24). The two are now one trace, the union of what both deletes saw, dated and signed by the same rule everywhere; the file stays deleted on all three. Sabotaged (the incoming trace adopted when concurrent): red. |
 | **`red_team_an_armed_roster_applies_no_chain_from_a_key_the_account_never_claimed`** | HANDOVER §10 7. With the roster armed, a chain from a key no claim of the account names is not applied (counted as an unrostered chain), is applied once that device is admitted, and stops being applied for good once it is revoked. Stands in for a host re-signing a lifted body under its own key. |
 | `an_unarmed_roster_gates_nothing` | A store no claim was ever admitted to (a fixture, not a node) applies every chain, as before. |
 | **`a_host_that_loses_everything_is_survivable_because_the_devices_still_have_it`** | The premise the architecture rests on, as a scenario rather than a sentence in a design document: hosts are blind *and* untrustworthy, so one losing its whole disk must cost nothing but bandwidth. Written because `Cloud::forget_all_chunks` existed for exactly this and nothing called it — an anticipated scenario that was never written down. |
@@ -1308,7 +1319,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (388)
+# `itsanas-cli` — unit tests (389)
 
 ## `bench` — measuring this machine (4)
 
@@ -1483,7 +1494,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (50)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (51)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1553,6 +1564,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_settings_turn_this_accounts_start_at_login_on_and_off`** | Settings' Start at login switches this account's own service (its task, unit or agent) and shows what the system then says; a malformed answer changes nothing, no service means nothing to switch (409), and a phone has no switch (403). Sabotaged (the switch always turns it on): red. |
 | **`red_team_the_page_brings_a_version_back_and_renames`** | Settings' file list shows a file's versions (`action=versions`), brings an earlier one back on every machine (`restore`, fetched first when this machine never held it) and renames (`rename`), refusing an empty name: the desktop page had neither (§8 15). Sabotaged (`restore` brings nothing back): red. |
 | **`red_team_the_page_trash_acts_only_on_what_is_in_it`** | Settings' Trash lists the account's trash, refuses to delete for good a file that is not in it, restores out of it, and deletes for good what is. Sabotaged (no refusal of a path outside the trash in `deleting::purge`): red. |
+| **`red_team_traces_kept_for_less_time_wait_for_who_you_are`** | `/api/traces`: a year until anybody chooses, the durations offered sent with it, zero refused; `never` set at once; ten days only after the engine's own window proved who is there, and not written before. Sabotaged (`traces_need_identity` always false): red. |
 | **`red_team_a_rule_that_keeps_less_waits_for_who_you_are`** | A rule that keeps more (a longer wait) is set at once; one that keeps less (a delete at once, nothing kept) starts a job that proves who is there in the engine's own window first, and is set only then. Sabotaged (`needs_identity` always false): red. |
 | **`red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page`** | The theme is in `<html data-theme>` from the first byte, kept in the node's home for the next page, told to the shell, and the dark colours follow the system unless light is chosen. Sabotaged (insertion, saving, telling, each CSS rule): red. |
 | **`red_team_the_page_links_only_the_licence_the_source_and_the_security_policy`** | The only links out of the page are the three of the legal block, each to the project, each opened in a tab of its own with `noopener noreferrer`, and no placeholder stands where a text should be. Sabotaged (a `rel` dropped): red. |
