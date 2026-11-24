@@ -128,6 +128,25 @@ Apple ID can do this, but the certificate expires after about 7 days, and then
 you install the build again. The free option is enough for personal use; it is
 not the same as the App Store or TestFlight.
 
+### On a recent iPhone
+
+The same app runs on every iPhone from the first SE to the current models
+(iOS 14 and later, arm64). It fills the screen of each: the unit tests check
+it on the SE simulator and on the newest iPhone the CI's Xcode simulates
+(`testTheAppFillsTheScreenOfAnyIPhoneRatherThanTheFirstSEsBox`). Two things
+differ from an old phone:
+
+- **Developer Mode.** Since iOS 16, an app signed by an Apple ID rather than
+  bought from the App Store opens only once Developer Mode is on: Settings →
+  Privacy & Security → Developer Mode, then restart. The switch appears after
+  the first such app is installed.
+- **Face ID** instead of Touch ID: the app asks for it with its own sentence
+  (`NSFaceIDUsageDescription`), and the account unlocks the same way.
+
+Without a free Apple ID's weekly re-signing, the routes Apple supports are
+TestFlight and the App Store, both through a paid Apple Developer membership,
+which is the project owner's to take or not.
+
 ### From a Mac, with Xcode
 
 1. Plug the iPhone into the Mac and trust the Mac on the phone.

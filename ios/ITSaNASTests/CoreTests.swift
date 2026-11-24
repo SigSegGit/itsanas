@@ -3,6 +3,22 @@ import XCTest
 
 /// The Swift side of the boundary, against the real core linked into the app.
 final class CoreTests: XCTestCase {
+    /// An app with no launch screen runs, on any iPhone newer than the first
+    /// SE, in a box the first SE's size (320 points wide) with black bars
+    /// around it, because iOS cannot know it draws at any other size. The
+    /// first SE is exactly that size, so the hand test's phone never showed
+    /// it. Drawn at the screen's native width, `bounds` times `nativeScale`
+    /// is the panel's width in pixels; in the box it falls short. Run on the
+    /// SE and on the newest iPhone the simulator has (scripts/build-ios.sh).
+    func testTheAppFillsTheScreenOfAnyIPhoneRatherThanTheFirstSEsBox() {
+        let screen = UIScreen.main
+        let drawn = min(screen.bounds.width, screen.bounds.height) * screen.nativeScale
+        let panel = min(screen.nativeBounds.width, screen.nativeBounds.height)
+        XCTAssertEqual(
+            drawn, panel, accuracy: 2,
+            "the app draws \(screen.bounds.size) points on a \(screen.nativeBounds.size)-pixel panel: it runs in the compatibility box, with black bars, on this iPhone")
+    }
+
     func testAnEnvelopeErrorIsThrownWithItsSentence() {
         XCTAssertThrowsError(try Core.unwrap(#"{"error":"wrong passphrase"}"#)) { error in
             XCTAssertEqual(error.localizedDescription, "wrong passphrase")

@@ -45,6 +45,20 @@ if [ "$what" = test ] || [ "$what" = ci ]; then
     xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
         -destination "platform=iOS Simulator,id=$simulator" \
         -derivedDataPath target/ios-test -only-testing:ITSaNASTests test
+    # And the newest iPhone this Xcode simulates: a notch or a Dynamic Island,
+    # a screen wider than the SE's, Face ID. The SE alone hid an app drawn in
+    # the first SE's box on every recent iPhone (CoreTests). The unit tests
+    # only: the hand test's UI tests run once, on the SE, for the time.
+    recent=$(printf '%s\n' "$phones" | grep -v 'iPhone SE' | tail -n 1 |
+        grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -n 1 || true)
+    if [ -n "$recent" ]; then
+        echo "and on: $(printf '%s\n' "$phones" | grep "$recent")"
+        xcodebuild -project ios/ITSaNAS.xcodeproj -scheme ITSaNAS \
+            -destination "platform=iOS Simulator,id=$recent" \
+            -derivedDataPath target/ios-test -only-testing:ITSaNASTests test
+    else
+        echo "no iPhone simulator other than an SE for iOS $sdk: the recent screen is untested" >&2
+    fi
     bash scripts/iphone-e2e.sh "$simulator"
 fi
 
