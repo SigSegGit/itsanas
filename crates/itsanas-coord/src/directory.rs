@@ -142,6 +142,19 @@ const SUSPENDED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("suspend
 /// On disk because a restart that cleared them handed out a fresh budget to
 /// anyone who could provoke one (HANDOVER §9).
 const ESCROW_TRIES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("escrow_tries");
+/// Secrets of this coordinator's own, by name. Only [`DECOY_KEY`] so far.
+const SECRETS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("coordinator_secrets");
+/// The key a recovery decoy is made from ([`Directory::recovery_answer`]).
+/// Written once, on the first open, and kept: a decoy that changed across a
+/// restart would be told from a real container by asking either side of it.
+const DECOY_KEY: &str = "escrow-decoy";
+
+/// Length of what a recovery container seals: a master secret and a device
+/// seed, 32 bytes each, as `itsanas-node`'s `NodeSecrets` encodes them. A
+/// decoy of any other length would be told from a real one by its size alone;
+/// `the_coordinators_decoy_has_the_shape_of_a_real_recovery_container` in
+/// `itsanas-node` holds the two together.
+pub const RECOVERY_PAYLOAD_LEN: usize = 64;
 
 /// How long a deleted account's name stays retired.
 pub const NAME_RETIRED_FOR: u64 = 365 * 24 * 3600;
@@ -371,6 +384,11 @@ impl Directory {
             let _ = txn.open_table(RETIRED)?;
             let _ = txn.open_table(DELETED)?;
             let _ = txn.open_table(SUSPENDED)?;
+            let mut secrets = txn.open_table(SECRETS)?;
+            if secrets.get(DECOY_KEY)?.is_none() {
+                let key = itsanas_crypto::SymmetricKey::random()?;
+                secrets.insert(DECOY_KEY, key.expose().as_slice())?;
+            }
         }
         txn.commit()?;
 
@@ -430,7 +448,6 @@ impl Directory {
         signed.verify()?;
 
         let joiner = signed.registration.user.id;
-        self.refuse_if_retired(&signed.registration.username, joiner, now)?;
         if self.is_suspended(joiner)? {
             return Err(CoordError::Suspended);
         }
@@ -500,6 +517,24 @@ impl Directory {
                 None => None,
             };
 
+            // The code is spent before the name is looked at, inside the
+            // transaction that creates the account, so a refusal below gives
+            // it back: nothing is committed. (A first version redeemed in a
+            // transaction of its own, and a mistyped name burned the
+            // invitation.) After the name, as it was until 2026-11-24, a
+            // stranger holding no valid code learnt which names were taken,
+            // one refusal at a time.
+            if needs_invitation {
+                let secret = secret.ok_or(CoordError::Rejected(
+                    "this coordinator admits new members by invitation only",
+                ))?;
+                redeem_in(&txn, secret, joiner, now)?;
+            }
+            // After the code, not before: a retired name told a stranger with
+            // none that an account of that name once existed, and until when
+            // its name is kept.
+            self.refuse_if_retired(name, joiner, now)?;
+
             account = match existing {
                 Some(existing) if existing.user.id != signed.registration.user.id => {
                     return Err(CoordError::NameTaken(name.to_owned()));
@@ -518,22 +553,6 @@ impl Directory {
                     escrow_enabled: false,
                 },
             };
-
-            // Spending the use goes *here*, inside the transaction that
-            // creates the account and after the name has been found free.
-            //
-            // The first version redeemed first, committed, and then opened a
-            // second transaction for the account. A registration that failed
-            // after that — `NameTaken` is trivial to provoke, and a mistyped
-            // name provokes it by accident — burned the invitation without
-            // creating anything. Free denial of service against the inviter,
-            // and an invitee locked out by their own typing error.
-            if needs_invitation {
-                let secret = secret.ok_or(CoordError::Rejected(
-                    "this coordinator admits new members by invitation only",
-                ))?;
-                redeem_in(&txn, secret, joiner, now)?;
-            }
 
             accounts.insert(name, postcard::to_stdvec(&account)?.as_slice())?;
             by_id.insert(account.user.id.as_bytes().as_slice(), name)?;
@@ -1695,6 +1714,39 @@ impl Directory {
             Some(value) => Ok(Some(value.value().to_vec())),
             None => Ok(None),
         }
+    }
+}
+
+impl Directory {
+    /// What `GetEscrow` hands out for `username`: its recovery container, or
+    /// a decoy of the same shape when there is none.
+    ///
+    /// An unknown name, a deleted one, an account that never lodged a
+    /// container and one that withdrew it all get a decoy, and the decoy is
+    /// made on every call, real container or not, so the work does not differ
+    /// either. A client then fails the same way, after the same Argon2id cost,
+    /// for a wrong name as for a wrong passphrase.
+    pub fn recovery_answer(&self, username: &str) -> Result<Vec<u8>> {
+        let key = {
+            let txn = self.db.begin_read()?;
+            let secrets = txn.open_table(SECRETS)?;
+            let stored = secrets
+                .get(DECOY_KEY)?
+                .ok_or(CoordError::Rejected("the coordinator has no decoy key"))?;
+            let bytes: [u8; 32] = stored
+                .value()
+                .try_into()
+                .map_err(|_| CoordError::Rejected("the coordinator's decoy key is damaged"))?;
+            itsanas_crypto::SecretBytes::new(bytes)
+        };
+        let decoy = itsanas_crypto::Keystore::decoy(
+            &key,
+            username.as_bytes(),
+            RECOVERY_PAYLOAD_LEN,
+            itsanas_crypto::KdfParams::RECOMMENDED,
+        )
+        .to_bytes();
+        Ok(self.escrow(username)?.unwrap_or(decoy))
     }
 }
 
@@ -3537,6 +3589,48 @@ mod tests {
         }
         .sign(owner);
         directory.register(&signed, now)
+    }
+
+    /// THE ATTACK: on an invite-only coordinator, ask to join under each name
+    /// of a list, with no code or a made-up one, and read the refusals. When
+    /// the name was looked at before the code, "taken" and "retired until..."
+    /// answered for every account that exists or once did, to anybody.
+    #[test]
+    fn red_team_without_a_valid_code_a_taken_a_retired_and_a_free_name_read_the_same() {
+        let (_dir, directory) = directory();
+        register(&directory, "prise", &user(71));
+        register(&directory, "partie", &user(72));
+        directory
+            .delete_account(&deletion(&user(72), "partie", NOW), NOW)
+            .expect("delete");
+        let made_up = [0x5Au8; SECRET_LEN];
+
+        for secret in [None, Some(&made_up)] {
+            let refusals: Vec<String> = ["prise", "partie", "libre"]
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    let seed = u8::try_from(80 + index).unwrap_or(80);
+                    join(&directory, &user(seed), name, secret, NOW + 1)
+                        .expect_err("a stranger with no valid code was let in")
+                        .to_string()
+                })
+                .collect();
+            assert!(
+                refusals.windows(2).all(|pair| pair[0] == pair[1]),
+                "a stranger with {} told a taken name, a retired one and a free one apart: {:?}",
+                if secret.is_some() {
+                    "a made-up code"
+                } else {
+                    "no code"
+                },
+                refusals
+            );
+        }
+        assert!(
+            directory.account("libre").unwrap().is_none(),
+            "a refused join wrote the account anyway"
+        );
     }
 
     #[test]

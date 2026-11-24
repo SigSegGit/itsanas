@@ -104,6 +104,18 @@ struct Cli {
     #[arg(long, requires = "invite_only")]
     admit_first: bool,
 
+    /// Questions about names one address may ask an hour (`Lookup`,
+    /// `GetEscrow`, and a refused registration); an IPv6 /48 asks four times
+    /// that. Raise it when many members reach this coordinator from one
+    /// address (a campus, carrier-grade NAT); a test bench that creates
+    /// dozens of accounts from loopback raises it too.
+    #[arg(
+        long,
+        env = "ITSANAS_COORD_NAME_QUESTIONS",
+        default_value_t = itsanas_coord::server::NAME_QUESTIONS
+    )]
+    name_questions: u32,
+
     /// Forget the account registered under this username, then exit.
     ///
     /// Frees the name for anyone to register again -- a test account would
@@ -192,6 +204,17 @@ fn main() -> ExitCode {
     }
 }
 
+/// The server this run listens with, and the address it got.
+fn listen(cli: &Cli) -> Result<(CoordServer, std::net::SocketAddr), String> {
+    let server = CoordServer::bind(&cli.listen)
+        .map_err(|error| format!("could not listen on {}: {error}", cli.listen))?
+        .with_name_questions(cli.name_questions);
+    let bound = server
+        .local_addr()
+        .map_err(|error| format!("bound to nothing: {error}"))?;
+    Ok((server, bound))
+}
+
 fn run() -> Result<(), String> {
     let cli = Cli::parse();
 
@@ -241,11 +264,7 @@ fn run() -> Result<(), String> {
         return suspend_or_lift(&directory, name, lift);
     }
 
-    let server = CoordServer::bind(&cli.listen)
-        .map_err(|error| format!("could not listen on {}: {error}", cli.listen))?;
-    let bound = server
-        .local_addr()
-        .map_err(|error| format!("bound to nothing: {error}"))?;
+    let (server, bound) = listen(&cli)?;
 
     ctrlc::set_handler(|| {
         SHUTDOWN.store(true, Ordering::Relaxed);

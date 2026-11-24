@@ -128,7 +128,11 @@ cargo build -p itsanas-coordinator
 coordinator="$target/debug/itsanas-coordinator"
 [ -x "$coordinator" ] || coordinator="$coordinator.exe"
 device="$("$coordinator" --state "$state" --identity | tail -n 1)"
-"$coordinator" --state "$state" --listen "127.0.0.1:$port" >"$out/coordinator.log" 2>&1 &
+# Every scenario creates an account from this one machine: each asks the
+# coordinator whether its name is free, and past `NAME_QUESTIONS` an hour
+# from one address the coordinator stops answering. A bench is not a list.
+"$coordinator" --state "$state" --listen "127.0.0.1:$port" --name-questions 100000 \
+    >"$out/coordinator.log" 2>&1 &
 coordinator_pid=$!
 sleep 2
 if ! kill -0 "$coordinator_pid" 2>/dev/null; then

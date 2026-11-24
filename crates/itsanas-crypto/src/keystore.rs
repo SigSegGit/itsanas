@@ -172,6 +172,35 @@ impl Keystore {
         })
     }
 
+    /// A container that opens under no passphrase, shaped like one that
+    /// [`Self::lock`] made from a `payload_len`-byte payload under `params`.
+    ///
+    /// For a coordinator asked for the recovery container of a name that has
+    /// none: answering "nothing here" tells a stranger which names are worth
+    /// a guessing attack, and which exist at all. Salt and body come from
+    /// `key` and `seed`, so the same name gets the same bytes every time (a
+    /// decoy that changed between two asks would be told from a real one by
+    /// asking twice), and nobody without `key` can tell it from a real
+    /// container short of the passphrase that does not exist.
+    #[must_use]
+    pub fn decoy(key: &SymmetricKey, seed: &[u8], payload_len: usize, params: KdfParams) -> Self {
+        let mut label = b"itsanas/keystore/decoy/".to_vec();
+        label.extend_from_slice(seed);
+        let salt = crate::kdf::expand::<SALT_LEN>(key, &label);
+        let mut sealed = vec![0u8; seal::RANDOM_OVERHEAD + payload_len];
+        label.extend_from_slice(b"/body");
+        blake3::Hasher::new_keyed(key.expose())
+            .update(&label)
+            .finalize_xof()
+            .fill(&mut sealed);
+        sealed[0] = SEAL_VERSION;
+        Self {
+            params,
+            salt: *salt.expose(),
+            sealed,
+        }
+    }
+
     /// Recover the payload. Fails indistinguishably for a wrong passphrase, a
     /// wrong label, and a corrupted container — all three are
     /// [`CryptoError::Decrypt`].

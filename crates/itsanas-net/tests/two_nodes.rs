@@ -216,6 +216,60 @@ fn two_nodes_sync_a_file_over_a_real_socket() {
     );
 }
 
+/// A member in China syncing with their own machine in France: 250 ms there
+/// and back, 64 KiB/s, and the daemon's own budget for one peer in a
+/// round (`PEER_SESSION_BUDGET`). A file of several chunks must come across
+/// whole within it; a budget or a timeout tighter than such a path needs
+/// would leave that member's files on the far side for ever, round after
+/// round.
+#[test]
+fn red_team_a_file_crosses_a_slow_throttled_path_within_the_round_budget() {
+    use itsanas_testkit::path::{HostilePath, Rules};
+    let france = node(&alice(), 5);
+    let china = node(&alice(), 6);
+    let payload = itsanas_testkit::filler("across-the-border", 256 * 1024);
+    france.store.write_file("photos.bin", &payload).unwrap();
+    france.store.flush_segment().unwrap();
+    assert!(
+        france
+            .store
+            .stat("photos.bin")
+            .unwrap()
+            .unwrap()
+            .chunks
+            .len()
+            > 1,
+        "one chunk tests no fetch loop"
+    );
+
+    with_server(&france, Pledge::gigabytes(1), |address| {
+        let path = HostilePath::start(
+            address,
+            Rules {
+                delay: std::time::Duration::from_millis(125),
+                rate: Some(64 * 1024),
+                ..Rules::default()
+            },
+        );
+        let mut client = PeerClient::connect_within(
+            path.address(),
+            &china.device,
+            china.store.owner(),
+            None,
+            Some(itsanas_net::PEER_SESSION_BUDGET),
+        )
+        .expect("the handshake did not survive a slow, throttled path");
+        session::round(&china.store, &china.vault, &mut client)
+            .expect("a round across the path failed");
+    });
+
+    assert_eq!(
+        china.store.read_file("photos.bin").unwrap().unwrap(),
+        payload,
+        "a file did not come across a slow path whole"
+    );
+}
+
 #[test]
 fn a_larger_file_survives_the_wire_byte_for_byte() {
     // Several chunks, so the fetch loop and the reassembly both get exercised.

@@ -64,7 +64,8 @@ cargo build --locked -p itsanas-cli -p itsanas-coordinator
 coordinator="$target/debug/itsanas-coordinator"
 itsanas="$target/debug/itsanas"
 device="$("$coordinator" --state "$work/coord" --identity 2>&1 | grep -oE '[0-9a-f]{64}' | head -n 1)"
-"$coordinator" --state "$work/coord" --listen "127.0.0.1:$port" >"$out/coordinator.log" 2>&1 &
+# Every UI test creates an account from this machine; see android-e2e.sh.
+"$coordinator" --state "$work/coord" --listen "127.0.0.1:$port" --name-questions 100000 >"$out/coordinator.log" 2>&1 &
 pids="$pids $!"
 wait_port "$port" || { cat "$out/coordinator.log" >&2; echo "the coordinator did not start" >&2; exit 1; }
 

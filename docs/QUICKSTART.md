@@ -382,6 +382,13 @@ the founder whoever finds the port first.
 Members already registered are never asked for a code. Re-registering is how you
 refresh your keys, and it keeps working.
 
+**Questions about names are counted per address.** Each address may ask 30 an
+hour (`Lookup`, a recovery fetch, a refused registration), and an IPv6 /48
+four times that, so a list of the accounts costs addresses and time. Past it,
+that address is told to try again later. If many of your members reach the
+coordinator from one address (a campus, a carrier's shared NAT), raise it with
+`--name-questions <n>` or `ITSANAS_COORD_NAME_QUESTIONS`.
+
 ## A machine that cannot hold everything
 
 A phone, or a laptop you do not want to give the whole account to. Say how much
@@ -584,6 +591,7 @@ That is tested end to end in
 | --- | --- |
 | `already open in another process` | The daemon, or `itsanas serve`, is running against the same home. Stop it; `itsanas status` still answers while it runs. |
 | `wrong passphrase, or the keystore has been tampered with` | Exactly that. The two are indistinguishable on purpose. |
+| `nothing opens with this username and passphrase` | A recovery by name failed. The name, the passphrase, or both are wrong, or the account keeps no recovery copy on that coordinator: the message is the same for each, on purpose. Recover with the 24 words. |
 | `no node found at …` | Run `init` for a new account or `login` to restore one. |
 | `expected to reach device X but Y answered` | The address resolved to the wrong machine. Refused on purpose — the coordinator is not trusted to say who lives at an address. |
 | `sync` reports `deferred` | A peer had the log but not yet the chunks. Sync again once the device holding them is up. |

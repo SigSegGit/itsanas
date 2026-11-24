@@ -979,6 +979,7 @@ version = "0.1.22"
 dependencies = [
  "blake3",
  "itsanas-crypto",
+ "socket2",
 ]
 
 [[package]]

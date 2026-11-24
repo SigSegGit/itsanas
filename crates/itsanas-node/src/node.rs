@@ -2287,4 +2287,31 @@ mod disk_bytes {
             &[("NodeSecrets", 12_813_034_092_718_475_717)],
         );
     }
+
+    /// The coordinator answers a name with no recovery container with a decoy
+    /// it shapes from a length it cannot read off a real one. If what a node
+    /// seals, or how, grows, the decoys keep the old size and every real
+    /// container stands out by its length: a list of the accounts worth a
+    /// guessing attack, to anybody who asks.
+    #[test]
+    fn the_coordinators_decoy_has_the_shape_of_a_real_recovery_container() {
+        let secrets = postcard::to_stdvec(&NodeSecrets {
+            master: [1; 32],
+            device_seed: [2; 32],
+        })
+        .expect("encode");
+        let real = crate::coordinator::recovery_container("a passphrase", &secrets).expect("seal");
+        let decoy = itsanas_crypto::Keystore::decoy(
+            &itsanas_crypto::SecretBytes::new([3; 32]),
+            b"personne",
+            itsanas_coord::directory::RECOVERY_PAYLOAD_LEN,
+            itsanas_crypto::KdfParams::RECOMMENDED,
+        )
+        .to_bytes();
+        assert_eq!(
+            (decoy.len(), &decoy[..11]),
+            (real.len(), &real[..11]),
+            "a decoy and a real container differ in size or header: RECOVERY_PAYLOAD_LEN no longer matches what set_escrow seals"
+        );
+    }
 }

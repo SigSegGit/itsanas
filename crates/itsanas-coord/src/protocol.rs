@@ -126,7 +126,9 @@ pub enum Request {
     /// Look a username up.
     ///
     /// Answers with a user id, which is a public key. A coordinator that lies
-    /// here produces a name mapping to a key nobody can use.
+    /// here produces a name mapping to a key nobody can use. Answered to
+    /// anybody, within the asking address's `NAME_QUESTIONS`, and never before
+    /// `NAME_ANSWER_FLOOR`.
     ///
     /// The rest of [`Response::Account`] is blank in this answer: `registered_unix`
     /// is zero and `escrow_enabled` false, whatever the account's are.
@@ -173,7 +175,9 @@ pub enum Request {
     /// **Deliberately unauthenticated**, because a machine recovering from
     /// nothing has no device, no claim and no key — that is the situation the
     /// escrow exists for. The protection is a rate limit, which is the one
-    /// thing a central component offers that a DHT cannot.
+    /// thing a central component offers that a DHT cannot. Answered
+    /// [`Response::Escrow`] for every name: a name with no container gets a
+    /// decoy of the same shape, so the answer says nothing of the name.
     GetEscrow {
         /// The account name.
         username: String,
