@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1772 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 700 are red-team tests.**
+**Last updated: 2026-11-25 — 1773 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 701 are red-team tests.**
 
-**1656 of the 1772 tests have an entry of their own on this page** — an *entry*,
+**1657 of the 1773 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 395 |
+| `itsanas-cli` unit | 396 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -220,7 +220,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 5 |
-| `identity` | keys, accounts, devices, claims, invitations | 85 |
+| `identity` | keys, accounts, devices, claims, invitations | 86 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 80 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
@@ -1321,7 +1321,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (395)
+# `itsanas-cli` — unit tests (396)
 
 ## `bench` — measuring this machine (4)
 
@@ -1919,6 +1919,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_an_all_phone_account_at_the_limit_can_free_a_slot_from_the_phone`** | A full account of phones (`MAX_DEVICES_PER_ACCOUNT`) enrolled and never heard from again; one more, not enrolled, sees none of them. Joining answers `atCap` with all their full ids and words naming the screen, not a command; withdrawing one from the unenrolled phone works (what the refusal named counts as shown); joining again takes the slot. Sabotaged two ways (the refusal returned as an error; what it named not remembered): red. |
 | **`red_team_a_list_the_coordinator_cut_short_is_not_called_complete`** | A full page of the coordinator's list may have more behind it, so it is not called complete. |
 | **`red_team_a_device_withdrawn_elsewhere_is_not_offered_from_an_old_refusal`** | Found by `itsanas-redteam`: remembered ids were merged into a complete listing too, so a device withdrawn from another machine kept a Withdraw button. Refused at the limit, then one device withdrawn elsewhere and the phone enrolled by another path: the list is the coordinator's, the withdrawn device absent. Sabotaged by merging regardless: red. |
+| **`red_team_ids_a_refusal_names_are_checked_against_the_signed_roster`** | The ids a device-limit refusal names are the coordinator's text, and a hostile coordinator can name any. Each is checked against this machine's roster, which the account signed: an id it knows withdrawn, before the refusal or after, gets no Withdraw button; one it holds no claim for is shown as named by the coordinator alone. Sabotaged (keeping revoked ids at the refusal; keeping them in the list; marking every id confirmed): red each. |
 | **`red_team_a_refusal_naming_only_some_devices_says_so`** | Found by `itsanas-redteam`: an account above the limit (ten devices, enrolled with the bound off) is named only eight by the coordinator, "and 2 more"; the phone said "already has 8". It now answers `partial` and says the rest are named next time, guessing no count. Sabotaged by `partial = false`: red. |
 | **`red_team_a_phone_that_joined_says_so_for_good`** | `register` writes the `registered` marker the command line writes, so `status` says enrolled and `ensure_enrolled` stays off the network. Sabotaged (no marker): red. |
 | **`red_team_a_coordinator_wanting_an_invitation_asks_for_the_code`** | Against a coordinator admitting by invitation: `needsInvite` with nothing enrolled, `codeRefused` for a code it will not take, and an unreachable coordinator still throws. Sabotaged twice (the refusal thrown; everything read as an invitation): red. |

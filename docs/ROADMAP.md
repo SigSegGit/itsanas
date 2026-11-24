@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1772 test functions, 20 of them `#[ignore]`d into the slow job, and 700 of
+**1773 test functions, 20 of them `#[ignore]`d into the slow job, and 701 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1806,7 +1806,7 @@ open, each with the scenario that hurts:
   side** (DESIGN §6 clock rule): a Pi rebooted with no RTC into 1970 announces
   presences dated before the one held for it, and stays relay-blind until its
   clock passes the held value -- i.e. until NTP comes back.
-- **Android's cap-named ids live in process memory and come from the
+- ✅ **Bounded 2026-11-25 by the signed roster** (`red_team_ids_a_refusal_names_are_checked_against_the_signed_roster`): an id the machine's roster knows withdrawn is not offered, and one it holds no claim for is shown as named by the coordinator alone. A machine whose roster is still empty cannot check, and says so beside each id. Was: **Android's cap-named ids live in process memory and come from the
   coordinator's text** (`coordinator::cap_named`). A hostile coordinator can
   name arbitrary ids and the app offers Withdraw buttons for them; withdrawing
   still needs the account's signature, so the harm is a person withdrawing a

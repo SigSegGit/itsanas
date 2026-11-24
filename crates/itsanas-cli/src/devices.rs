@@ -50,6 +50,14 @@ fn remembered(mine: DeviceId) -> Vec<DeviceId> {
         .unwrap_or_default()
 }
 
+/// The ids a refusal named, less those this machine's roster knows were
+/// withdrawn: the coordinator's text is a stranger's word, the roster is
+/// signed by the account (`Node::admit_roster`).
+pub(crate) fn unrevoked(node: &Node, mut named: Vec<DeviceId>) -> Vec<DeviceId> {
+    named.retain(|device| !node.store.is_revoked(device).unwrap_or(false));
+    named
+}
+
 pub(crate) fn remember(mine: DeviceId, ids: Vec<DeviceId>) {
     if let Ok(mut named) = CAP_NAMED.lock() {
         named.retain(|(phone, _)| *phone != mine);
@@ -134,6 +142,23 @@ pub fn list(node: &Node) -> Result<Value, Failure> {
                 devices.push(entry(device, None));
             }
         }
+    }
+
+    // Every row is the coordinator's word; this machine's roster, signed by
+    // the account, is the check. A device it knows withdrawn is not offered;
+    // one it holds no claim for is said to be named by the coordinator alone.
+    devices.retain(|device| {
+        let id = device["id"]
+            .as_str()
+            .and_then(|id| id.parse::<DeviceId>().ok());
+        !id.is_some_and(|id| node.store.is_revoked(&id).unwrap_or(false))
+    });
+    for device in &mut devices {
+        let id = device["id"]
+            .as_str()
+            .and_then(|id| id.parse::<DeviceId>().ok());
+        let signed = id.is_some_and(|id| node.store.is_member(&id).unwrap_or(false));
+        device["unconfirmed"] = json!(device["thisPhone"] != true && !signed);
     }
 
     // The most silent first, and resting past a week said as a word: the
@@ -241,6 +266,7 @@ pub fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value,
             // with "and N more" for an account far above it (enrolled before
             // the limit existed). The phone cannot count what it was not told.
             let partial = refused.to_string().contains(" more");
+            let named = unrevoked(node, named);
             remember(mine, named.clone());
             return Ok(json!({
                 "enrolled": false,
@@ -253,6 +279,7 @@ pub fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value,
                         "short": device.short(),
                         "address": Value::Null,
                         "thisPhone": false,
+                        "unconfirmed": !node.store.is_member(device).unwrap_or(false),
                     }))
                     .collect::<Vec<_>>(),
                 "partial": partial,
@@ -483,6 +510,87 @@ mod tests {
                 "a device withdrawn elsewhere is still offered: {shown}"
             );
             assert_eq!(ids.len(), LIMIT, "{shown}");
+        });
+    }
+
+    /// The ids a refusal names are the coordinator's text: a hostile one can
+    /// name any. This machine's roster, signed by the account, is checked:
+    /// an id it knows withdrawn gets no Withdraw button, and one it holds no
+    /// claim for is said to be named by the coordinator alone (ROADMAP,
+    /// "Android's cap-named ids"). Sabotage: keep revoked ids in `unrevoked`;
+    /// keep them in the list; mark every id confirmed.
+    #[test]
+    fn red_team_ids_a_refusal_names_are_checked_against_the_signed_roster() {
+        with_directory(|address, _| {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let mut phrase: Option<String> = None;
+            let mut full = Vec::new();
+            for index in 0..LIMIT {
+                let (node, said) = phone(
+                    &dir.path().join(format!("p{index}")),
+                    address,
+                    "nicolas",
+                    phrase.as_deref(),
+                );
+                coordinator::register_with(&node, None, NOW).expect("under the limit");
+                phrase = Some(said);
+                full.push(node.store.device_id());
+            }
+            let (late, _) = phone(
+                &dir.path().join("late"),
+                address,
+                "nicolas",
+                phrase.as_deref(),
+            );
+            late.store
+                .admit_member(&full[0], true)
+                .expect("withdrawn, signed");
+            late.store
+                .admit_member(&full[1], false)
+                .expect("member, signed");
+
+            let answer = register(&late, None, NOW + 1).expect("register");
+            assert_eq!(answer["atCap"], true, "{answer}");
+            let offered = |value: &Value| -> Vec<(String, bool)> {
+                value["devices"]
+                    .as_array()
+                    .expect("devices")
+                    .iter()
+                    .filter(|device| device["thisPhone"] != true)
+                    .map(|device| {
+                        (
+                            device["id"].as_str().expect("id").to_owned(),
+                            device["unconfirmed"] == true,
+                        )
+                    })
+                    .collect()
+            };
+            // Learnt withdrawn after the refusal: the list checks again.
+            late.store
+                .admit_member(&full[3], true)
+                .expect("withdrawn later");
+            let later = list(&late).expect("list");
+            assert!(
+                !offered(&later)
+                    .iter()
+                    .any(|(id, _)| *id == full[3].to_string()),
+                "a device withdrawn since the refusal is still offered: {later}"
+            );
+            for shown in [answer, later] {
+                let rows = offered(&shown);
+                assert!(
+                    !rows.iter().any(|(id, _)| *id == full[0].to_string()),
+                    "a device the roster says withdrawn is offered: {shown}"
+                );
+                assert!(
+                    rows.contains(&(full[1].to_string(), false)),
+                    "a signed member is not shown as confirmed: {shown}"
+                );
+                assert!(
+                    rows.contains(&(full[2].to_string(), true)),
+                    "an id only the coordinator names is not said to be so: {shown}"
+                );
+            }
         });
     }
 

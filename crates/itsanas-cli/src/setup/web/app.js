@@ -935,7 +935,8 @@
       const label = document.createElement('span');
       label.textContent = device.short + (device.address ? ' \u00b7 ' + device.address : '') +
         (device.thisPhone ? ' \u00b7 ' + t('this machine') : '') +
-        (device.dormant ? ' \u00b7 ' + t('resting, not heard from for over a week') : '');
+        (device.dormant ? ' \u00b7 ' + t('resting, not heard from for over a week') : '') +
+        (device.unconfirmed ? ' \u00b7 ' + t('named only by the coordinator; no signed record of it here') : '');
       item.appendChild(label);
       if (!device.thisPhone) {
         const button = document.createElement('button');
