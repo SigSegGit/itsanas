@@ -1549,6 +1549,12 @@ fn report_unreliable_peers(node: &Node, out: &mut String) -> Result<()> {
     // The machines resting past a week first: the other half of "which of my
     // machines is not doing its part", and the calm one.
     report_dormant_members(node, out, itsanas_store::now_unix())?;
+    if let Some(why) = node.store.twin() {
+        let _ = writeln!(
+            out,
+            "\nTHIS MACHINE WRITES NOTHING: another disk holds its identity ({why}).\n  Two copies of one key image are both in use. Keep one; set the other up\n  afresh as a machine of its own (itsanas setup on a new home). Nothing was deleted."
+        );
+    }
     let unreliable = node.store.unreliable_devices()?;
     if unreliable.is_empty() {
         return Ok(());
@@ -1792,6 +1798,12 @@ fn coverage_report(node: &Node, status: &mut String) -> Result<Option<safety::Co
             w!("                 nothing above speaks for them, and this node cannot");
             w!("                 audit them: a challenge is checked against a local copy");
         }
+
+        // The question a USB key, a laptop before a trip or a phone before a
+        // reset is plugged in to answer: may it go now? (HANDOVER §8 0e step
+        // 5.) Said from the same count as the promise below, so the two never
+        // disagree.
+        w!("{}", unplug_words(coverage.complete_elsewhere));
 
         if !coverage.meets(SAFE_COPIES) {
             w!(
@@ -2342,7 +2354,14 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         _ => daemon::DEFAULT_INTERVAL.as_secs(),
     };
     let age = now.saturating_sub(taken);
-    if age > every.saturating_mul(2) {
+    if Node::store_path(home)
+        .join(itsanas_store::store::TWIN)
+        .exists()
+    {
+        // Another disk holds this identity: nothing written here reaches
+        // anybody, whatever else is true. Red, before every other word.
+        format!("twin {age}")
+    } else if age > every.saturating_mul(2) {
         format!("stale {age}")
     } else {
         // A control file nobody can read is not "healthy": the daemon is
@@ -2357,6 +2376,18 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
             // Running, and this account's files are not where they are meant
             // to be yet (MVP.md test L). Before `short`: that one is about the
             // room promised to others, this one about the person's own files.
+            // Back from a long silence (a key out of its drawer): copies are
+            // being proved again, not lost. Blue, for at most ISOLATED_AFTER;
+            // the seconds since it came back follow.
+            Ok(_)
+                if copies.is_some_and(|c| c.exposed(now, every))
+                    && safety::catching_up(header, now).is_some() =>
+            {
+                format!(
+                    "catching-up {age} {}",
+                    safety::catching_up(header, now).unwrap_or_default()
+                )
+            }
             Ok(_) if copies.is_some_and(|c| c.exposed(now, every)) => {
                 let copies = copies.unwrap_or(safety::Copies {
                     have: 0,
@@ -3732,6 +3763,19 @@ fn describe_folder(folder: &std::path::Path) -> String {
         );
     }
     out
+}
+
+/// Whether this machine may be unplugged or switched off without losing a
+/// file, from the complete copies of everything written here that exist on
+/// other machines.
+fn unplug_words(complete_elsewhere: usize) -> String {
+    if complete_elsewhere == 0 {
+        "  unplugging     NOT yet: some of what is here is on no other machine; keep it connected until a round copies it".to_owned()
+    } else {
+        format!(
+            "  unplugging     loses nothing: everything here has {complete_elsewhere} complete copy(ies) on other machines"
+        )
+    }
 }
 
 /// The enrolled devices, the most silent first: never announced, then the
@@ -7431,6 +7475,121 @@ mod tests {
             brief_status(&home, true, now),
             "exposed 60 0 2",
             "a pledge the disk cannot hold hid that the person's own files are on this disk only"
+        );
+    }
+
+    /// A machine whose store recorded a twin writes nothing that reaches
+    /// anybody; its icon says so in red, whatever else the snapshot says, and
+    /// even over a fresh, healthy-looking one. Sabotage: drop the `twin` arm.
+    #[test]
+    fn red_team_a_twin_is_drawn_red_over_a_healthy_snapshot() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 2_000_000;
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!(
+                "snapshot {} every 300 version 0.1.22 copies 2 of 2 reached {}\n",
+                now - 60,
+                now - 60
+            ),
+        )
+        .expect("snapshot");
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        let store = itsanas_node::node::Node::store_path(&home);
+        std::fs::create_dir_all(&store).expect("store dir");
+        std::fs::write(
+            store.join(itsanas_store::store::TWIN),
+            "segment ab12 seen 1",
+        )
+        .expect("twin");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "twin 60",
+            "a machine whose writes reach nobody was drawn green"
+        );
+    }
+
+    /// "May I unplug it?" is answered from the copies elsewhere: no while a
+    /// file is here alone, which is when unplugging loses it; yes, with the
+    /// count, once every file has a complete copy elsewhere. Sabotage: answer
+    /// yes from zero copies.
+    #[test]
+    fn red_team_status_says_unplugging_loses_nothing_only_once_a_copy_is_elsewhere() {
+        assert!(
+            super::unplug_words(0).contains("NOT yet"),
+            "a key whose files are nowhere else was told it could go: {}",
+            super::unplug_words(0)
+        );
+        assert!(super::unplug_words(1).contains("loses nothing"));
+        assert!(super::unplug_words(2).contains("2 complete"));
+    }
+
+    /// A key out of its drawer after a month reaches a machine again: its
+    /// holder records aged out, it counts no copy, and it read `exposed`,
+    /// red, "only on this machine", while the rounds proved the copies again.
+    /// It reads `catching-up` (blue) from the contact that ended the silence,
+    /// for at most `ISOLATED_AFTER`, and never for a laptop closed an evening;
+    /// past the bound a copy still missing is said as it is (HANDOVER §8 0e
+    /// step 5). Sabotage: drop the `catching-up` arm, or keep `back` for ever.
+    #[test]
+    fn red_team_a_key_back_after_a_month_reads_catching_up_not_only_on_this_machine() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let month_ago = 1_000_000;
+        let back = month_ago + 30 * 24 * 3600;
+        let header_after = |previous: &str, seen: Option<u64>, now: u64| {
+            format!(
+                " copies 0 of 2{}",
+                crate::safety::reached_words(seen, previous, now)
+            )
+        };
+        // The round that reaches a machine after the month.
+        let first = header_after(&format!(" reached {month_ago}"), Some(back), back);
+        assert!(
+            first.contains(&format!(" back {back}")),
+            "the return was not noted: {first}"
+        );
+        // An evening closed is no return.
+        let evening = header_after(&format!(" reached {}", back - 3 * 3600), Some(back), back);
+        assert!(
+            !evening.contains(" back "),
+            "a laptop closed an evening read as back: {evening}"
+        );
+
+        let write = |rest: &str, now: u64| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!(
+                    "snapshot {} every 300 version 0.1.22{rest}
+  files 3
+",
+                    now - 60
+                ),
+            )
+            .expect("snapshot");
+        };
+        let later = back + 3600;
+        let carried = header_after(&first, Some(later), later);
+        write(&carried, later);
+        assert_eq!(
+            brief_status(&home, true, later),
+            "catching-up 60 3600",
+            "a key back an hour ago, proving its copies again, was drawn red"
+        );
+        let past = back + crate::safety::ISOLATED_AFTER + 60;
+        let expired = header_after(&carried, Some(past), past);
+        assert!(
+            !expired.contains(" back "),
+            "catching up never ended: {expired}"
+        );
+        write(&expired, past);
+        assert_eq!(
+            brief_status(&home, true, past),
+            "exposed 60 0 2",
+            "a copy still missing hours after the return was hidden behind catching up"
         );
     }
 

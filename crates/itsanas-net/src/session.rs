@@ -39,6 +39,10 @@ use crate::{
 /// What one push half did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PushReport {
+    /// This peer holds a segment signed by this machine's own key that forks
+    /// from this machine's chain: another disk holds the same identity. The
+    /// store now writes nothing (`Store::note_twin`).
+    pub twin: bool,
     pub segments_offered: usize,
     pub segments_accepted: usize,
     pub chunks_offered: usize,
@@ -820,6 +824,17 @@ fn offer_segments(store: &Store, client: &mut PeerClient, report: &mut PushRepor
         .map(|head| head.head);
 
     let chain = store.segments()?;
+    // A head this chain does not hold, signed by this machine's key and
+    // forking from it: a twin. Pushing on would fork the account's log, and
+    // the peer would refuse every segment for ever, in silence.
+    if let Some(head) = already
+        && !chain.iter().any(|envelope| envelope.segment_id == head)
+        && let Some(proof) = forked_segment(client, owner, store.device_id(), &chain)?
+    {
+        store.note_twin(&proof)?;
+        report.twin = true;
+        return Ok(());
+    }
     let after = match already {
         // A head this device does not recognise means the peer is holding
         // something this chain does not contain, which is not a state a push can
@@ -1468,6 +1483,45 @@ fn keep_chain(
         }
     }
     Ok((kept, false))
+}
+
+/// The first segment of this machine's own chain, as `client` holds it,
+/// that is signed by this machine's key and differs from `chain` at the same
+/// position: a fork, so another disk with the same identity. `None` when the
+/// peer's chain only extends this one (a machine restored from an older copy
+/// is behind, not forked), when it holds nothing past it, or when what it
+/// serves is not signed by this key (a peer that lies proves nothing).
+fn forked_segment(
+    client: &mut PeerClient,
+    owner: UserId,
+    mine: DeviceId,
+    chain: &[SegmentEnvelope],
+) -> Result<Option<SegmentEnvelope>> {
+    let mut after = None;
+    let mut index = 0usize;
+    // Bounded: a chain of a million segments is walked no further.
+    for _ in 0..4096 {
+        let page = client.segments(owner, mine, after, MAX_SEGMENTS_PER_REQUEST)?;
+        let Some(last) = page.last().map(|envelope| envelope.segment_id) else {
+            return Ok(None);
+        };
+        for envelope in &page {
+            if envelope.device != mine || envelope.verify_signature().is_err() {
+                return Ok(None);
+            }
+            match chain.get(index) {
+                Some(own) if own.segment_id == envelope.segment_id => {}
+                Some(_) => return Ok(Some(envelope.clone())),
+                None => return Ok(None),
+            }
+            index += 1;
+        }
+        if page.len() < usize::from(MAX_SEGMENTS_PER_REQUEST) {
+            return Ok(None);
+        }
+        after = Some(last);
+    }
+    Ok(None)
 }
 
 /// Whether `put_segment` refused the segment itself, as opposed to failing.

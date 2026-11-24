@@ -2161,11 +2161,23 @@ Detail and measurements are in ROADMAP.md; this is the map.
          (and so the phone) shows as a word
          (`red_team_a_machine_silent_past_a_week_is_named_resting_the_most_silent_first`,
          `red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting`).
-      5. Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
+      5. ✅ Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
          instead of `isolated`, and the key says when its changes reached another machine, so it
-         can be unplugged.
-      6. A cloned key image (one identity on two disks) is detected from a signed foreign segment
+         can be unplugged. Done 2026-11-24: the contact ending a silence of six hours or more
+         writes `back T` (`safety::back_words`); `catching-up` replaces `exposed` for six hours at
+         most, on every tray and the page; `status` says "unplugging loses nothing" or "NOT yet"
+         from the complete copies elsewhere (the copies count is what says a key's changes reached
+         another machine) (`red_team_a_key_back_after_a_month_reads_catching_up_not_only_on_this_machine`,
+         `red_team_status_says_unplugging_loses_nothing_only_once_a_copy_is_elsewhere`).
+      6. ✅ A cloned key image (one identity on two disks) is detected from a signed foreign segment
          and stops writing, nothing deleted; today `offer_segments` swallows `SegmentChainBroken`.
+         Done 2026-11-24: `forked_segment` walks the host's copy of this key's chain for a
+         segment signed by this key where this chain holds another; `Store::note_twin` checks it
+         and records `twin`; the store then refuses writes and seals nothing; the brief reads
+         `twin`, red; `status` says to set one of the two up afresh. A chain only behind (a
+         restore from an older image) is no twin
+         (`red_team_a_cloned_key_image_stops_writing_and_a_copy_behind_does_not`,
+         `red_team_a_twin_is_drawn_red_over_a_healthy_snapshot`).
       7. `copy-to-key` checks the 10 places before writing and says it takes one; the page's
          Disks section asks "in a drawer / my computers now and then / a computer not mine" and
          leads to backup, USB key or portable.

@@ -178,10 +178,47 @@ pub fn reached_words(seen: Option<u64>, previous: &str, now: u64) -> String {
     let past = |at: &u64| *at <= now;
     let reached = seen.filter(past).max(last_reached(previous).filter(past));
     if let Some(at) = reached {
-        return format!(" reached {at}");
+        return format!(
+            " reached {at}{}",
+            back_words(seen.filter(past), previous, now)
+        );
     }
     let since = waiting_since(previous).filter(past).unwrap_or(now);
     format!(" reached never since {since}")
+}
+
+/// When this node came back from a silence of at least [`ISOLATED_AFTER`],
+/// from a header's `back T`: the contact that ended it.
+#[must_use]
+pub fn back_since(header: &str) -> Option<u64> {
+    number_after(header, "back")
+}
+
+/// ` back T` while a node is catching up: `seen`, this round's contact, ended
+/// a silence of at least [`ISOLATED_AFTER`] since the previous header's last
+/// contact, or the previous header's `back` is
+/// still younger than that. Empty otherwise.
+fn back_words(seen: Option<u64>, previous: &str, now: u64) -> String {
+    // A first contact is no return: only an earlier contact counts.
+    let before = last_reached(previous);
+    let back = match (seen, before) {
+        (Some(at), Some(before)) if at.saturating_sub(before) >= ISOLATED_AFTER => Some(at),
+        _ => back_since(previous).filter(|at| *at <= now && now - at < ISOLATED_AFTER),
+    };
+    back.map_or_else(String::new, |at| format!(" back {at}"))
+}
+
+/// How long ago this node came back from a long silence, while that is
+/// younger than [`ISOLATED_AFTER`]: a USB key out of its drawer after a
+/// month. Its holder records have aged out, so it counts no copy and would
+/// read `exposed`, red, "only on this machine", for the hours it takes the
+/// rounds to prove the copies again. It reads `catching-up` instead, bounded:
+/// past the bound, a copy still missing is said as it is.
+#[must_use]
+pub fn catching_up(header: &str, now: u64) -> Option<u64> {
+    back_since(header)
+        .filter(|at| *at <= now && now - at < ISOLATED_AFTER)
+        .map(|at| now - at)
 }
 
 /// How long this node has reached no other machine -- since the last contact,

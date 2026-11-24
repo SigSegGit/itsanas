@@ -121,6 +121,8 @@ function Format-Silence([int64]$Seconds) {
 
 # The state as the status line and the tooltip say it.
 function Get-StateWords([string]$Brief) {
+    if ((Split-Brief $Brief)[0] -eq 'twin') { return "another disk holds this machine's identity: it writes nothing (itsanas status says what to do)" }
+    if ((Split-Brief $Brief)[0] -eq 'catching-up') { return "back after a long silence, catching up with the account's other machines" }
     $silent = Get-Silent $Brief
     if ($null -ne $silent) { return "not synced with any machine for $(Format-Silence $silent)" }
     if ((Split-Brief $Brief)[0] -eq 'unwritable') { return 'its vault cannot be written (itsanas status says why)' }
@@ -173,7 +175,9 @@ function Get-Colour([string]$State, [string]$Brief = '') {
     switch ($State) {
         'healthy' { return 'green' }
         'paused' { return 'blue' }
+        'catching-up' { return 'blue' }
         'stopped' { return 'red' }
+        'twin' { return 'red' }
         'departed' { return 'red' }
         'signed-out' { return 'grey' }
         default { return 'orange' }

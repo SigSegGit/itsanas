@@ -696,6 +696,10 @@
   const STATUS_WORDS = {
     healthy: [N('Running and up to date'), 'ok'],
     paused: [N('Paused: your files wait until you resume'), ''],
+    // Back from a long silence: copies are being proved again, not lost.
+    'catching-up': [N('Back after a long silence: catching up with your other machines'), ''],
+    // A copied key image in use on two disks: this one writes nothing.
+    twin: [N('Another disk holds this machine’s identity: it writes nothing until one of the two is set up afresh'), 'bad'],
     stale: [N('Running, but it has not synced for a while'), 'bad'],
     // MVP.md test L: the daemon runs, the person's files are not elsewhere yet.
     exposed: [N('Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere'), 'bad'],

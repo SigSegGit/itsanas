@@ -39,6 +39,13 @@ pub enum StoreError {
         found: String,
     },
 
+    /// Another disk holds this machine's identity and wrote ahead of it: a
+    /// copy of the same key image, both in use (`Store::note_twin`).
+    #[error(
+        "another disk holds this machine's identity and has written its own changes ({0}): what this one wrote would never reach the account's other machines, so it writes nothing more until one of the two is set up afresh as a machine of its own. Nothing was deleted"
+    )]
+    Twin(String),
+
     #[error("path {0:?} is not valid for a store: {1}")]
     InvalidPath(String, &'static str),
 
