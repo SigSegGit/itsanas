@@ -378,11 +378,12 @@ pub fn connect<S: Read + Write>(
     mut stream: S,
     expected: Option<DeviceId>,
 ) -> Result<Authenticated<ClientStream<S>>> {
-    // A fixed name, because nothing checks it. Verifying a hostname against an
-    // anonymous certificate would be theatre.
-    let name = ServerName::try_from(CERTIFICATE_NAME)
-        .map_err(|_| TlsError::Io(std::io::Error::other("invalid certificate name")))?
-        .to_owned();
+    // An address, not a name, so the hello carries no server name at all
+    // (rustls sends none for an address). Nothing checks it: verifying a
+    // hostname against an anonymous certificate would be theatre. A fixed
+    // name went out in clear in every hello this project sent, which a
+    // censor's filter needs one rule to block, on any port (HANDOVER §8 19).
+    let name = ServerName::from(std::net::IpAddr::from(std::net::Ipv4Addr::UNSPECIFIED));
 
     let mut session = ClientConnection::new(config.clone(), name)?;
     session.complete_io(&mut stream)?;
@@ -410,6 +411,72 @@ mod tests {
     use super::*;
     use itsanas_crypto::SecretBytes;
     use std::net::TcpListener;
+
+    /// THE ATTACK, by a censor: its filter reads the clear part of every TLS
+    /// hello and blocks those that name a server it dislikes, on any port. A
+    /// fixed name went out in each hello this project sent, so one rule
+    /// blocked every member in the country.
+    #[test]
+    fn red_team_a_hello_names_no_server_a_filter_could_match() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let reader = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .expect("timeout");
+            let mut hello = vec![0u8; 4096];
+            let read = stream.read(&mut hello).unwrap_or(0);
+            hello.truncate(read);
+            hello
+        });
+        let stream = std::net::TcpStream::connect(address).expect("dial");
+        let identity = Identity::generate().expect("identity");
+        let config = identity.client_config().expect("config");
+        let device = DeviceKeys::from_seed(&SecretBytes::new([5; 32]));
+        let _ = connect(&config, &device, stream, None);
+        let hello = reader.join().expect("reader");
+        let extensions = hello_extensions(&hello);
+        assert!(
+            extensions.contains(&0x002b),
+            "no supported_versions extension: this did not parse a TLS 1.3 hello ({extensions:?})"
+        );
+        assert!(
+            !extensions.contains(&0x0000),
+            "the hello carries a server_name extension, readable by any filter on the path"
+        );
+        assert!(
+            !hello
+                .windows(7)
+                .any(|seen| seen.eq_ignore_ascii_case(b"itsanas")),
+            "the hello carries the project's name in clear, for any filter to block"
+        );
+    }
+
+    /// The extension types of the first TLS record of `bytes`, a client hello:
+    /// record header (5), handshake header (4), version (2), random (32),
+    /// session id, cipher suites, compression, then the extensions.
+    fn hello_extensions(bytes: &[u8]) -> Vec<u16> {
+        let length = |at: usize, width: usize| -> usize {
+            bytes[at..at + width]
+                .iter()
+                .fold(0, |sum, byte| (sum << 8) | usize::from(*byte))
+        };
+        assert_eq!(bytes.first(), Some(&0x16), "not a handshake record");
+        assert_eq!(bytes.get(5), Some(&0x01), "not a client hello");
+        let mut at = 5 + 4 + 2 + 32;
+        at += 1 + length(at, 1);
+        at += 2 + length(at, 2);
+        at += 1 + length(at, 1);
+        let end = at + 2 + length(at, 2);
+        at += 2;
+        let mut types = Vec::new();
+        while at + 4 <= end {
+            types.push(u16::try_from(length(at, 2)).expect("two bytes"));
+            at += 4 + length(at + 2, 2);
+        }
+        types
+    }
 
     /// THE ATTACK: open a connection and feed the handshake one byte at a time,
     /// each a little inside the read timeout. No single read ever stalls long

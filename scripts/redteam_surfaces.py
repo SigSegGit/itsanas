@@ -62,6 +62,7 @@ SURFACES = [
         'itsanas-coordinator/tests/crash.rs',
         'itsanas-node/src/coordinator.rs',
         'itsanas-node/tests/away_from_home.rs',
+        'itsanas-node/tests/recovery_by_name.rs',
     ]),
     ('host-storage', 'what a host stores for whom: pledges, owner caps, eviction', [
         'itsanas-node/src/owners.rs',

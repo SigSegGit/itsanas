@@ -40,11 +40,47 @@ impl Drop for StopOnDrop<'_> {
     }
 }
 
+/// Make `device` a live device of `owner`, written straight into the
+/// directory: what a member's machine is when it asks a `Lookup`.
+fn enrol_in(directory: &Directory, owner: &UserKeys, device: &DeviceKeys) {
+    directory
+        .register(
+            &Registration {
+                username: format!("member-{}", device.device_id().short()),
+                user: owner.public(),
+                issued_unix: NOW,
+            }
+            .sign(owner),
+            NOW,
+        )
+        .expect("register");
+    directory
+        .claim(
+            &NodeClaim {
+                owner: owner.user_id(),
+                device: device.device_id(),
+                pledged_bytes: 0,
+                issued_unix: NOW,
+                revoked: false,
+            }
+            .sign(owner),
+            NOW,
+        )
+        .expect("claim");
+}
+
 /// Run `body` against a coordinator listening on loopback.
 fn with_coordinator<T>(body: impl FnOnce(std::net::SocketAddr, &Directory) -> T) -> T {
+    with_server(&CoordServer::bind("127.0.0.1:0").expect("bind"), body)
+}
+
+/// [`with_coordinator`], with a server set up by the caller.
+fn with_server<T>(
+    server: &CoordServer,
+    body: impl FnOnce(std::net::SocketAddr, &Directory) -> T,
+) -> T {
     let dir = tempfile::tempdir().expect("temp dir");
     let directory = Directory::open(dir.path().join("directory.redb")).expect("directory");
-    let server = CoordServer::bind("127.0.0.1:0").expect("bind");
     let address = server.local_addr().expect("address");
     let shutdown = AtomicBool::new(false);
     let coordinator = device(0xC0);
@@ -125,7 +161,7 @@ fn dial(address: std::net::SocketAddr, keys: &DeviceKeys, _owner: &UserKeys) -> 
 fn a_member_registers_enrols_a_device_and_is_then_findable_by_name() {
     // The whole point of a coordinator, end to end: after this, somebody who
     // knows only the username can reach the machines.
-    with_coordinator(|address, _| {
+    with_coordinator(|address, directory| {
         let nicolas = user(1);
         let laptop = device(1);
         let mut client = dial(address, &laptop, &nicolas);
@@ -168,8 +204,9 @@ fn a_member_registers_enrols_a_device_and_is_then_findable_by_name() {
             Response::Done
         ));
 
-        // A different machine, knowing only the name.
+        // A machine of another account, knowing only the name.
         let stranger = device(9);
+        enrol_in(directory, &user(9), &stranger);
         let mut looking = dial(address, &stranger, &user(9));
 
         let Response::Account(account) = looking
@@ -332,9 +369,12 @@ fn escrow_is_off_until_a_blob_is_stored_and_can_be_withdrawn_again() {
                 .unwrap()
         };
 
+        // Before, the answer is a decoy: never `Missing`, which would tell a
+        // stranger the account holds nothing worth guessing at.
+        let before = ask(&mut client);
         assert!(
-            matches!(ask(&mut client), Response::Missing),
-            "an account had escrow before anybody asked for it"
+            matches!(&before, Response::Escrow(blob) if blob.as_slice() != b"sealed"),
+            "an account had escrow before anybody asked for it: {before:?}"
         );
 
         client
@@ -342,12 +382,13 @@ fn escrow_is_off_until_a_blob_is_stored_and_can_be_withdrawn_again() {
                 blob: Some(b"sealed".to_vec()),
             })
             .unwrap();
-        assert!(matches!(ask(&mut client), Response::Escrow(_)));
+        assert_eq!(ask(&mut client), Response::Escrow(b"sealed".to_vec()));
 
         client.ask(&Request::PutEscrow { blob: None }).unwrap();
-        assert!(
-            matches!(ask(&mut client), Response::Missing),
-            "a withdrawn escrow blob was still served"
+        assert_eq!(
+            ask(&mut client),
+            before,
+            "a withdrawn escrow blob was still served, or the decoy changed"
         );
     });
 }
@@ -399,7 +440,8 @@ fn red_team_a_newer_client_is_answered_at_the_coordinators_version() {
 
 #[test]
 fn asking_about_an_unknown_name_says_so_rather_than_inventing_one() {
-    with_coordinator(|address, _| {
+    with_coordinator(|address, directory| {
+        enrol_in(directory, &user(3), &device(3));
         let mut client = dial(address, &device(3), &user(3));
         assert!(matches!(
             client
@@ -415,6 +457,245 @@ fn asking_about_an_unknown_name_says_so_rather_than_inventing_one() {
 // ---------------------------------------------------------------------------
 // Red team
 // ---------------------------------------------------------------------------
+
+/// One of each request that says something about a name, each about a name
+/// nobody holds: what the budget and the floor must both cover.
+fn name_questions() -> Vec<(&'static str, Request)> {
+    let joiner = user(0x35);
+    let registration = || {
+        Box::new(
+            Registration {
+                username: "personne".to_owned(),
+                user: joiner.public(),
+                issued_unix: NOW,
+            }
+            .sign(&joiner),
+        )
+    };
+    vec![
+        (
+            "a Lookup",
+            Request::Lookup {
+                username: "personne".to_owned(),
+            },
+        ),
+        (
+            "a GetEscrow",
+            Request::GetEscrow {
+                username: "personne".to_owned(),
+            },
+        ),
+        ("a Register", Request::Register(registration())),
+        (
+            "a RegisterInvited",
+            Request::RegisterInvited {
+                registration: registration(),
+                secret: [0x5A; itsanas_coord::SECRET_LEN],
+            },
+        ),
+    ]
+}
+
+/// THE ATTACK: one question about each name of a list, from one address,
+/// reconnecting as often as it takes. No per-name budget sees it; this one
+/// counts the address, and a fresh connection is the same address.
+#[test]
+fn red_team_one_address_cannot_draw_up_a_list_of_names() {
+    let kinds = name_questions();
+    let server = CoordServer::bind("127.0.0.1:0")
+        .expect("bind")
+        .with_name_questions(u32::try_from(kinds.len()).expect("four"));
+    with_server(&server, |address, _| {
+        let mut client = dial(address, &device(0x31), &user(0x31));
+        let refused = Response::Refused(itsanas_coord::server::TOO_MANY_NAME_QUESTIONS.to_owned());
+        for (what, question) in &kinds {
+            assert_ne!(
+                client.ask(question).unwrap(),
+                refused,
+                "{what}, inside the budget, was refused"
+            );
+        }
+        for fresh in [false, true] {
+            if fresh {
+                client = dial(address, &device(0x32), &user(0x32));
+            }
+            for (what, question) in &kinds {
+                assert_eq!(
+                    client.ask(question).unwrap(),
+                    refused,
+                    "{what} was answered past the budget (fresh connection and key: {fresh}): it is not counted, and a list can be drawn up with it"
+                );
+            }
+        }
+        assert!(
+            matches!(client.ask(&Request::Hosts).unwrap(), Response::Hosts(_)),
+            "the name budget refused a request that is about no name"
+        );
+    });
+}
+
+/// THE ATTACK: time the answers. A name that exists costs a read more than
+/// one that does not, and its container more than a decoy; over enough
+/// samples the difference shows through any jitter. Held to a floor far above
+/// that work, every answer about a name takes the same time.
+#[test]
+fn red_team_no_answer_about_a_name_leaves_before_the_floor() {
+    with_coordinator(|address, directory| {
+        enrol_in(directory, &user(0x41), &device(0x41));
+        let held = directory
+            .account_of(user(0x41).user_id())
+            .unwrap()
+            .unwrap()
+            .username;
+        let mut client = dial(address, &device(0x41), &user(0x41));
+        let floor = itsanas_coord::server::NAME_ANSWER_FLOOR;
+        let mut asked = vec![
+            (
+                "an account's container",
+                Request::GetEscrow {
+                    username: held.clone(),
+                },
+            ),
+            (
+                "an account found",
+                Request::Lookup {
+                    username: held.clone(),
+                },
+            ),
+        ];
+        asked.extend(name_questions());
+        for (what, request) in asked {
+            let started = Instant::now();
+            client.ask(&request).unwrap();
+            let took = started.elapsed();
+            assert!(
+                took >= floor,
+                "{what} was answered in {took:?}, under the {floor:?} every answer about a name waits: its time says what the name is"
+            );
+        }
+    });
+}
+
+/// A member in China reaching a coordinator in France: a quarter of a second
+/// each way and a foreign flow throttled to a few kilobytes a second. What
+/// this guards is that no deadline of this project is tighter than such a
+/// path needs, the client's whole-session budget included.
+#[test]
+fn red_team_a_coordinator_behind_a_slow_throttled_path_still_answers() {
+    use itsanas_testkit::path::{HostilePath, Rules};
+    with_coordinator(|address, _| {
+        let path = HostilePath::start(
+            address,
+            Rules {
+                delay: Duration::from_millis(250),
+                rate: Some(4 * 1024),
+                ..Rules::default()
+            },
+        );
+        let nicolas = user(0x51);
+        let started = Instant::now();
+        let mut client = CoordClient::connect(path.address(), &device(0x51), None)
+            .expect("the handshake did not survive a slow, throttled path");
+        let registered = client.ask(&Request::Register(Box::new(
+            Registration {
+                username: "loin".to_owned(),
+                user: nicolas.public(),
+                issued_unix: NOW,
+            }
+            .sign(&nicolas),
+        )));
+        assert!(
+            matches!(registered, Ok(Response::Account(_))),
+            "registering across the path failed: {registered:?}"
+        );
+        let fetched = client.ask(&Request::GetEscrow {
+            username: "loin".to_owned(),
+        });
+        assert!(
+            matches!(fetched, Ok(Response::Escrow(_))),
+            "a recovery fetch across the path failed: {fetched:?}"
+        );
+        let sent = path.sent_by_clients();
+        assert!(
+            !sent
+                .windows(7)
+                .any(|seen| seen.eq_ignore_ascii_case(b"itsanas")),
+            "what a member sent across the border names the project in clear, for a filter to match"
+        );
+        eprintln!("across the slow path: {:?}", started.elapsed());
+    });
+}
+
+/// THE ATTACK, or a censor's throttle at its worst: the path lets one byte
+/// through now and then, each well inside the per-read timeout, so no single
+/// read ever times out. Without a deadline on the whole session, the client
+/// (a daemon's round, a person typing a recovery) waited for as long as the
+/// path cared to drip.
+#[test]
+fn red_team_a_coordinator_trickled_by_the_path_is_given_up_at_the_deadline() {
+    use itsanas_testkit::path::{HostilePath, Rules};
+    with_coordinator(|address, _| {
+        let path = HostilePath::start(
+            address,
+            Rules {
+                trickle: Some(Duration::from_millis(100)),
+                ..Rules::default()
+            },
+        );
+        let budget = Duration::from_secs(3);
+        let through = path.address();
+        let (tell, told) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let outcome = CoordClient::connect_within(through, &device(0x61), None, budget);
+            let _ = tell.send((outcome.is_ok(), started.elapsed()));
+        });
+        let (connected, took) = told
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the client was still waiting on a trickling path after 30 s");
+        assert!(
+            !connected,
+            "a handshake of a few kilobytes finished at ten bytes a second"
+        );
+        assert!(
+            took < budget + Duration::from_secs(2),
+            "the client gave up after {took:?}, well past its {budget:?} budget"
+        );
+    });
+}
+
+/// A censor cuts a connection it does not like, often in the first round
+/// trip. The client must say so at once, not after a timeout, and a dial
+/// after it must work: nothing of the cut one is kept.
+#[test]
+fn a_connection_cut_by_the_path_fails_at_once_and_the_next_dial_answers() {
+    use itsanas_testkit::path::{HostilePath, Rules};
+    with_coordinator(|address, _| {
+        let path = HostilePath::start(
+            address,
+            Rules {
+                cut_first_after: Some(0),
+                ..Rules::default()
+            },
+        );
+        let started = Instant::now();
+        assert!(
+            CoordClient::connect(path.address(), &device(0x71), None).is_err(),
+            "a connection the path cut was reported as working"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a cut connection took {:?} to report, as long as a timeout",
+            started.elapsed()
+        );
+        let mut client = CoordClient::connect(path.address(), &device(0x71), None)
+            .expect("the dial after a cut one failed");
+        assert!(matches!(
+            client.ask(&Request::Hosts).unwrap(),
+            Response::Hosts(_)
+        ));
+    });
+}
 
 #[test]
 fn red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own() {
@@ -794,8 +1075,9 @@ fn red_team_a_name_cannot_be_taken_over_by_a_different_key() {
     // THE ATTACK: register somebody else's username to your own key, so that
     // everyone looking them up reaches you instead. The registration is signed
     // by the user's key, so this is the coordinator's job to refuse.
-    with_coordinator(|address, _| {
+    with_coordinator(|address, directory| {
         let nicolas = user(1);
+        enrol_in(directory, &user(2), &device(1));
         let mut honest = dial(address, &device(1), &nicolas);
         honest
             .ask(&Request::Register(Box::new(

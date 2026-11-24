@@ -25,6 +25,8 @@
 //!    documentation. Any change to the test data — accidental or hostile —
 //!    fails CI and changes a value that a reader can verify by hand.
 
+pub mod path;
+
 use itsanas_crypto::{MasterSecret, UserKeys};
 
 /// Context string for fixture entropy.

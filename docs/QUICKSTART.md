@@ -584,6 +584,7 @@ That is tested end to end in
 | --- | --- |
 | `already open in another process` | The daemon, or `itsanas serve`, is running against the same home. Stop it; `itsanas status` still answers while it runs. |
 | `wrong passphrase, or the keystore has been tampered with` | Exactly that. The two are indistinguishable on purpose. |
+| `nothing opens with this username and passphrase` | A recovery by name failed. The name, the passphrase, or both are wrong, or the account keeps no recovery copy on that coordinator: the message is the same for each, on purpose. Recover with the 24 words. |
 | `no node found at …` | Run `init` for a new account or `login` to restore one. |
 | `expected to reach device X but Y answered` | The address resolved to the wrong machine. Refused on purpose — the coordinator is not trusted to say who lives at an address. |
 | `sync` reports `deferred` | A peer had the log but not yet the chunks. Sync again once the device holding them is up. |

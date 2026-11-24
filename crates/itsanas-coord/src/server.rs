@@ -27,7 +27,8 @@
 //! that needed babysitting would not be one.
 
 use std::io;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -66,6 +67,57 @@ pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 16;
 /// How long a caller has, in total, to finish TLS and prove its device key.
 pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(15);
 
+/// Questions about a name (`Lookup`, `GetEscrow`, `Register`,
+/// `RegisterInvited`) one address may ask per [`NAME_WINDOW`].
+///
+/// The per-name escrow budget stops a guessing attack on one name; it does
+/// nothing against one question each about a million names, which is how a
+/// list of accounts is drawn up. A person asks a handful in an hour, so this
+/// is far above them; a list of 100 000 names costs over three thousand
+/// address-hours. An IPv6 address counts by its /64, the block one
+/// subscriber is handed.
+pub const NAME_QUESTIONS: u32 = 30;
+
+/// How many times [`NAME_QUESTIONS`] one IPv6 /48 may ask, all its /64s
+/// together.
+///
+/// A /64 is what one subscriber is handed, and a provider or a cloud hands
+/// out thousands for nothing: counted by /64 alone, a list of names cost a
+/// script one more /64 per thirty names. A /48 is a site's whole allocation,
+/// far rarer, so going wide now costs those. Four, so a household or an
+/// office whose devices sit in several /64s of one site is not cut short.
+pub const NAME_BLOCK_SHARES: u32 = 4;
+
+/// The window [`NAME_QUESTIONS`] is counted over.
+pub const NAME_WINDOW: Duration = Duration::from_secs(3600);
+
+/// Addresses counted at once. Full, a new address is refused rather than an
+/// old one forgotten, which would be how an attacker cleared their own count.
+pub const NAME_TRACKED: usize = 65_536;
+
+/// What an address past [`NAME_QUESTIONS`] is told, whatever the name.
+pub const TOO_MANY_NAME_QUESTIONS: &str =
+    "too many questions about names from this address; try again in an hour";
+
+/// No answer about a name leaves sooner than this after its question.
+///
+/// A name that exists costs a read more than one that does not, and a
+/// container a little more than its decoy; over enough samples a stranger
+/// times the difference. Held to a floor far above that work, the time says
+/// nothing about the name. A person recovering an account does not see a
+/// fifth of a second.
+pub const NAME_ANSWER_FLOOR: Duration = Duration::from_millis(200);
+
+/// Everything one [`CoordClient`] may take, handshake included.
+///
+/// A client is short-lived: one batch of requests. Without a bound, a path
+/// that lets a byte through now and then -- a censor throttling a foreign
+/// address to nothing, or a hostile middlebox -- held a daemon's round, or a
+/// recovery typed by a person, for as long as it liked, each read arriving
+/// just inside [`IO_TIMEOUT`]. Two minutes is a hundred round trips across a
+/// continent and a slow firewall.
+pub const COORD_SESSION_BUDGET: Duration = Duration::from_secs(120);
+
 /// How often a serving coordinator erases what has expired, after doing so as
 /// it starts.
 ///
@@ -87,6 +139,7 @@ pub struct CoordServer {
     config: Arc<ServerConfig>,
     handshake_deadline: Duration,
     expire_every: Duration,
+    name_questions: u32,
 }
 
 impl CoordServer {
@@ -118,6 +171,7 @@ impl CoordServer {
             config,
             handshake_deadline: HANDSHAKE_DEADLINE,
             expire_every: EXPIRE_EVERY,
+            name_questions: NAME_QUESTIONS,
         })
     }
 
@@ -136,6 +190,14 @@ impl CoordServer {
     #[must_use]
     pub const fn with_expiry_every(mut self, period: Duration) -> Self {
         self.expire_every = period;
+        self
+    }
+
+    /// Questions about names one address may ask per [`NAME_WINDOW`], in
+    /// place of [`NAME_QUESTIONS`]; for tests.
+    #[must_use]
+    pub const fn with_name_questions(mut self, allowed: u32) -> Self {
+        self.name_questions = allowed;
         self
     }
 
@@ -203,6 +265,9 @@ impl CoordServer {
         let probes = Mutex::new(EscrowLimiter::with(1, PROBE_WINDOW, PROBE_TRACKED));
         let in_flight = AtomicUsize::new(0);
 
+        // A third, per address rather than per name: see [`NAME_QUESTIONS`].
+        let names = Mutex::new(NameBudget::new(self.name_questions));
+
         expire_once(&service, &mut on_event);
         let mut last_expired = Instant::now();
 
@@ -238,10 +303,21 @@ impl CoordServer {
                         let service = &service;
                         let limiter = &limiter;
                         let probes = &probes;
+                        let names = &names;
                         let in_flight = &in_flight;
                         scope.spawn(move || {
                             let outcome = serve_one(
-                                stream, &config, deadline, device, service, limiter, probes,
+                                stream,
+                                from.ip(),
+                                &config,
+                                deadline,
+                                device,
+                                service,
+                                Budgets {
+                                    escrow: limiter,
+                                    probes,
+                                    names,
+                                },
                                 in_flight,
                             );
                             // Given back however the connection ended.
@@ -494,14 +570,19 @@ fn probe(
 #[allow(clippy::too_many_arguments)]
 fn serve_one(
     stream: TcpStream,
+    from: IpAddr,
     config: &Arc<ServerConfig>,
     deadline: Duration,
     device: &DeviceKeys,
     service: &CoordService<'_>,
-    limiter: &Mutex<EscrowLimiter>,
-    probes: &Mutex<EscrowLimiter>,
+    budgets: Budgets<'_>,
     in_flight: &AtomicUsize,
 ) -> Result<()> {
+    let Budgets {
+        escrow: limiter,
+        probes,
+        names,
+    } = budgets;
     let Authenticated {
         peer: caller,
         mut connection,
@@ -543,8 +624,16 @@ fn serve_one(
             return Ok(());
         }
 
+        let asked_at = Instant::now();
+        let about_a_name = is_about_a_name(&request);
         let response = if matches!(request, Request::CheckMe) {
             answer_check_me(service, caller, device, probes, in_flight)
+        } else if about_a_name
+            && !names
+                .lock()
+                .is_ok_and(|mut names| names.allow(from, asked_at))
+        {
+            Response::Refused(TOO_MANY_NAME_QUESTIONS.to_owned())
         } else {
             // Held only across one request, and only escrow fetches touch it.
             // A poisoned lock means another thread panicked mid-request; the
@@ -557,6 +646,12 @@ fn serve_one(
                 .unwrap_or_else(|error| Response::Refused(error.to_string()))
         };
 
+        if about_a_name {
+            // After every lock is given back: a sleeping thread holds a
+            // connection slot, never a budget.
+            std::thread::sleep(NAME_ANSWER_FLOOR.saturating_sub(asked_at.elapsed()));
+        }
+
         if connection.send(&response).is_err() {
             return Ok(());
         }
@@ -565,10 +660,136 @@ fn serve_one(
     Ok(())
 }
 
+/// The three shared budgets [`serve_one`] charges.
+#[derive(Clone, Copy)]
+struct Budgets<'a> {
+    escrow: &'a Mutex<EscrowLimiter>,
+    probes: &'a Mutex<EscrowLimiter>,
+    names: &'a Mutex<NameBudget>,
+}
+
+/// The requests whose answer says something about a name.
+const fn is_about_a_name(request: &Request) -> bool {
+    matches!(
+        request,
+        Request::Lookup { .. }
+            | Request::GetEscrow { .. }
+            | Request::Register(_)
+            | Request::RegisterInvited { .. }
+    )
+}
+
+/// [`NAME_QUESTIONS`] per address (an IPv6 /64), and [`NAME_BLOCK_SHARES`]
+/// times that per IPv6 /48.
+#[derive(Debug)]
+pub struct NameBudget {
+    addresses: EscrowLimiter,
+    blocks: EscrowLimiter,
+}
+
+impl NameBudget {
+    /// `allowed` questions per address per [`NAME_WINDOW`].
+    #[must_use]
+    pub fn new(allowed: u32) -> Self {
+        Self {
+            addresses: EscrowLimiter::with(allowed, NAME_WINDOW, NAME_TRACKED),
+            blocks: EscrowLimiter::with(
+                allowed.saturating_mul(NAME_BLOCK_SHARES),
+                NAME_WINDOW,
+                NAME_TRACKED,
+            ),
+        }
+    }
+
+    /// Whether `from` may ask one more question about a name at `now`; counts
+    /// it when it may.
+    pub fn allow(&mut self, from: IpAddr, now: Instant) -> bool {
+        self.addresses.allow(&address_key(from), now)
+            && block_key(from).is_none_or(|block| self.blocks.allow(&block, now))
+    }
+}
+
+/// The /48 an IPv6 address is in; `None` for an IPv4 one.
+fn block_key(from: IpAddr) -> Option<String> {
+    let IpAddr::V6(v6) = from else {
+        return None;
+    };
+    if v6.to_ipv4_mapped().is_some() {
+        return None;
+    }
+    let s = v6.segments();
+    Some(format!("{:x}:{:x}:{:x}::/48", s[0], s[1], s[2]))
+}
+
+/// The key [`NAME_QUESTIONS`] is counted under: an IPv4 address, or the /64
+/// an IPv6 one is in. A subscriber is handed a whole /64 and can use any of
+/// its 2^64 addresses, so counting each would count nothing.
+fn address_key(from: IpAddr) -> String {
+    match from {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or_else(
+            || {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+            },
+            |v4| v4.to_string(),
+        ),
+    }
+}
+
+/// A socket with a deadline on the whole conversation ([`COORD_SESSION_BUDGET`]).
+///
+/// Each read and write gets the smaller of [`IO_TIMEOUT`] and what is left,
+/// and fails once nothing is.
+#[derive(Debug)]
+pub struct Deadline {
+    stream: TcpStream,
+    until: Instant,
+}
+
+impl Deadline {
+    fn left(&self) -> io::Result<Duration> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the coordinator took longer than this client gives it; the path to it may be throttled",
+            ));
+        }
+        Ok(left.min(IO_TIMEOUT))
+    }
+}
+
+impl itsanas_tls::Socket for Deadline {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl Read for Deadline {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.stream.set_read_timeout(Some(self.left()?))?;
+        self.stream.read(buf)
+    }
+}
+
+impl Write for Deadline {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stream.set_write_timeout(Some(self.left()?))?;
+        self.stream.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
+
 /// A client for one coordinator.
 #[derive(Debug)]
 pub struct CoordClient {
-    connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
+    connection: Connection<itsanas_tls::session::ClientStream<Deadline>>,
     /// The local end of the socket, kept because the TLS wrapper consumes the
     /// `TcpStream` and a caller cannot ask it afterwards.
     ///
@@ -594,6 +815,18 @@ impl CoordClient {
         device: &DeviceKeys,
         expect: Option<DeviceId>,
     ) -> Result<Self> {
+        Self::connect_within(address, device, expect, COORD_SESSION_BUDGET)
+    }
+
+    /// [`Self::connect`], with `budget` for everything this client will do,
+    /// in place of [`COORD_SESSION_BUDGET`].
+    pub fn connect_within(
+        address: impl ToSocketAddrs,
+        device: &DeviceKeys,
+        expect: Option<DeviceId>,
+        budget: Duration,
+    ) -> Result<Self> {
+        let until = Instant::now() + budget;
         // Every resolved address, not the first: `coordinator = ngas.fr:9898`
         // is how a member away from home finds one, and a name resolves to an
         // IPv6 record as well as an IPv4 one. On a network that drops IPv6,
@@ -606,12 +839,7 @@ impl CoordClient {
 
         let stream = itsanas_tls::reach::connect_to_one_of(&targets).map_err(CoordError::from)?;
         let local = stream.local_addr().map_err(CoordError::from)?;
-        stream
-            .set_read_timeout(Some(IO_TIMEOUT))
-            .map_err(CoordError::from)?;
-        stream
-            .set_write_timeout(Some(IO_TIMEOUT))
-            .map_err(CoordError::from)?;
+        let stream = Deadline { stream, until };
 
         // A fresh identity per client process, same as a peer connection: the
         // certificate is a key transport for the handshake and nothing else, so
@@ -661,6 +889,62 @@ impl CoordClient {
 mod tests {
     use super::*;
     use itsanas_crypto::SecretBytes;
+
+    /// THE ATTACK: one question each from many /64s of one /48, which a
+    /// provider hands out by the thousand. Each /64 stays inside its own
+    /// budget; the /48 does not.
+    #[test]
+    fn red_team_many_ipv6_blocks_of_one_site_share_its_budget() {
+        let mut budget = NameBudget::new(1);
+        let now = Instant::now();
+        let shares = usize::try_from(NAME_BLOCK_SHARES).expect("small");
+        let in_site = |index: usize| -> IpAddr {
+            format!("2001:db8:7:{index:x}::1")
+                .parse()
+                .expect("an address")
+        };
+        for index in 0..shares {
+            assert!(
+                budget.allow(in_site(index), now),
+                "/64 number {index} was refused its first question"
+            );
+        }
+        assert!(
+            !budget.allow(in_site(shares), now),
+            "one more /64 of the same /48 bought one more question: a list costs a script a /64 per name"
+        );
+        assert!(
+            budget.allow("2001:db8:8::1".parse().expect("an address"), now),
+            "another site was refused for the first one's questions"
+        );
+        assert!(
+            budget.allow("203.0.113.9".parse().expect("an address"), now),
+            "an IPv4 address was counted in an IPv6 site"
+        );
+    }
+
+    /// An IPv6 subscriber holds a whole /64; counted address by address, one
+    /// line holds 2^64 budgets.
+    #[test]
+    fn red_team_every_address_of_one_ipv6_block_shares_one_name_budget() {
+        let key = |text: &str| address_key(text.parse().expect("an address"));
+        assert_eq!(
+            key("2001:db8:1:2::1"),
+            key("2001:db8:1:2:ffff:ffff:ffff:ffff"),
+            "two addresses of one /64 were counted apart"
+        );
+        assert_ne!(
+            key("2001:db8:1:2::1"),
+            key("2001:db8:1:3::1"),
+            "two /64s shared one count"
+        );
+        assert_eq!(
+            key("::ffff:203.0.113.9"),
+            key("203.0.113.9"),
+            "an IPv4 address reaching a dual-stack socket was counted apart from itself"
+        );
+        assert_ne!(key("203.0.113.9"), key("203.0.113.10"));
+    }
 
     fn keys(seed: u8) -> DeviceKeys {
         DeviceKeys::from_seed(&SecretBytes::new([seed; 32]))

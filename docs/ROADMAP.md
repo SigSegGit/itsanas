@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1737 test functions, 20 of them `#[ignore]`d into the slow job, and 669 of
+**1751 test functions, 20 of them `#[ignore]`d into the slow job, and 681 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -365,8 +365,10 @@ What is missing before this is a *network* rather than a personal sync tool:
   invite.** Nothing rate-limits it, so a member can invite themselves as often
   as they like. Attribution makes that visible after the fact; it does not stop
   it.
-- **Recovery from username plus passphrase is not wired.** The escrow container
-  exists and is tested; `itsanas login` still requires the 24 words.
+- ~~**Recovery from username plus passphrase is not wired.**~~ Wired:
+  `itsanas login --username` fetches the container from the coordinator and
+  opens it with the passphrase (`recover_from_coordinator`), end to end in
+  `red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same`.
 - ~~**Never run on ARM.**~~ Done, twice over. **The Freebox Delta VM has run
   it**: aarch64 Ubuntu 26.04, 2 vCPU, installed on 2026-09-01 by the `curl | sh`
   one-liner on a machine with no compiler and no Rust, built in 5m37s, then
@@ -1520,6 +1522,80 @@ files rather than being a new class of problem.
 Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
+
+### Names a stranger can list, and a censored path — 2026-11-24
+
+Asked by Nicolas: a member in China on a Huawei, and no list of accounts drawn
+up from the coordinator's errors or their timing. Done, each with the test that
+shows it:
+
+- `GetEscrow` never answers `Missing`. A name with no container, unknown or
+  deleted, gets a decoy of a real container's length and header that opens
+  under no passphrase, the same bytes on every ask and across a restart
+  (`red_team_a_recovery_fetch_reads_the_same_whether_the_name_exists_or_not`);
+  the client says one sentence, `NOTHING_OPENS`, for a wrong name and a wrong
+  passphrase, after the same Argon2id run, an older coordinator's `Missing`
+  included (the client opens a decoy of its own)
+  (`red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same`).
+- On an invite-only coordinator, the code is checked before the name: no code
+  or a made-up one reads the same for a taken, a retired and a free name
+  (`red_team_without_a_valid_code_a_taken_a_retired_and_a_free_name_read_the_same`).
+- `NAME_QUESTIONS` (30) questions about names per address per hour, an IPv6
+  address counted by its /64 (`red_team_one_address_cannot_draw_up_a_list_of_names`)
+  and four times that per /48, all its /64s together
+  (`red_team_many_ipv6_blocks_of_one_site_share_its_budget`),
+  and no such answer leaves before `NAME_ANSWER_FLOOR`, 200 ms
+  (`red_team_no_answer_about_a_name_leaves_before_the_floor`).
+- A client hello names no server (`red_team_a_hello_names_no_server_a_filter_could_match`):
+  every hello carried `itsanas.invalid` in clear.
+- A coordinator client has `COORD_SESSION_BUDGET` (120 s) for everything,
+  handshake included (`red_team_a_coordinator_trickled_by_the_path_is_given_up_at_the_deadline`),
+  and that is enough across 250 ms each way at 4 KiB/s
+  (`red_team_a_coordinator_behind_a_slow_throttled_path_still_answers`).
+  `itsanas_testkit::path` is the simulated censor: delay, throttle, trickle,
+  cut, and a record of what the client sent.
+
+Still open, each with its reason:
+
+- On an open coordinator, `Register` says a name is taken: that is the name
+  being claimed. It counts against the address's budget.
+- Anybody can `Lookup` a name, within the same budget and floor. A
+  members-only rule was tried in this change and dropped: setup asks whether
+  a name is free before the machine has any identity, and on an open
+  coordinator (the default of `install/coordinator.sh`) membership costs one
+  registration and one claim. So the budget is what slows a list down; it
+  does not stop one, it prices it in addresses.
+- The budget is per address, so people sharing one (carrier-grade NAT, a
+  campus, a VPN exit, common in China) share it: somebody spending it there
+  makes a member's recovery wait up to an hour.
+- A decoy never changes; a real container changes when its owner lodges a
+  new one (a new passphrase, recovery switched off and on). Somebody asking
+  about one name now and then, inside both budgets, can see that change and
+  learn the name is real.
+- The floor levels what the coordinator does in under 200 ms. A registration
+  that writes the directory on a slow disk (a Pi's SD card) can take longer;
+  on an open coordinator its refusal names a taken name anyway.
+- The address table holds `NAME_TRACKED` (65 536) addresses; full, it refuses
+  a new one until an entry's window runs out, rather than forget a count. The
+  /48 budget means filling it from IPv6 takes over five hundred /48s. An
+  attacker with that many
+  /64s denies name questions to newcomers for that hour.
+- What a censor sees besides the hello: a TLS 1.3 handshake to a fixed port
+  (9898, 9797) whose cipher and extension order are rustls's own (a JA3-style
+  fingerprint), and a server that answers any prober with a TLS handshake. An
+  active prober can recognise a coordinator; no obfuscated transport exists.
+- Peer sessions outside the daemon (`itsanas sync` typed by hand) have no
+  whole-session budget, on purpose: the person watching can stop them. The
+  daemon's own rounds fit a 250 ms, 64 KiB/s path in `PEER_SESSION_BUDGET`
+  (`red_team_a_file_crosses_a_slow_throttled_path_within_the_round_budget`).
+- What the simulated censor does not do: packet loss (a userspace proxy on
+  loopback cannot drop TCP segments; `tc netem` on Linux could), and residual
+  blocking, where a censor that cut a flow refuses that address and port for
+  minutes. The daemon dials the coordinator once a round and keeps syncing
+  with the peers it knows while it cannot reach it; a test of several minutes
+  of blocking is not written.
+- HarmonyOS 5 runs no APK (§8 19 (b)); nothing here was run on one. Which
+  version the tester's Huawei runs decides whether any of this reaches them.
 
 ### Pledges are not reserved: two instances can promise the same disk — 2026-10-08
 

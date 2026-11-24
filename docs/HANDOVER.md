@@ -11,9 +11,27 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-17
-BASE: 25720ae
+WRITTEN-AT: 2026-11-24
+BASE: b1eb60c
 -->
+
+**2026-11-24: listing names made slow and silent, and a censored path (asked by Nicolas, §8 19
+(g)).** A stranger could list accounts three ways, free and unmetered: `Lookup`; `GetEscrow`,
+which said `Missing` for a name with no container (one question per name, which the per-name
+budget never counts) while the client failed at once where a wrong passphrase cost an Argon2id
+run; and an invite-only coordinator that looked at the name ("taken", "retired until") before the
+code. `GetEscrow` now answers a decoy and the client one message after one Argon2id run, older
+coordinators included; the code is checked first; and every question about a name is counted per
+address (/64, and four times that per /48) and answered no sooner than 200 ms. `Lookup` stays open
+to anybody: a members-only `Lookup` broke setup's name check, found by the red-team pass, and
+membership is free on an open coordinator anyway (Rodin). On the path: no server name in the hello any more (`itsanas.invalid` went out in
+clear, one filter rule for a whole country), a coordinator client has 120 s for everything, and
+`itsanas_testkit::path` simulates the censor (delay, throttle, trickle, cut). What is still open
+is listed in ROADMAP, "Names a stranger can list, and a censored path". Traps this time: two of
+eleven sabotages were wrong, not the tests (one deleted a check instead of moving it back; one hit
+a branch a new coordinator never takes), and the first end-to-end timing bound passed under its
+sabotage because the server's floor hid a skipped Argon2id run; it now compares with a measured
+run. Git Bash heredocs ate `\n` in Python edit scripts twice: write them with the Write tool.
 
 **2026-11-23, after #443: deployed, and two more found on the laptop.** The VM's coordinator was
 rebuilt by hand from `main` at `bb91d43` (the agents rebuild on release tags only; the next tag
@@ -1966,6 +1984,7 @@ Each of these has a test that fails if it is:
 | A scoped thread that outlives a body which can panic raises its stop flag on unwind | Otherwise `thread::scope` joins a thread waiting on a flag the panic skipped. In a test that is a sixty-second hang instead of an assertion; in the daemon it is a process that stays alive, serving, never syncing, and looking healthy to systemd | `a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs`; `a_panic_anywhere_in_the_scope_raises_the_shutdown_flag`; `UnblockOnDrop` in `handshake.rs` |
 | A reply too large to be a chunk is refused on its length, before decryption | The wire allows 8 MiB and the chunker emits at most 256 KiB, so a peer answering every repair request at the frame limit would have this node decrypt a quarter of a gigabyte per round for a result known from the length | `a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it` |
 | The coordinator can refuse a member but never admit one | It is a notice board, not an authority. An invitation is signed by an existing member and verified against an account the coordinator already holds, so the one thing it can do unilaterally is deny service — which is already in the threat model and is inherent to being the notice board | `red_team_the_coordinator_cannot_write_itself_an_invitation` |
+| A list of names is slow to draw up and recovery says nothing of a name | A list of accounts is a list of targets: `GetEscrow` answers a decoy, an invite-only coordinator checks the code first, each address asks `NAME_QUESTIONS` an hour (/64, four times that per /48), none answered before `NAME_ANSWER_FLOOR`. `Lookup` stays open: setup needs it before a machine has an identity | `red_team_a_recovery_fetch_reads_the_same_whether_the_name_exists_or_not`; `red_team_many_ipv6_blocks_of_one_site_share_its_budget`; `red_team_without_a_valid_code_a_taken_a_retired_and_a_free_name_read_the_same`; `red_team_one_address_cannot_draw_up_a_list_of_names`; `red_team_no_answer_about_a_name_leaves_before_the_floor`; `red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same` |
 | Every refusal at the door reads identically | Distinguishing "no such code" from "expired" from "spent" lets anybody enumerate which codes exist, and the codes are what keeps strangers out | `every_refusal_reads_the_same_so_codes_cannot_be_enumerated` |
 | **Nothing makes `has_chunk` true without proof** | The rule, in one line, because it existed as two methods with two different answers and the unverified one was on the ordinary path. A blob on disk under an address is how every other part of this system decides it need not go looking: write noise there and the repair scan stops searching, no other peer is asked, and the loss queue clears the entry `doctor` put in it. A recoverable loss made permanent, which is strictly worse than the peer refusing to answer | `red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`; `red_team_a_host_cannot_answer_a_repair_request_with_rubbish`; one method, `Store::accept_chunk` |
 | A chunk fetched to repair a local loss is verified before it is written | Unverified bytes make `has_chunk` true, the scan stops looking, no other peer is ever asked, and a **recoverable** loss becomes permanent. A host cannot read what it stores, so answering a repair request with noise is its one route to destroying data | `red_team_a_host_cannot_answer_a_repair_request_with_rubbish` |
@@ -4234,7 +4253,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     exemption says: the tester sets ITSaNAS to manual there; (d) what the engine itself says
     (errors, `because` lines on native screens, the CLI) stays English; (e) the 24 words stay
     the English BIP-39 list, which every existing account uses; (f) whether the coordinator in
-    France and the peers answer from China at a usable latency is what the test is for.
+    France and the peers answer from China at a usable latency is what the test is for; (g) ✅
+    the path simulated (2026-11-24): a hello with no server name, a 120 s coordinator session
+    budget that a 250 ms, 4 KiB/s path fits in, a trickled path given up, a cut connection
+    reported at once (`itsanas_testkit::path`; ROADMAP "Names a stranger can list, and a
+    censored path", which also lists what a censor still sees). ⬜ An obfuscated transport, if
+    the tester's report shows the fixed ports or the handshake blocked.
 
 18. 🟨 **An occasional user is never cut off by an update** (Nicolas, 2026-11-23). Done
     2026-11-23: the coordinator protocol has the peer protocol's window (`MIN_COORD_VERSION`,
@@ -4582,6 +4606,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 10. Open, waiting on Nicolas
 
+0. **Which HarmonyOS the tester in China runs** (Rodin, 2026-11-24). 4.x runs the APK; 5
+   ("NEXT") runs none, and then nothing of §8 19 reaches them. Ask before more work for them.
 1. **Who joins next.** The network has one person. Every economic and
    adversarial property above is untested against someone else's machine.
 2. **An Android release key.** It must be generated and kept by Nicolas, never

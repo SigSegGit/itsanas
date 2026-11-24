@@ -385,10 +385,15 @@ impl<'a> CoordService<'a> {
                 if username.len() > MAX_WIRE_USERNAME {
                     return Ok(Response::Refused("username too long".to_owned()));
                 }
-                // Anybody with a free keypair may ask, as often as they like, and
-                // a name and its key are what they came for. The date would tell
-                // them when somebody joined, and the flag which names hold an
-                // escrow blob, with none of the counting `GetEscrow` does.
+                // Anybody may ask: a machine with no identity yet asks whether
+                // a name is free before it makes one (setup's name check), so
+                // a members-only rule broke account creation, and on an open
+                // coordinator membership costs a registration and a claim
+                // anyway. What bounds a list drawn up from this is the
+                // server's per-address budget and its answer floor
+                // (`server::NAME_QUESTIONS`, `server::NAME_ANSWER_FLOOR`). The
+                // date would tell when somebody joined, and the flag which
+                // names hold an escrow blob.
                 Ok(match self.directory.account(username)? {
                     Some(account) => Response::Account(Box::new(Account {
                         registered_unix: 0,
@@ -449,10 +454,10 @@ impl<'a> CoordService<'a> {
                         "too many recovery attempts for this account; try again later".to_owned(),
                     ));
                 }
-                Ok(match self.directory.escrow(username)? {
-                    Some(blob) => Response::Escrow(blob),
-                    None => Response::Missing,
-                })
+                // Never `Missing`: a container or its decoy, the same size and
+                // shape, so a stranger cannot sort names into "exists and
+                // holds one", "exists" and "does not" (`recovery_answer`).
+                Ok(Response::Escrow(self.directory.recovery_answer(username)?))
             }
 
             Request::Devices { user } => self.devices_of(*user, caller, now_unix),
@@ -1129,8 +1134,93 @@ mod tests {
             .unwrap()
     }
 
-    /// A `Lookup` is open to anybody with a free keypair, has no budget, and
-    /// exists to turn a name into a key. What else an account row holds is not
+    /// THE ATTACK: ask for the recovery container of every name on a list,
+    /// one question each, which no per-name budget counts. `Missing` for a
+    /// name with nothing sorted the list into accounts that exist and hold a
+    /// container (the ones worth an offline guessing attack) and the rest,
+    /// and the client then said "no recovery container for this name" at
+    /// once, where a wrong passphrase took an Argon2id run to say so.
+    #[test]
+    fn red_team_a_recovery_fetch_reads_the_same_whether_the_name_exists_or_not() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("directory.redb");
+        let real = itsanas_crypto::Keystore::lock(
+            "a passphrase",
+            "itsanas/keystore/escrow",
+            &[7u8; crate::directory::RECOVERY_PAYLOAD_LEN],
+            itsanas_crypto::KdfParams::RECOMMENDED,
+        )
+        .expect("lock")
+        .to_bytes();
+        let fetch = |directory: &Directory, name: &str| {
+            let service = CoordService::new(directory);
+            let request = Request::GetEscrow {
+                username: name.to_owned(),
+            };
+            match ask(&service, &request, device(98).device_id()) {
+                Response::Escrow(blob) => blob,
+                other => panic!("{name}: a name was answered {other:?}, not a container"),
+            }
+        };
+
+        let answers = {
+            let directory = Directory::open(&path).expect("directory");
+            enrol(&directory, &user(41), &device(41));
+            enrol(&directory, &user(42), &device(42));
+            let holder = directory.account_of(user(41).user_id()).unwrap().unwrap();
+            directory
+                .put_escrow(user(41).user_id(), &real)
+                .expect("escrow");
+            directory
+                .set_escrow_enabled(user(41).user_id(), true)
+                .expect("escrow on");
+            let without = directory.account_of(user(42).user_id()).unwrap().unwrap();
+            let names = [holder.username, without.username, "personne".to_owned()];
+            let answers: Vec<Vec<u8>> = names.iter().map(|name| fetch(&directory, name)).collect();
+            assert_eq!(
+                answers[0], real,
+                "the holder's own container was not handed back"
+            );
+            for (name, answer) in names.iter().zip(&answers).skip(1) {
+                assert_eq!(
+                    answer.len(),
+                    real.len(),
+                    "{name}: a decoy of another size than a real container gives itself away"
+                );
+                assert_eq!(
+                    answer[..11],
+                    real[..11],
+                    "{name}: a decoy whose header (version, Argon2id cost) differs gives itself away"
+                );
+                let decoy = itsanas_crypto::Keystore::from_bytes(answer).expect("a container");
+                assert!(
+                    decoy
+                        .unlock("a passphrase", "itsanas/keystore/escrow")
+                        .is_err(),
+                    "{name}: a decoy opened"
+                );
+                assert_eq!(
+                    &fetch(&directory, name),
+                    answer,
+                    "{name}: asked twice, it changed"
+                );
+            }
+            assert_ne!(answers[1], answers[2], "two names were handed one decoy");
+            (names, answers)
+        };
+
+        let reopened = Directory::open(&path).expect("reopen");
+        for (name, answer) in answers.0.iter().zip(&answers.1) {
+            assert_eq!(
+                &fetch(&reopened, name),
+                answer,
+                "{name}: the answer changed across a restart, which a real container never does"
+            );
+        }
+    }
+
+    /// A `Lookup` is open to anybody with a free keypair, and exists to turn a
+    /// name into a key. What else an account row holds is not
     /// the asker's business: when somebody joined, and whether they hold an
     /// escrow blob, which `GetEscrow` also tells but counts.
     #[test]

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1737 test functions across 47 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 669 are red-team tests.**
+**Last updated: 2026-11-23 — 1751 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 681 are red-team tests.**
 
-**1621 of the 1737 tests have an entry of their own on this page** — an *entry*,
+**1635 of the 1751 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 67 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 25 |
+| `itsanas-tls` unit | 26 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 232 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
@@ -167,13 +167,13 @@ guarantee and is not one.
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 6 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 73 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 80 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 81 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 137 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 19 |
+| `itsanas-coord` unit | 141 (1 `#[ignore]`d) |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 24 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
@@ -186,13 +186,14 @@ guarantee and is not one.
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 186 |
+| `itsanas-node` unit | 188 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-node` suspension (`tests/suspension.rs`) | 3 |
 | `itsanas-node` account pledges (`tests/account_pledges.rs`) | 3 |
+| `itsanas-node` recovery by name (`tests/recovery_by_name.rs`) | 1 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
@@ -218,13 +219,13 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 7 |
-| `tls` | handshakes, session limits | 4 |
+| `tls` | handshakes, session limits | 5 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 69 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 79 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 46 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 47 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 67 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 233 |
 
@@ -1054,7 +1055,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (80)
+# `itsanas-net` — two-node tests (81)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1150,6 +1151,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_malformed_request_gets_a_refusal_rather_than_a_dropped_connection`** | A peer cannot kill a sync round by sending something silly. |
 | **`a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers`** | Refusing to store does not make a node stop being a peer. |
 | **`red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send`** | Found by the acceptance bench, whose E, F and G failed on nodes that had pledged nothing while every round said there was nothing to send. The push report counts refusals apart from "already held" and names the reason — `PledgeFull` for the host's `PLEDGE_EXHAUSTED`, which both sides share as one constant. Fails when the count or the reason is dropped. |
+| **`red_team_a_file_crosses_a_slow_throttled_path_within_the_round_budget`** | A member in China syncing with their machine in France, simulated (`itsanas_testkit::path`): 250 ms there and back, 64 KiB/s, the daemon's `PEER_SESSION_BUDGET`. A file of several chunks comes across whole. Sabotaged (a two-second budget): red. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
 | **`a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one`** | A `PeerServer` bound to `0.0.0.0:0` serves a caller dialling `[::1]` and one dialling `127.0.0.1` on the same port (skipped with no IPv6). On Windows those are two sockets; red there before the fix (refused), and sabotaged by accepting from the first socket only: red. |
@@ -1945,14 +1947,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (209)
+# `itsanas-node` — a node on disk (212)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (26)
+## `coordinator` — publishing an address, and whose deletion a host believes (27)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1963,6 +1965,7 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_older_coordinators_missing_costs_the_client_what_a_wrong_passphrase_does`** | A coordinator older than the decoys answers `Missing` at once for a name with nothing. The client opens a decoy of its own, so that answer reads like a wrong passphrase and takes at least half its time. Sabotaged (the client stops at `Missing`): red. |
 | **`red_team_an_address_on_a_virtual_adapter_is_not_published`** | Hand test, 2026-10-22: a laptop with VMware's two host networks, WSL's switch and Tailscale publishes its Wi-Fi address whichever of them the route to the coordinator leaves by (`on_a_real_adapter`, applied to `address_now` and to the published address alike, so the two keep agreeing); a real adapter's address stands, and a machine with only virtual adapters keeps its own. Sabotaged (virtual address kept): red. |
 | **`red_team_an_external_switch_or_a_cgnat_card_keeps_its_routed_address`** | Red team, 2026-10-23: `[("vEthernet (External)", 192.168.1.5), ("Wi-Fi", 10.9.8.7)]` routed by 192.168.1.5 publishes 192.168.1.5 -- a Hyper-V external switch carries the LAN address -- and a 100.64/10 address on a card named "Wi-Fi" is carrier-grade NAT and stays. The routed adapter is judged by its name (`LocalNets::is_virtual`). Sabotaged (judged by address too): red. |
 | **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes, on Windows too since 2026-10-30; announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
@@ -2044,11 +2047,12 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (31)
+## `node` — identity on disk, and where its vault lives (32)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_the_sealed_secrets_keep_their_bytes`** | The plaintext a node seals its master secret and device seed in is pinned: a change is a node that can no longer open its own account after an upgrade (§8 17). Sabotaged (the two fields swapped): red. |
+| `the_coordinators_decoy_has_the_shape_of_a_real_recovery_container` | The coordinator shapes its decoys from `RECOVERY_PAYLOAD_LEN` and the recommended Argon2id cost, which it cannot read off a real container; a real one, sealed by `recovery_container`, the one function `set_escrow` seals with, has the same length and header. Without this, a node that sealed more, or at another cost, would make every real container stand out. Sabotaged (65 bytes; another Argon2id cost in `recovery_container`): red each. |
 | **`red_team_the_address_book_keeps_its_bytes`** | Both versions of `<home>/address-book` are pinned, the current one and `BookFileV1`, which every upgrade from before claims still reads: #435 cost every laptop its book, found by chance in a log (§8 17). Sabotaged (`BookEntry`'s `worked` and `claim` reordered): red. |
 | **`red_team_an_open_node_admits_to_its_roster_only_what_its_account_signed`** | `Node::create`/`open` arm the roster with this device; `admit_roster` admits a sibling on this account's signature, never a claim signed by another key or naming another account, and a revocation sticks. |
 | **`red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty`** | A configured vault (`vault = PATH`, HANDOVER §8 0s) whose directory is missing or empty, as when a NAS mount drops, refuses to open and creates nothing there, so hosted chunks are never mistaken for lost; another device's marker is refused too. Sabotaged twice (configured check off; marker contents ignored): red. |
@@ -2777,7 +2781,7 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (27)
+# `itsanas-coord` — the coordinator server (32)
 
 Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
@@ -2798,6 +2802,11 @@ two numbers made `itsanas-coord` look eight short.
 | **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
 | **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | The escrow blob is the one thing reachable without proving anything, so the rate limit is the whole defence. A per-connection counter would be no counter: an attacker reconnects, pays one handshake, and works through a word list. |
+| **`red_team_one_address_cannot_draw_up_a_list_of_names`** | One question about each of many names, from one address: the per-name budget never sees it. `NAME_QUESTIONS` per address and per hour, each of `Lookup`, `GetEscrow`, `Register` and `RegisterInvited` counted; past it the same refusal for each, on a fresh connection with a fresh key too, and requests about no name still answered. Sabotaged (the budget always allows; `Register` not counted): red each. |
+| **`red_team_no_answer_about_a_name_leaves_before_the_floor`** | A container, a decoy, a name found and one not found, a registration and an invited one each take at least `NAME_ANSWER_FLOOR` (200 ms) to answer, far above the work that differs between them, so timing the answers over many samples says nothing about a name. Sabotaged (no wait; `RegisterInvited` not floored): red each. |
+| **`red_team_a_coordinator_behind_a_slow_throttled_path_still_answers`** | A member in China reaching a coordinator in France, simulated: 250 ms per piece each way and 4 KiB/s (`itsanas_testkit::path`). Handshake, registration and a recovery fetch all go through, so no deadline of this project, the client's whole-session `COORD_SESSION_BUDGET` included, is tighter than such a path needs; nothing the client sent across names the project. Sabotaged (a one-second budget; the server name back in the hello): red each. |
+| **`red_team_a_coordinator_trickled_by_the_path_is_given_up_at_the_deadline`** | A path that lets a byte through every 100 ms never trips a per-read timeout; a client with no deadline on the whole session (a daemon's round, a recovery) waited as long as the path dripped. Now it gives up at its budget. Sabotaged (each read given the full per-read timeout): red, the client still waiting at 30 s. |
+| `a_connection_cut_by_the_path_fails_at_once_and_the_next_dial_answers` | A censor resets a connection it dislikes (a zero-linger close, an RST): the client says so in under five seconds, not after a timeout, and the next dial works. |
 | **`red_team_an_unenrolled_device_cannot_overwrite_someone_elses_escrow`** | Replacing a member's container with one whose passphrase you chose would either take their account or — quieter — destroy their ability to recover, discovered on the day they needed it. |
 | **`red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own`** | Announcing somebody else's device at an address you control black-holes their machines. TLS pinning stops data being exposed; nothing else stops the denial of service. |
 | **`red_team_a_name_cannot_be_taken_over_by_a_different_key`** | A username pointing at the wrong key sends everyone looking that member up to an impostor. |
@@ -2853,7 +2862,7 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (30)
+# `itsanas-tls` — device authentication and listener limits (31)
 
 Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
@@ -2871,6 +2880,7 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 | `every_process_presents_a_different_certificate` | Certificates are anonymous and disposable, so an observer cannot correlate two connections by them. |
 | `two_devices_authenticate_each_other_and_exchange_a_message` | End to end over a real socket. |
 | **`red_team_a_handshake_trickled_a_byte_at_a_time_is_cut_off_at_the_deadline`** | A read timeout bounds one read, not a handshake: a caller sending a byte a little inside it holds a server slot for ever. `accept_within` gives every read and write only what is left of a total deadline. Fails when the deadline is ignored. |
+| **`red_team_a_hello_names_no_server_a_filter_could_match`** | Parses the client hello as a censor's filter does: a TLS 1.3 hello with no `server_name` extension at all, and no "itsanas" anywhere. Every hello used to carry `itsanas.invalid`, one rule for a national filter to block every member on any port. Sabotaged (the fixed name back; an ordinary name, `example.com`): red each. |
 | **`the_deadline_is_lifted_once_the_caller_has_authenticated`** | The deadline is for proving who you are. The first version restored the idle timeout through a clone of the socket, and on Windows a duplicated socket handle does not share its timeouts, so an authenticated peer was cut off a few hundred milliseconds in. This test found it. |
 | **`red_team_one_address_cannot_take_every_slot`** | One machine opening connections until the global cap is reached leaves the listener up and serving nobody else. At most `per_address` from one IP address. |
 | **`red_team_one_device_key_cannot_hold_more_than_its_share`** | The same, for a proven device key dialling from several addresses. |
@@ -3039,6 +3049,23 @@ The operator runs `itsanas-coordinator --suspend <username>` (`--unsuspend` lift
 | **`red_team_a_suspended_accounts_machine_is_not_confirmed_so_a_host_stores_nothing_for_it`** | A confirmed machine stores; once its account is suspended, a host asking the coordinator refuses it with `UNCONFIRMED`, and the machine cannot re-enrol. Sabotaged by `standing` in the service ignoring the suspension: red. |
 | **`red_team_lifting_a_suspension_lets_hosts_store_for_the_account_again`** | Suspended then lifted, the machine is confirmed and stores again. Sabotaged by `unsuspend` leaving the row: red. |
 | **`red_team_suspending_one_account_leaves_every_other_account_storing`** | Bob suspended, Carol still stores and is still in the address book, and Bob is in nobody's. Sabotaged by `is_suspended` answering true for everybody once one account is suspended: red. |
+
+# `itsanas-node` recovery by name (`tests/recovery_by_name.rs`) — what typing names at a coordinator tells, against a real one (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same`** | The right pair opens; a wrong passphrase for a real account and any passphrase for a name that does not exist fail with one message (`NOTHING_OPENS`), and the wrong name takes at least half as long, since it too runs Argon2id on the coordinator's decoy. "No recovery container for this name" came at once and confirmed every name typed. The floor hides a skipped Argon2id run from a cruder bound, so the quickest of three of each is held within half a measured run. Against an older coordinator that answers `Missing`, the client opens a decoy of its own and pays the same run. Sabotaged (the coordinator answering `Missing` and the client skipping its run): red; the coordinator alone answering `Missing` stays green, which is that second defence. |
+
+# `itsanas-coord` — what a list of names costs (4)
+
+What a coordinator says, and how fast, must not depend on whether a name exists: the per-address budget and the answer floor are in the server section above, the client's single message in `tests/recovery_by_name.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_recovery_fetch_reads_the_same_whether_the_name_exists_or_not`** | `GetEscrow` for a name with no container answered `Missing`, one question per name, which no per-name budget counts: the accounts worth a guessing attack, listed. Now an unknown name and an account without a container get a decoy of a real container's length and header, that opens under no passphrase, the same on every ask and across a restart (its key is kept in the directory), different per name. Sabotaged (`Missing` again): red. |
+| **`red_team_without_a_valid_code_a_taken_a_retired_and_a_free_name_read_the_same`** | On an invite-only coordinator a stranger with no code, or a made-up one, was told "taken" or "retired until..." before the code was looked at: which accounts exist or once did. The code is now spent first, in the transaction that creates the account, so a refusal after it gives it back. Sabotaged (the retired check before the code, as it was): red. |
+| **`red_team_every_address_of_one_ipv6_block_shares_one_name_budget`** | The name budget counts an IPv6 address by its /64, the block one subscriber holds, and an IPv4-mapped address as the IPv4 one. Sabotaged (the whole address as the key): red. |
+| **`red_team_many_ipv6_blocks_of_one_site_share_its_budget`** | A provider hands out /64s by the thousand, so a /64 budget alone cost a script one more /64 per thirty names. A /48 asks at most `NAME_BLOCK_SHARES` (4) times the /64 budget, all its /64s together; another site and an IPv4 address are counted apart. Sabotaged (the /48 always allows): red. |
 
 # `itsanas-coord` — claims, directory, accounting (66)
 

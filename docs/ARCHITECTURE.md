@@ -314,6 +314,16 @@ still applies what arrived.
 - Read the escrow blob — it is Argon2id-sealed under a passphrase the
   coordinator never sees.
 
+**What a stranger learns about names, and at what price:** `GetEscrow`
+answers a decoy for a name with nothing, so a recovery attempt says nothing
+of the name; an invite-only coordinator checks the code before the name;
+`Lookup` answers anybody, since setup asks it before a machine has an
+identity. Every question about a name is counted per address
+(`NAME_QUESTIONS` an hour, an IPv6 address by its /64 and by its /48) and
+none is answered before `NAME_ANSWER_FLOOR`, so a list costs addresses and
+time rather than nothing. The tests are listed in ROADMAP, "Names a stranger can
+list, and a censored path".
+
 **What a compromised coordinator can do:** deny service, lie about who is
 online, and attempt to partition the swarm. Mitigations: peers pin the node set
 they last saw and treat unexplained shrinkage as an alert condition rather than
