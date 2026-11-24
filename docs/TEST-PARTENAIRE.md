@@ -23,6 +23,24 @@ curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/scripts/acce
 Ton dossier synchronisé est `~/ITSaNAS` (ou `~/ITSaNAS-<nom>` si Nicolas t'a
 créé un compte nommé : remplace-le dans les commandes ci-dessous).
 
+## Les trois essais d'un coup (le plus simple)
+
+Au même moment que Nicolas chez lui, lance une seule commande ; elle fait les
+trois essais ci-dessous toute seule, sans rien recopier d'une machine à
+l'autre, et finit par **PASS kit-day** ou un FAIL qui dit ce qui n'est pas
+arrivé (vingt minutes au plus) :
+
+```
+mkdir -p ~/itsanas-kit && cd ~/itsanas-kit
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/scripts/acceptance.sh -o acceptance.sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/scripts/kit-day.sh -o kit-day.sh
+bash kit-day.sh ~/ITSaNAS --away
+```
+
+`--away` dit que ta machine est celle qui n'est pas chez Nicolas. Envoie-lui
+la dernière ligne, et le fichier `~/.itsanas-receipts/acceptance.txt`. Si
+tout est PASS, les essais 1 à 3 ci-dessous sont déjà faits.
+
 ## Essai 1 : un fichier de chez toi arrive chez Nicolas
 
 Chez toi :
