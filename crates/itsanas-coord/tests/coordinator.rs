@@ -458,14 +458,15 @@ fn asking_about_an_unknown_name_says_so_rather_than_inventing_one() {
 // Red team
 // ---------------------------------------------------------------------------
 
-/// One of each request that says something about a name, each about a name
-/// nobody holds: what the budget and the floor must both cover.
-fn name_questions() -> Vec<(&'static str, Request)> {
+/// One of each request that says something about a name: the questions about
+/// a name nobody holds, the registrations of `taken`, held by another key, so
+/// that each is refused. What the budget and the floor must both cover.
+fn name_questions(taken: &str) -> Vec<(&'static str, Request)> {
     let joiner = user(0x35);
     let registration = || {
         Box::new(
             Registration {
-                username: "personne".to_owned(),
+                username: taken.to_owned(),
                 user: joiner.public(),
                 issued_unix: NOW,
             }
@@ -496,16 +497,51 @@ fn name_questions() -> Vec<(&'static str, Request)> {
     ]
 }
 
+/// Every machine of a household sits behind one address and registers its
+/// own entry again and again. Counted like a question, the twenty machines an
+/// account may have ran the address out of its budget in an hour, and setup
+/// then failed for each new one.
+#[test]
+fn red_team_machines_registering_their_own_names_never_run_out() {
+    let server = CoordServer::bind("127.0.0.1:0")
+        .expect("bind")
+        .with_name_questions(2);
+    with_server(&server, |address, _| {
+        let owner = user(0x37);
+        let mut client = dial(address, &device(0x37), &owner);
+        for round in 0..6 {
+            let answer = client.ask(&Request::Register(Box::new(
+                Registration {
+                    username: "maison".to_owned(),
+                    user: owner.public(),
+                    issued_unix: NOW,
+                }
+                .sign(&owner),
+            )));
+            assert!(
+                matches!(answer, Ok(Response::Account(_))),
+                "registration {round} of the name's own key was refused: {answer:?}"
+            );
+        }
+    });
+}
+
 /// THE ATTACK: one question about each name of a list, from one address,
 /// reconnecting as often as it takes. No per-name budget sees it; this one
 /// counts the address, and a fresh connection is the same address.
 #[test]
 fn red_team_one_address_cannot_draw_up_a_list_of_names() {
-    let kinds = name_questions();
     let server = CoordServer::bind("127.0.0.1:0")
         .expect("bind")
-        .with_name_questions(u32::try_from(kinds.len()).expect("four"));
-    with_server(&server, |address, _| {
+        .with_name_questions(4);
+    with_server(&server, |address, directory| {
+        enrol_in(directory, &user(0x36), &device(0x36));
+        let taken = directory
+            .account_of(user(0x36).user_id())
+            .unwrap()
+            .unwrap()
+            .username;
+        let kinds = name_questions(&taken);
         let mut client = dial(address, &device(0x31), &user(0x31));
         let refused = Response::Refused(itsanas_coord::server::TOO_MANY_NAME_QUESTIONS.to_owned());
         for (what, question) in &kinds {
@@ -563,7 +599,7 @@ fn red_team_no_answer_about_a_name_leaves_before_the_floor() {
                 },
             ),
         ];
-        asked.extend(name_questions());
+        asked.extend(name_questions(&held));
         for (what, request) in asked {
             let started = Instant::now();
             client.ask(&request).unwrap();

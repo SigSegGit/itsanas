@@ -67,8 +67,10 @@ pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 16;
 /// How long a caller has, in total, to finish TLS and prove its device key.
 pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(15);
 
-/// Questions about a name (`Lookup`, `GetEscrow`, `Register`,
-/// `RegisterInvited`) one address may ask per [`NAME_WINDOW`].
+/// Questions about a name one address may ask per [`NAME_WINDOW`]: every
+/// `Lookup` and `GetEscrow`, and every `Register` or `RegisterInvited` that is
+/// refused (a refused one says a name is taken or retired; an accepted one is
+/// a machine refreshing its own entry, or a name claimed).
 ///
 /// The per-name escrow budget stops a guessing attack on one name; it does
 /// nothing against one question each about a million names, which is how a
@@ -626,13 +628,14 @@ fn serve_one(
 
         let asked_at = Instant::now();
         let about_a_name = is_about_a_name(&request);
-        let response = if matches!(request, Request::CheckMe) {
-            answer_check_me(service, caller, device, probes, in_flight)
-        } else if about_a_name
-            && !names
+        let spend = |names: &Mutex<NameBudget>| {
+            names
                 .lock()
                 .is_ok_and(|mut names| names.allow(from, asked_at))
-        {
+        };
+        let mut response = if matches!(request, Request::CheckMe) {
+            answer_check_me(service, caller, device, probes, in_flight)
+        } else if is_a_question(&request) && !spend(names) {
             Response::Refused(TOO_MANY_NAME_QUESTIONS.to_owned())
         } else {
             // Held only across one request, and only escrow fetches touch it.
@@ -645,6 +648,17 @@ fn serve_one(
                 .handle(&request, caller, now_unix(), &mut limiter, Instant::now())
                 .unwrap_or_else(|error| Response::Refused(error.to_string()))
         };
+
+        // A registration is counted only when refused: the refusal is what
+        // tells a name is taken or retired, and a household's machines
+        // refreshing their own entry behind one address must never run out.
+        if about_a_name
+            && !is_a_question(&request)
+            && matches!(response, Response::Refused(_))
+            && !spend(names)
+        {
+            response = Response::Refused(TOO_MANY_NAME_QUESTIONS.to_owned());
+        }
 
         if about_a_name {
             // After every lock is given back: a sleeping thread holds a
@@ -719,6 +733,12 @@ fn block_key(from: IpAddr) -> Option<String> {
     }
     let s = v6.segments();
     Some(format!("{:x}:{:x}:{:x}::/48", s[0], s[1], s[2]))
+}
+
+/// The requests about a name that are only a question, counted whatever the
+/// answer: unlike a registration, nothing an honest machine does repeats them.
+const fn is_a_question(request: &Request) -> bool {
+    matches!(request, Request::Lookup { .. } | Request::GetEscrow { .. })
 }
 
 /// The key [`NAME_QUESTIONS`] is counted under: an IPv4 address, or the /64

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1751 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 681 are red-team tests.**
+**Last updated: 2026-11-23 — 1752 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 682 are red-team tests.**
 
-**1635 of the 1751 tests have an entry of their own on this page** — an *entry*,
+**1636 of the 1752 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 141 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 24 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 25 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 7 |
 | `tls` | handshakes, session limits | 5 |
 | `identity` | keys, accounts, devices, claims, invitations | 84 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 79 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 80 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
@@ -2781,7 +2781,7 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (32)
+# `itsanas-coord` — the coordinator server (33)
 
 Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
@@ -2802,7 +2802,8 @@ two numbers made `itsanas-coord` look eight short.
 | **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
 | **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | The escrow blob is the one thing reachable without proving anything, so the rate limit is the whole defence. A per-connection counter would be no counter: an attacker reconnects, pays one handshake, and works through a word list. |
-| **`red_team_one_address_cannot_draw_up_a_list_of_names`** | One question about each of many names, from one address: the per-name budget never sees it. `NAME_QUESTIONS` per address and per hour, each of `Lookup`, `GetEscrow`, `Register` and `RegisterInvited` counted; past it the same refusal for each, on a fresh connection with a fresh key too, and requests about no name still answered. Sabotaged (the budget always allows; `Register` not counted): red each. |
+| **`red_team_one_address_cannot_draw_up_a_list_of_names`** | One question about each of many names, from one address: the per-name budget never sees it. `NAME_QUESTIONS` per address and per hour, each `Lookup` and `GetEscrow`, and each `Register` and `RegisterInvited` that is refused; past it the same refusal for each, on a fresh connection with a fresh key too, and requests about no name still answered. Sabotaged (the budget always allows; `Register` not counted): red each. |
+| **`red_team_machines_registering_their_own_names_never_run_out`** | A household's machines sit behind one address and register their own entry again and again. Counted like questions, an account's machines ran the address out of its budget and setup failed for the next one (found by CI: `red_team_a_refusal_naming_only_some_devices_says_so` enrols forty). Only a refused registration is counted. Sabotaged (every registration counted; a refused one not counted, against the budget test): red each. |
 | **`red_team_no_answer_about_a_name_leaves_before_the_floor`** | A container, a decoy, a name found and one not found, a registration and an invited one each take at least `NAME_ANSWER_FLOOR` (200 ms) to answer, far above the work that differs between them, so timing the answers over many samples says nothing about a name. Sabotaged (no wait; `RegisterInvited` not floored): red each. |
 | **`red_team_a_coordinator_behind_a_slow_throttled_path_still_answers`** | A member in China reaching a coordinator in France, simulated: 250 ms per piece each way and 4 KiB/s (`itsanas_testkit::path`). Handshake, registration and a recovery fetch all go through, so no deadline of this project, the client's whole-session `COORD_SESSION_BUDGET` included, is tighter than such a path needs; nothing the client sent across names the project. Sabotaged (a one-second budget; the server name back in the hello): red each. |
 | **`red_team_a_coordinator_trickled_by_the_path_is_given_up_at_the_deadline`** | A path that lets a byte through every 100 ms never trips a per-read timeout; a client with no deadline on the whole session (a daemon's round, a recovery) waited as long as the path dripped. Now it gives up at its budget. Sabotaged (each read given the full per-read timeout): red, the client still waiting at 30 s. |

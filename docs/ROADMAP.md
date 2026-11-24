@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1751 test functions, 20 of them `#[ignore]`d into the slow job, and 681 of
+**1752 test functions, 20 of them `#[ignore]`d into the slow job, and 682 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1558,7 +1558,9 @@ shows it:
 Still open, each with its reason:
 
 - On an open coordinator, `Register` says a name is taken: that is the name
-  being claimed. It counts against the address's budget.
+  being claimed. A refused registration counts against the address's budget;
+  an accepted one does not, since machines refresh their own entry
+  (`red_team_machines_registering_their_own_names_never_run_out`).
 - Anybody can `Lookup` a name, within the same budget and floor. A
   members-only rule was tried in this change and dropped: setup asks whether
   a name is free before the machine has any identity, and on an open
