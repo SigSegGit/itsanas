@@ -62,6 +62,58 @@ pub struct Moved {
     pub segments: usize,
     pub chunks: usize,
     pub bytes: u64,
+    /// Chunks an earlier copy in the directory already held: not written again.
+    pub kept: usize,
+    /// Live chunks this machine holds nowhere (released here): not in the copy.
+    pub left_out: usize,
+    /// Chunks of an earlier copy no file uses any more: kept, unless pruned.
+    pub stale: usize,
+    /// Of those, deleted by `--prune`.
+    pub pruned: usize,
+}
+
+/// When the copy was last written, in unix seconds, beside its marker.
+const WRITTEN: &str = "written";
+
+/// What `backup export` says it did, the same from a terminal and a job.
+#[must_use]
+pub fn export_summary(moved: &Moved, to: &str) -> String {
+    use std::fmt::Write as _;
+    let mut said = format!(
+        "backed up {} segments and {} new chunks ({}) to {to}",
+        moved.segments,
+        moved.chunks,
+        crate::config::format_size(moved.bytes)
+    );
+    if moved.kept > 0 {
+        let _ = write!(
+            said,
+            "; {} chunks were already there from an earlier copy, refreshed in place",
+            moved.kept
+        );
+    }
+    if moved.left_out > 0 {
+        let _ = write!(
+            said,
+            "; LEFT OUT: {} chunks this machine no longer holds (freed here): another machine of the account has them",
+            moved.left_out
+        );
+    }
+    if moved.pruned > 0 {
+        let _ = write!(
+            said,
+            "; {} chunks no file uses any more were deleted (--prune)",
+            moved.pruned
+        );
+    } else if moved.stale > 0 {
+        let _ = write!(
+            said,
+            "; {} chunks no file uses any more are kept (`--prune` deletes them)",
+            moved.stale
+        );
+    }
+    said.push_str(". Sealed: the 24 words open it, keep them apart");
+    said
 }
 
 /// What `backup restore` says when it is done, run in the foreground or
@@ -88,12 +140,26 @@ pub fn restore_summary(moved: &Moved, report: &itsanas_sync::SyncReport, from: &
     said
 }
 
-/// Write this account's cold copy into `dir`, which must be empty or new.
+/// Write this account's cold copy into `dir`: empty, new, or holding an
+/// earlier copy of this account, which is refreshed in place (HANDOVER §8 0e
+/// step 8): only the chunks it lacks are written, nothing is deleted unless
+/// `prune`, and the copy is dated.
 ///
 /// # Errors
 ///
-/// If `dir` holds anything, or the store, the vault or the disk fail.
+/// If `dir` holds anything else, or another account's copy, or the store,
+/// the vault or the disk fail.
 pub fn export(node: &Node, dir: &Path) -> Result<Moved> {
+    export_with(node, dir, false)
+}
+
+/// [`export`], deleting from an earlier copy the chunks no file uses any
+/// more when `prune`.
+///
+/// # Errors
+///
+/// As [`export`].
+pub fn export_with(node: &Node, dir: &Path, prune: bool) -> Result<Moved> {
     // In the synced folder the sealed chunks would be uploaded as this
     // account's files; in the home or the vault, mixed with what they copy.
     let inside = |outer: &Path| dir.starts_with(outer);
@@ -107,15 +173,31 @@ pub fn export(node: &Node, dir: &Path) -> Result<Moved> {
             dir.display()
         )));
     }
-    if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some()) {
-        return Err(CliError::Usage(format!(
-            "{} is not empty; a backup goes into an empty or new directory",
-            dir.display()
-        )));
+    let owner = node.store.owner();
+    let earlier = std::fs::read_to_string(dir.join(MARKER)).ok();
+    match &earlier {
+        Some(named) if named.trim() != owner.to_hex() => {
+            return Err(CliError::Usage(format!(
+                "{} holds a backup of another account; a backup goes into an empty or new directory, or one holding this account's",
+                dir.display()
+            )));
+        }
+        Some(_) => {
+            // Taken down before anything changes and written back last: a
+            // refresh cut short is an incomplete copy, never a whole one.
+            let path = dir.join(MARKER);
+            std::fs::remove_file(&path).map_err(io(&path))?;
+        }
+        None if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some()) => {
+            return Err(CliError::Usage(format!(
+                "{} is not empty and holds no backup of this account; a backup goes into an empty or new directory, or one holding this account's",
+                dir.display()
+            )));
+        }
+        None => {}
     }
     let chunks = dir.join(CHUNKS);
     std::fs::create_dir_all(&chunks).map_err(io(&chunks))?;
-    let owner = node.store.owner();
 
     let mut segments = node.store.segments()?;
     for (device, _, _) in node.vault.heads_for(owner)? {
@@ -135,18 +217,29 @@ pub fn export(node: &Node, dir: &Path) -> Result<Moved> {
         segments: segments.len(),
         ..Moved::default()
     };
+    let mut live = std::collections::BTreeSet::new();
     let mut after = None;
     loop {
         let (page, next) = node.store.live_chunks_page(after.as_ref(), PAGE)?;
         for address in &page {
+            let name = address.to_hex();
+            let path = chunks.join(&name);
+            live.insert(name);
+            // Content-addressed: a file of that name already holds those bytes.
+            if path.is_file() {
+                moved.kept += 1;
+                continue;
+            }
             let sealed = match node.store.blobs().get(address)? {
                 Some(sealed) => Some(sealed),
                 None => node.vault.get_chunk(owner, address)?,
             };
-            // A chunk this device released and holds nowhere: the copy says
-            // so by its absence, and a restore fetches it from a peer later.
-            let Some(sealed) = sealed else { continue };
-            let path = chunks.join(address.to_hex());
+            // A chunk this device released and holds nowhere: counted and
+            // said, and a restore fetches it from a peer later.
+            let Some(sealed) = sealed else {
+                moved.left_out += 1;
+                continue;
+            };
             std::fs::write(&path, &sealed).map_err(io(&path))?;
             moved.chunks += 1;
             moved.bytes += sealed.len() as u64;
@@ -156,6 +249,21 @@ pub fn export(node: &Node, dir: &Path) -> Result<Moved> {
             None => break,
         }
     }
+    for entry in std::fs::read_dir(&chunks).map_err(io(&chunks))? {
+        let entry = entry.map_err(io(&chunks))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if chunk_id_of(&name).is_none() || live.contains(&name) {
+            continue;
+        }
+        moved.stale += 1;
+        if prune {
+            let path = entry.path();
+            std::fs::remove_file(&path).map_err(io(&path))?;
+            moved.pruned += 1;
+        }
+    }
+    let path = dir.join(WRITTEN);
+    std::fs::write(&path, itsanas_discover::now_unix().to_string()).map_err(io(&path))?;
 
     // Last, so a copy cut short by a full disk is never taken for a whole one.
     let path = dir.join(MARKER);

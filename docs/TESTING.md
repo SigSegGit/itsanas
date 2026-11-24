@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-23 — 1769 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 697 are red-team tests.**
+**Last updated: 2026-11-23 — 1771 test functions across 48 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 699 are red-team tests.**
 
-**1653 of the 1769 tests have an entry of their own on this page** — an *entry*,
+**1655 of the 1771 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 393 |
+| `itsanas-cli` unit | 395 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -220,14 +220,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 5 |
-| `identity` | keys, accounts, devices, claims, invitations | 84 |
+| `identity` | keys, accounts, devices, claims, invitations | 85 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 80 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 52 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 70 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 238 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 239 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1321,7 +1321,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (393)
+# `itsanas-cli` — unit tests (395)
 
 ## `bench` — measuring this machine (4)
 
@@ -1619,7 +1619,7 @@ an export or a restore is asked through `<home>/job` and answered in
 | `the_launcher_runs_the_account_on_the_key_or_opens_setup` | `itsanas.sh`, run for real through `sh` with a stand-in program that prints its arguments: with no arguments it runs `--home <key>/home setup` on an empty key and `daemon` once `home/keystore.bin` is there, so a double-click shows the account's sync in its window; `ITSaNAS.cmd` has the same branch. Sabotaged (always setup): red. |
 | **`red_team_a_portable_copy_never_writes_through_a_link_on_the_key`** | A link planted at each name the copy writes -- `ITSaNAS`, `README.txt`, `itsanas.sh`, `ITSaNAS.cmd`, `home`, `home/portable`, `bin`, a `bin/*.part` -- pointing at a victim's file or folder: `make_with` is refused each time, the victim's file is unchanged and not made executable, and nothing lands in the victim's folder. Sabotaged (`no_link` off): red. |
 
-## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (25)
+## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (26)
 
 `crates/itsanas-cli/src/copy_to_key.rs` (tests in `copy_to_key/tests.rs`).
 `itsanas copy-to-key DIR` against a real account whose store is held (as by a
@@ -1651,6 +1651,7 @@ and a stand-in coordinator. Each red-team test was sabotaged with
 | **`red_team_a_dangling_keystore_link_on_the_key_is_refused`** | `home/keystore.bin` a link to nowhere: the key "already holds an account" (`Node::exists` reads the link, not its target) and nothing is created where it points. Sabotaged (`exists` following the link again): red. |
 | **`red_team_a_target_that_leads_back_into_the_account_is_refused`** | `<tmp>/other/../laptop/k` is refused as going up a folder, and so is a `..` that would land on the key itself; a link to a folder inside the synced folder is refused as "inside" because the check compares canonical paths. Sabotaged twice (the `..` rule off; the target compared unresolved): red both. |
 | **`red_team_two_copies_to_one_key_at_once_leave_one_account`** | Two `copy()` on threads released by a barrier, each with its own key passphrase: exactly one succeeds, the other says another copy is under way (or, if it came after, that the key holds an account), the key opens with the winner's passphrase, and the lock is gone. Sabotaged (the lock not taken): red. |
+| **`red_team_a_full_account_refuses_the_key_before_a_byte_is_written`** | The key is a device of its own: on an account already holding `MAX_DEVICES_PER_ACCOUNT` live devices it was written whole (programs, sealed account) and then refused at enrolment. It is refused before a byte is written, saying to withdraw a device first, and the drive stays empty; with room, the copy says how many places are left after it (HANDOVER §8 0e step 7). Sabotaged (`>` for `>=`): red. |
 | **`red_team_a_copy_under_way_on_the_key_stops_a_second`** | A `.copy-lock` on the key stops a copy before it writes anything (no home, no programs), with "another copy to this key is under way", and the other copy's lock is left. Sabotaged (the lock not taken): red. |
 | **`red_team_a_copy_that_fails_after_sealing_leaves_no_keystore_and_a_retry_works`** | The synced folder cannot be made (a file in its place), after the keystore is written: the copy fails saying what it removed, the key's home holds no keystore and no config (nor the store and vault of a device that will never run), the lock is gone, and once the file is moved a retry succeeds and opens with the key's passphrase. Sabotaged (nothing removed): red. |
 | `a_keys_passphrase_is_not_the_machines_in_other_clothes_nor_a_common_base` | This machine's passphrase in capitals ("is this machine's passphrase"), holding it, or held in it (8 characters and more), and `password`, `motdepasse`, `azerty`, `qwerty`, `itsanas` or `123456` with only digits or symbols around them are refused; a short machine passphrase inside a long key, and a phrase that merely contains `password`, are not. Sabotaged three times (case kept; containment off; the bases off): red each. |
@@ -1813,7 +1814,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised, a rename handed to the daemon, versions numbered as listed, the quiet machine first in the device list, a key back after a month, unplugging said, a twin in red (63)
+## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised, a rename handed to the daemon, versions numbered as listed, the quiet machine first in the device list, a key back after a month, unplugging said, a twin in red, a backup refreshed in place (64)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1825,6 +1826,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_key_back_after_a_month_reads_catching_up_not_only_on_this_machine`** | A key back after a month reached a machine again, its holder records aged out, and read `exposed`, red, "only on this machine", while the rounds proved the copies again. The contact that ends a silence of `ISOLATED_AFTER` or more writes `back T` on the snapshot; the brief reads `catching-up` (blue on every tray and the page) for at most that long, never after an evening closed, and past the bound a missing copy is said as it is. A first contact is no return. Sabotaged (no `catching-up` arm; `back` kept for ever): red each. |
 | **`red_team_status_says_unplugging_loses_nothing_only_once_a_copy_is_elsewhere`** | `status` answers "may I unplug it?" from the complete copies elsewhere: `NOT yet` with none, "loses nothing" with the count once there is one. Sabotaged (yes from zero): red. |
 | **`red_team_a_twin_is_drawn_red_over_a_healthy_snapshot`** | A store that recorded a twin reads `twin`, red on every tray and the page, over a fresh healthy snapshot: what it writes reaches nobody. Sabotaged (no `twin` arm): red. |
+| **`red_team_a_backup_is_refreshed_in_place_and_deletes_only_when_pruned`** | `backup export` into a directory holding this account's earlier copy refreshes it: only the chunks it lacks are written, a chunk no file uses any more stays unless `--prune`, the copy is dated (`written`) and keeps its marker, and the summary says what it kept, left out and deleted. A directory of other files is still refused. Sabotaged (deleting without `--prune`; rewriting every chunk): red each. |
 | **`red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting`** | `itsanas device list` lists never-announced, then the longest silence first, and says `resting` past a week, in a word and no colour, never for this machine nor one heard a minute ago. The page and the phone get the same order and a `dormant` flag (`devices::list`). Sabotaged (no sort): red. |
 | **`red_team_files_on_this_machine_alone_are_never_drawn_green`** | MVP.md test L in `brief_status`: `copies 0 of 2` is `exposed 60 0 2` and `1 of 2` is `exposed 60 1 2`; a shortfall that began a round ago (`since`) is still `healthy`, past two intervals it is `exposed`; `2 of 2` and no count are `healthy`; and `exposed` wins over `short` (the pledge the disk cannot hold), since it is about the person's own files. Sabotaged (the `exposed` arm dropped; `short` put before it): red. |
 | **`red_team_a_daemon_that_reaches_nobody_is_never_drawn_green`** | ARCHITECTURE §7, "no successful sync round in N minutes": a fresh snapshot with 2 of 2 copies whose last `reached` is seven hours old, at a five-minute round, is `isolated 60 25200`; five minutes or five hours old is `healthy`; at an hourly round seven hours is `healthy` and twelve `isolated` (the larger of 6 h and 12 rounds); `exposed` wins over it; a node that never reached anybody gets no `isolated`. Neither `stale` (the snapshot is fresh) nor `exposed` (copies count holders for a week) says it. Sabotaged (the arm dropped; the snapshot's age read for the contact's; six hours whatever the interval): red, all three. |

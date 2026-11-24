@@ -1068,6 +1068,21 @@
     line.textContent = t('Saved.');
   }
 
+  // What a drive is for decides which of three tools it wants (HANDOVER §8
+  // 0e step 7): the one asked points at the field, and the other two stay.
+  function diskUse(choice) {
+    const said = $('disk-use-said');
+    const go = {
+      drawer: ['A backup: sealed, it opens with your 24 words only. Use “Backup to a drive you keep apart” below.', 'disk-backup'],
+      mine: ['A USB key: ITSaNAS for every system, with this account on it. Use “Copy this account to a USB key”.', 'st-h-usb'],
+      others: ['A portable ITSaNAS: it hosts nothing for others, and its keys stay on the drive. Use “Put a portable ITSaNAS on a drive” below.', 'disk-portable'],
+    }[choice];
+    if (!go) { said.textContent = ''; return; }
+    said.textContent = t(go[0]);
+    const target = $(go[1]);
+    if (target && !target.closest('[hidden]')) { target.scrollIntoView({ block: 'center' }); target.focus(); }
+  }
+
   async function saveRules(scope) {
     const line = $('st-del-said');
     line.textContent = '';
@@ -1593,6 +1608,9 @@
     $('st-traces-slider').addEventListener('input', showTraceValue);
     $('st-traces-never').addEventListener('change', showTraceValue);
     $('st-traces-save').addEventListener('click', saveTraces);
+    document.querySelectorAll('input[name="disk-use"]').forEach(function (box) {
+      box.addEventListener('change', function () { diskUse(box.value); });
+    });
     $('st-files-show').addEventListener('click', function () { files(null, ''); });
     // In the page only: the list is already here, so a long one is narrowed
     // without pausing the machine again.

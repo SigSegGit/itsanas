@@ -64,7 +64,15 @@ impl World {
             machine: Zeroizing::new(machine.to_owned()),
             key: Zeroizing::new(key.to_owned()),
         };
-        copy(&self.home, dir, &passes, Some(1024), served, register)
+        copy(
+            &self.home,
+            dir,
+            &passes,
+            Some(1024),
+            served,
+            register,
+            |_| Ok(None),
+        )
     }
 
     fn copy(&self, machine: &str, key: &str) -> crate::error::Result<String> {
@@ -648,7 +656,9 @@ fn red_team_two_copies_to_one_key_at_once_leave_one_account() {
                     key: Zeroizing::new(key.to_owned()),
                 };
                 start.wait();
-                let result = copy(&home, &drive, &passes, Some(1024), served, offline);
+                let result = copy(&home, &drive, &passes, Some(1024), served, offline, |_| {
+                    Ok(None)
+                });
                 (key, result.map_err(|error| error.to_string()))
             })
         })
@@ -756,4 +766,46 @@ fn a_keys_passphrase_is_not_the_machines_in_other_clothes_nor_a_common_base() {
     // A short machine passphrase is no reason to refuse every key holding it.
     assert_eq!(weak_passphrase(KEY, "key", "camille"), None);
     assert_eq!(weak("password manager entries galore"), None);
+}
+
+/// The key is a device of its own, and an account holds at most
+/// `MAX_DEVICES_PER_ACCOUNT`: on a full account the programs and the sealed
+/// account were written whole, then refused at enrolment, and the key was
+/// useless. It is refused before a byte is written, saying how to make room;
+/// with room, the copy says how many places are left after it (HANDOVER §8 0e
+/// step 7). Sabotage: compare with `>` instead of `>=`.
+#[test]
+fn red_team_a_full_account_refuses_the_key_before_a_byte_is_written() {
+    let world = World::new();
+    let passes = || Passphrases {
+        machine: Zeroizing::new(MACHINE.to_owned()),
+        key: Zeroizing::new(KEY.to_owned()),
+    };
+    let full = super::MAX_DEVICES;
+    let said = refusal(copy(
+        &world.home,
+        &world.drive,
+        &passes(),
+        Some(1024),
+        served,
+        offline,
+        |_| Ok(Some(full)),
+    ));
+    assert!(said.contains("the most it may have"), "{said}");
+    assert!(
+        world.files_on_the_drive().is_empty(),
+        "a key for a full account was written anyway: {:?}",
+        world.files_on_the_drive()
+    );
+    let done = copy(
+        &world.home,
+        &world.drive,
+        &passes(),
+        Some(1024),
+        served,
+        offline,
+        |_| Ok(Some(full - 3)),
+    )
+    .expect("a copy with room");
+    assert!(done.contains("2 left after it"), "{done}");
 }

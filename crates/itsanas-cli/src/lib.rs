@@ -207,8 +207,14 @@ enum DeviceCommand {
 /// What `itsanas backup` does.
 #[derive(Debug, Subcommand)]
 enum BackupAction {
-    /// Write this account's cold copy into DIR (empty or new).
-    Export { dir: PathBuf },
+    /// Write this account's cold copy into DIR: empty, new, or holding an
+    /// earlier copy of this account, refreshed in place.
+    Export {
+        dir: PathBuf,
+        /// Delete from the earlier copy the chunks no file uses any more.
+        #[arg(long)]
+        prune: bool,
+    },
     /// Read a cold copy of this account from DIR and apply it.
     Restore { dir: PathBuf },
 }
@@ -4144,9 +4150,17 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// cost nothing.
 /// `itsanas vault [PATH]`.
 fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
+    if let BackupAction::Export { prune: true, .. } = &action
+        && daemon_holds(home)
+    {
+        return Err(CliError::Usage(
+            "--prune deletes from the copy, so it runs with the store in hand: stop the daemon (itsanas stop), or refresh the copy without --prune"
+                .to_owned(),
+        ));
+    }
     if daemon_holds(home) {
         let (kind, dir) = match &action {
-            BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+            BackupAction::Export { dir, .. } => (jobs::Kind::Export, dir),
             BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
         };
         return hand_to_daemon(home, kind, dir);
@@ -4155,7 +4169,7 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         // A daemon that started between the two looks.
         Err(_) if daemon_holds(home) => {
             let (kind, dir) = match &action {
-                BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+                BackupAction::Export { dir, .. } => (jobs::Kind::Export, dir),
                 BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
             };
             return hand_to_daemon(home, kind, dir);
@@ -4163,16 +4177,12 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         other => other?,
     };
     match action {
-        BackupAction::Export { dir } => {
-            let moved = backup::export(&node, &dir)?;
+        BackupAction::Export { dir, prune } => {
+            let moved = backup::export_with(&node, &dir, prune)?;
             println!(
-                "backed up {} segments and {} chunks ({}) to {}",
-                moved.segments,
-                moved.chunks,
-                format_size(moved.bytes),
-                dir.display()
+                "{}",
+                backup::export_summary(&moved, &dir.display().to_string())
             );
-            println!("sealed as hosts hold it: the 24 words are what opens it, keep them apart");
             if let Some(warning) = drives::warning_for(&dir, "the backup") {
                 println!("note: {warning}");
             }
@@ -6186,6 +6196,89 @@ const UNPINNED_RELAY: &str = "a relayed address needs the device it reaches";
 
 #[cfg(test)]
 mod tests {
+    /// A cold copy in a drawer is refreshed now and then: the same directory
+    /// again, writing only what it lacks, deleting nothing a person did not
+    /// ask to delete, dated, and saying what it left out. It used to refuse
+    /// any directory that was not empty, so the person kept a second copy
+    /// beside the first, or deleted the first to write the second (HANDOVER
+    /// §8 0e step 8). Sabotage: delete stale chunks without `--prune`; or
+    /// rewrite every chunk.
+    #[test]
+    fn red_team_a_backup_is_refreshed_in_place_and_deletes_only_when_pruned() {
+        // Bytes that do not repeat, so the chunker cuts several chunks.
+        let varied = |seed: u64, len: usize| {
+            let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state.to_le_bytes()[0]
+                })
+                .collect::<Vec<u8>>()
+        };
+        let base = tempfile::tempdir().expect("temp dir");
+        let (laptop, _) =
+            itsanas_node::Node::create(&base.path().join("laptop"), "a passphrase", "camille")
+                .expect("create");
+        let file = varied(1, 300 * 1024);
+        laptop.store.write_file("keep.bin", &file).expect("write");
+        laptop
+            .store
+            .write_file("goes.bin", &varied(2, 300 * 1024))
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        let copy = base.path().join("drawer");
+        let first = super::backup::export(&laptop, &copy).expect("first copy");
+        // A chunk of an older copy that no file of the account uses any more.
+        let gone = copy.join("chunks").join("ab".repeat(32));
+        std::fs::write(&gone, b"sealed bytes of a file long deleted").expect("old chunk");
+
+        laptop.store.remove_file("goes.bin").expect("remove");
+        laptop
+            .store
+            .write_file("new.bin", b"written since")
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        let second =
+            super::backup::export(&laptop, &copy).expect("a refresh of this account's copy");
+        assert!(
+            second.kept > 0,
+            "the refresh wrote every chunk again: {second:?}"
+        );
+        assert!(
+            second.chunks >= 1 && second.chunks < first.chunks,
+            "{second:?}"
+        );
+        assert!(
+            second.stale > 0,
+            "the deleted file's chunks were not counted: {second:?}"
+        );
+        assert_eq!(
+            second.pruned, 0,
+            "a refresh without --prune deleted from the copy"
+        );
+        let on_disk = std::fs::read_dir(copy.join("chunks"))
+            .expect("chunks")
+            .count();
+        assert_eq!(
+            on_disk,
+            first.chunks + second.chunks + 1,
+            "a chunk went missing from the copy without --prune"
+        );
+        assert!(gone.is_file(), "an old chunk was deleted without --prune");
+        assert!(copy.join("written").is_file(), "the copy is not dated");
+        assert!(
+            copy.join(super::backup::MARKER).is_file(),
+            "the refreshed copy lost its marker"
+        );
+
+        let third = super::backup::export_with(&laptop, &copy, true).expect("pruned");
+        assert_eq!(third.pruned, second.stale, "{third:?}");
+        assert!(!gone.exists(), "--prune left the chunk no file uses");
+        assert!(super::backup::export_summary(&third, "the drawer").contains("deleted (--prune)"));
+    }
+
     /// `itsanas device list` puts the machine somebody opened it to find --
     /// the one gone quiet -- first, never announced before any silence, and
     /// says "resting" past a week in a word, for no other machine and never
@@ -6325,9 +6418,12 @@ mod tests {
         let copy = base.path().join("drawer");
         let moved = super::backup::export(&laptop, &copy).expect("export");
         assert!(moved.chunks > 0 && moved.segments > 0, "{moved:?}");
+        let stray = base.path().join("photos");
+        std::fs::create_dir_all(&stray).expect("dir");
+        std::fs::write(stray.join("holiday.jpg"), b"not a backup").expect("file");
         assert!(
-            super::backup::export(&laptop, &copy).is_err(),
-            "an export overwrote a directory that already held a backup"
+            super::backup::export(&laptop, &stray).is_err(),
+            "an export wrote into a directory of somebody's own files"
         );
 
         let (stranger, _) =
@@ -6832,6 +6928,7 @@ mod tests {
             segments: 4,
             chunks: 9,
             bytes: 1024,
+            ..super::backup::Moved::default()
         };
         let clean = itsanas_sync::SyncReport {
             adopted: 2,

@@ -2178,11 +2178,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
          restore from an older image) is no twin
          (`red_team_a_cloned_key_image_stops_writing_and_a_copy_behind_does_not`,
          `red_team_a_twin_is_drawn_red_over_a_healthy_snapshot`).
-      7. `copy-to-key` checks the 10 places before writing and says it takes one; the page's
+      7. ✅ `copy-to-key` checks the 10 places before writing and says it takes one; the page's
          Disks section asks "in a drawer / my computers now and then / a computer not mine" and
-         leads to backup, USB key or portable.
-      8. `backup export` refreshes an earlier copy in place (never deletes without `--prune`),
-         dates it and says what it left out.
+         leads to backup, USB key or portable. Done 2026-11-24, against the 20 places of today:
+         `enrolled_as` counts the live devices before a byte is written, a full account is
+         refused with what to do, a copy says how many places are left
+         (`red_team_a_full_account_refuses_the_key_before_a_byte_is_written`); the Disks section
+         opens on "What will the drive be for?" and points at the field that fits.
+      8. ✅ `backup export` refreshes an earlier copy in place (never deletes without `--prune`),
+         dates it and says what it left out. Done 2026-11-24: only missing chunks are written,
+         the marker comes down first and goes back last, `written` dates it, the summary counts
+         kept, left out and stale; `--prune` deletes stale chunks and is refused while the
+         daemon holds the store, since a job carries no option
+         (`red_team_a_backup_is_refreshed_in_place_and_deletes_only_when_pruned`).
    x. 🟨 **The fleet tested by CI, so the hand test shrinks to what needs
       hands.** Asked for by Nicolas on 2026-10-23 after the hand test of the
       day before (an ordeal for Mandarine; too complex to add testers).
