@@ -2130,6 +2130,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `itsanas app on` there and on the always-on hosts that hold its data, then read
       `status.snapshot`'s first line after a changeset: `copies 2 of 2` (or more) and `newest` at
       the changeset's time within about a minute. Needs Nicolas's access (private handover).
+      ✅ 2026-11-25: four containers rebuilt by hand from `main` at `fb6f766` (0.1.22; the agents
+      rebuild on release tags only, and the next tag fast-forwards over it), `itsanas app on` on
+      `itsaresume` and `test` (VM), `test` and `nicolas` (Pi); the other containers left on 0.1.21.
+      The coordinator needs nothing: the mode is peer protocol 13 only. A new premium file was
+      sent to those three hosts alone 3 s after it was written, in a light round; the full round
+      reached the others 94 s later; the snapshot read `copies 6 of 2 ... newest` at the file's
+      time from then on.
     (iv) For itsaresume (its own repository): read `newest` and `copies` from the snapshot and
       raise its alert when the newest changeset is not on two machines after a few minutes.
 
