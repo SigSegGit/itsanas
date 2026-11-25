@@ -11,9 +11,19 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-24
+WRITTEN-AT: 2026-11-25
 BASE: 0d24be3
 -->
+
+**2026-11-25, in #462: the last buildable open finding, and what is left.** The device ids a
+limit refusal names are checked against the account's signed roster: one known withdrawn is not
+offered, one with no signed claim here is labelled as named by the coordinator alone (ROADMAP,
+"Android's cap-named ids"). MVP.md §6 now has rows for K, L, M and N. What §8 still holds needs a
+person or hardware: the Mac day (8.0c), the phone on adb (offline overnight), Windows Hello's own
+prompt, Android's scheduler over hours, two real networks. One open question is Nicolas's: people
+behind one address (carrier NAT, common in China) share the name-question budget; a proof of work
+past it would let them through but would let a GPU list names cheaply, so it changes the bound
+the budget exists for (ROADMAP "Names a stranger can list").
 
 **2026-11-24, after #459: the test day scripted.** Nicolas's Mac hand test (8.0c) is for
 Wednesday or Thursday; he wants as much of it as possible run by the machines. `scripts/kit-day.sh`,
@@ -2154,18 +2164,43 @@ Detail and measurements are in ROADMAP.md; this is the map.
          coordinator forgot after 7 days is not an `Account::Unknown` host.
       3. ✅ `Request::Hosted` records only chunks this account references (`CHUNK_REFS`) and nothing
          for a paused host: today any handshaken device writes rows for any ids.
-      4. Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
+      4. ✅ Dormant members (`Store::dormant_members`: a member unseen for `LIVE_FOR`) named calmly in
          `status`, the page's device list (sorted most silent first) and the phone; no colour.
-      5. Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
+         Done 2026-11-24: `status` lists "resting machines of this account", `device list` sorts
+         by silence and says `resting`, `/api/devices` sorts and flags `dormant`, which the page
+         (and so the phone) shows as a word
+         (`red_team_a_machine_silent_past_a_week_is_named_resting_the_most_silent_first`,
+         `red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting`).
+      5. ✅ Back after a month: the brief reads `catching-up` (blue, bounded by `ISOLATED_AFTER`)
          instead of `isolated`, and the key says when its changes reached another machine, so it
-         can be unplugged.
-      6. A cloned key image (one identity on two disks) is detected from a signed foreign segment
+         can be unplugged. Done 2026-11-24: the contact ending a silence of six hours or more
+         writes `back T` (`safety::back_words`); `catching-up` replaces `exposed` for six hours at
+         most, on every tray and the page; `status` says "unplugging loses nothing" or "NOT yet"
+         from the complete copies elsewhere (the copies count is what says a key's changes reached
+         another machine) (`red_team_a_key_back_after_a_month_reads_catching_up_not_only_on_this_machine`,
+         `red_team_status_says_unplugging_loses_nothing_only_once_a_copy_is_elsewhere`).
+      6. ✅ A cloned key image (one identity on two disks) is detected from a signed foreign segment
          and stops writing, nothing deleted; today `offer_segments` swallows `SegmentChainBroken`.
-      7. `copy-to-key` checks the 10 places before writing and says it takes one; the page's
+         Done 2026-11-24: `forked_segment` walks the host's copy of this key's chain for a
+         segment signed by this key where this chain holds another; `Store::note_twin` checks it
+         and records `twin`; the store then refuses writes and seals nothing; the brief reads
+         `twin`, red; `status` says to set one of the two up afresh. A chain only behind (a
+         restore from an older image) is no twin
+         (`red_team_a_cloned_key_image_stops_writing_and_a_copy_behind_does_not`,
+         `red_team_a_twin_is_drawn_red_over_a_healthy_snapshot`).
+      7. ✅ `copy-to-key` checks the 10 places before writing and says it takes one; the page's
          Disks section asks "in a drawer / my computers now and then / a computer not mine" and
-         leads to backup, USB key or portable.
-      8. `backup export` refreshes an earlier copy in place (never deletes without `--prune`),
-         dates it and says what it left out.
+         leads to backup, USB key or portable. Done 2026-11-24, against the 20 places of today:
+         `enrolled_as` counts the live devices before a byte is written, a full account is
+         refused with what to do, a copy says how many places are left
+         (`red_team_a_full_account_refuses_the_key_before_a_byte_is_written`); the Disks section
+         opens on "What will the drive be for?" and points at the field that fits.
+      8. ✅ `backup export` refreshes an earlier copy in place (never deletes without `--prune`),
+         dates it and says what it left out. Done 2026-11-24: only missing chunks are written,
+         the marker comes down first and goes back last, `written` dates it, the summary counts
+         kept, left out and stale; `--prune` deletes stale chunks and is refused while the
+         daemon holds the store, since a job carries no option
+         (`red_team_a_backup_is_refreshed_in_place_and_deletes_only_when_pruned`).
    x. 🟨 **The fleet tested by CI, so the hand test shrinks to what needs
       hands.** Asked for by Nicolas on 2026-10-23 after the hand test of the
       day before (an ordeal for Mandarine; too complex to add testers).

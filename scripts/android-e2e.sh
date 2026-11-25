@@ -71,7 +71,8 @@ real=""
 [ "$(shell getprop ro.kernel.qemu)" = "1" ] || real=1
 
 # A real phone keeps its own settings: what the run changes is put back.
-settings=(window_animation_scale transition_animation_scale animator_duration_scale hide_error_dialogs)
+settings=(window_animation_scale transition_animation_scale animator_duration_scale hide_error_dialogs
+    stay_on_while_plugged_in)
 declare -A before=()
 if [ -n "$real" ]; then
     for name in "${settings[@]}"; do
@@ -81,7 +82,7 @@ if [ -n "$real" ]; then
     night="$(shell cmd uimode night | sed -n 's/^Night mode: \(yes\|no\|auto\)$/\1/p')"
     # WordsTest turns the screen; a phone locked upright stays locked upright.
     declare -A rotation=()
-    for name in accelerometer_rotation user_rotation; do
+    for name in accelerometer_rotation user_rotation screen_off_timeout; do
         rotation[$name]="$(shell settings get system "$name")"
     done
 fi
@@ -103,7 +104,7 @@ cleanup() {
             fi
         done
         [ -z "${night:-}" ] || "$adb" shell cmd uimode night "$night" >/dev/null 2>&1 || true
-        for name in accelerometer_rotation user_rotation; do
+        for name in accelerometer_rotation user_rotation screen_off_timeout; do
             case "${rotation[$name]:-}" in
                 "" | null) ;;
                 *) "$adb" shell settings put system "$name" "${rotation[$name]}" >/dev/null 2>&1 || true ;;
@@ -163,6 +164,12 @@ if [ -n "$real" ]; then
     # literal. On the phone the name resolves into the tunnel all the same.
     coordinator_address="localhost:$port"
     "$adb" shell input keyevent KEYCODE_WAKEUP || true
+    # The screen stays on for the run: a phone whose screen went off after
+    # its usual minute paused the app, and every test after that failed with
+    # "No activities in stage RESUMED" (2026-11-24, a run over Tailscale with
+    # the phone in a pocket: 12 of 38). Both are put back by `cleanup`.
+    "$adb" shell settings put system screen_off_timeout 1800000 || true
+    "$adb" shell settings put global stay_on_while_plugged_in 15 || true
 fi
 
 args=(

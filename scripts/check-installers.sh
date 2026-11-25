@@ -1117,6 +1117,7 @@ if [ -n "$PY" ]; then
     command -v pwsh >/dev/null 2>&1 && others="$others ps1"
     briefs=('healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' '')
     briefs+=('exposed 30 0 2' 'exposed 30 1 2' 'isolated 30 25200' 'isolated 30 400000' 'unwritable 30' 'failing 30 2' 'lowdisk 30 104857600')
+    briefs+=('catching-up 30 600' 'twin 30')
     for brief in "${briefs[@]}"; do
         for instance in '' b; do
             for every in 'every 15 min (set with `itsanas interval`)' 'auto: the daemon'"'"'s own setting'; do

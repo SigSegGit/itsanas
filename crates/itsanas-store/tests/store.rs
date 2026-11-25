@@ -2161,3 +2161,39 @@ fn red_team_a_paused_host_with_an_old_pass_vouches_for_nothing() {
         "a host paused for lying stops repair from placing a real copy"
     );
 }
+
+/// A machine of the account not heard from for over a week is named resting,
+/// the most silent first, never this machine, and one heard from lately is
+/// not: a key in a drawer said as what it is, where the copy count would
+/// otherwise read as copies lost (HANDOVER 8 0e, step 4). Sabotage: compare
+/// with `<` instead of `>`, or drop the sort.
+#[test]
+fn red_team_a_machine_silent_past_a_week_is_named_resting_the_most_silent_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([31; 32]), dir.path());
+    let now = 1_800_000_000;
+    let day = 24 * 3600;
+    let id = |seed: u8| {
+        itsanas_crypto::DeviceKeys::from_seed(&itsanas_crypto::SecretBytes::new([seed; 32]))
+            .device_id()
+    };
+    let (drawer, holiday, laptop, never) = (id(41), id(42), id(43), id(44));
+    for member in [drawer, holiday, laptop, never, store.device_id()] {
+        store.admit_member(&member, false).unwrap();
+    }
+    store.note_seen_at(&drawer, now - 90 * day).unwrap();
+    store.note_seen_at(&holiday, now - 9 * day).unwrap();
+    store.note_seen_at(&laptop, now - day).unwrap();
+
+    let resting: Vec<_> = store
+        .dormant_members(now)
+        .unwrap()
+        .into_iter()
+        .map(|(device, _)| device)
+        .collect();
+    assert_eq!(
+        resting,
+        vec![never, drawer, holiday],
+        "not the machines silent past a week, the most silent first"
+    );
+}

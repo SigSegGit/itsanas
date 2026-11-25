@@ -156,6 +156,21 @@
       "file": "crates/itsanas-cli/src/devices.rs",
       "live": "rows < itsanas_coord::protocol::MAX_PEERS_RETURNED",
       "dead": "rows < usize::MAX"
+    },
+    "devices: a withdrawn id is not offered": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "!id.is_some_and(|id| node.store.is_revoked(&id).unwrap_or(false))",
+      "dead": "true || id.is_some()"
+    },
+    "devices: an unsigned id is said to be so": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "json!(device[\"thisPhone\"] != true && !signed)",
+      "dead": "json!(false && signed)"
+    },
+    "devices: a refusal's withdrawn id is dropped": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "named.retain(|device| !node.store.is_revoked(device).unwrap_or(false));",
+      "dead": "named.retain(|device| node.store.is_revoked(device).is_ok());"
     }
   }
 }

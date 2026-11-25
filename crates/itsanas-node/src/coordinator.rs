@@ -1116,14 +1116,26 @@ fn dialable_from_anywhere(address: &str) -> bool {
 /// If the coordinator cannot be reached, refuses, or answers with something
 /// else.
 pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
-    let mut client = dial(node)?;
-    match client.ask(&Request::Devices {
-        user: node.store.owner(),
-    }) {
+    enrolled_as(&node.config, &node.device, node.store.owner())
+}
+
+/// [`enrolled`] without an open store: for a step that must not wait for the
+/// daemon to let the store go (copying the account to a key).
+///
+/// # Errors
+///
+/// As [`enrolled`].
+pub fn enrolled_as(
+    config: &crate::config::Config,
+    device: &DeviceKeys,
+    user: UserId,
+) -> Result<Option<Vec<EnrolledDevice>>> {
+    let mut client = dial_as(config, device)?;
+    match client.ask(&Request::Devices { user }) {
         Ok(Response::Devices(list)) => Ok(Some(list)),
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
         Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-        Err(failed) => match devices(node, node.store.owner()) {
+        Err(failed) => match devices_as(config, device, user) {
             Ok(_) => Ok(None),
             Err(_) => Err(CliError::Usage(format!(
                 "the coordinator stopped answering ({failed}); it is not a version question"

@@ -38,6 +38,9 @@ use std::{
 };
 
 use itsanas_node::node::Identity;
+
+/// The most live devices an account may have: the key is one more.
+const MAX_DEVICES: usize = itsanas_coord::MAX_DEVICES_PER_ACCOUNT;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -587,10 +590,42 @@ pub(crate) fn copy(
     programs: Option<u64>,
     fetch: impl FnOnce(&Path) -> Result<Vec<String>>,
     register: impl FnOnce(&Node) -> Result<()>,
+    places: impl FnOnce(&Identity) -> Result<Option<usize>>,
 ) -> Result<String> {
-    let result = copy_steps(home, dir, passes, programs, fetch, register);
+    let result = copy_steps(home, dir, passes, programs, fetch, (register, places));
     Status(home).ended(&result);
     result
+}
+
+/// Whether the account has a place for the key, before a byte is written,
+/// and how many are left after it. The key is a device of its own, and an
+/// account holds at most `MAX_DEVICES_PER_ACCOUNT`: on a full account it used
+/// to be written whole -- the programs, the sealed account -- and then refused
+/// at enrolment. A coordinator that cannot be asked is said, not a refusal
+/// (the key enrols itself at its first start).
+fn places_left(
+    home: &Path,
+    passes: &Passphrases,
+    places: impl FnOnce(&Identity) -> Result<Option<usize>>,
+) -> Result<String> {
+    Ok(
+        match Identity::open(home, &passes.machine).and_then(|me| places(&me)) {
+            Ok(Some(live)) if live >= MAX_DEVICES => {
+                return Err(CliError::Usage(format!(
+                    "the account already has {live} devices, the most it may have, and the key would be one more: withdraw one first (itsanas device list, then itsanas device withdraw). Nothing was written"
+                )));
+            }
+            Ok(Some(live)) => format!(
+                "The key takes one of the account's {MAX_DEVICES} device places; {} left after it",
+                MAX_DEVICES - live - 1
+            ),
+            Ok(None) => "The coordinator could not count the account's devices; the key takes one place when it enrols"
+                .to_owned(),
+            Err(error) => format!(
+                "The account's device places could not be checked ({error}); the key takes one when it enrols"
+            ),
+        },
+    )
 }
 
 /// [`copy`], before its end is recorded.
@@ -600,7 +635,10 @@ fn copy_steps(
     passes: &Passphrases,
     programs: Option<u64>,
     fetch: impl FnOnce(&Path) -> Result<Vec<String>>,
-    register: impl FnOnce(&Node) -> Result<()>,
+    (register, places): (
+        impl FnOnce(&Node) -> Result<()>,
+        impl FnOnce(&Identity) -> Result<Option<usize>>,
+    ),
 ) -> Result<String> {
     let status = Status(home);
     status.step("checking", "checking the key");
@@ -617,6 +655,9 @@ fn copy_steps(
             "the key's passphrase {why}. Nothing was written"
         )));
     }
+
+    status.step("places", "checking the account has a place for the key");
+    let places_said = places_left(home, passes, places)?;
 
     status.step("space", "checking the room on the key");
     let content = content_of(home);
@@ -692,6 +733,7 @@ fn copy_steps(
     Ok(format!(
         "The key is ready, in {root}, with its own device {device}.\n\
          {enrolled}.\n\
+         {places_said}.\n\
          {made}.\n\
          {counted}.\n\
          To use it: on Windows double-click ITSaNAS.cmd; on a Mac double-click \
@@ -857,6 +899,14 @@ fn run(home: &Path, dir: &Path, passes: &Passphrases) -> Result<String> {
         programs,
         |bin| crate::update::Updater::of_this_build(&curl)?.release_binaries(bin),
         crate::register_only,
+        |me| {
+            if me.config.coordinator.is_none() {
+                return Ok(None);
+            }
+            let live =
+                itsanas_node::coordinator::enrolled_as(&me.config, &me.device, me.user.user_id())?;
+            Ok(live.map(|list| list.len()))
+        },
     )
 }
 
