@@ -297,7 +297,9 @@ class E2eCase: XCTestCase {
         try tapOnPage(name, "the username field")
         name.typeText(username)
         let escrow = webContaining("recovery copy is kept by the network")
-        if escrow.exists { try tapOnPage(escrow, "the recovery copy box") }
+        // The box renders after the username: looked for at once, it was
+        // missed once, and setup asked for a recovery phrase instead.
+        if escrow.waitForExistence(timeout: 10) { try tapOnPage(escrow, "the recovery copy box") }
         try tapOnPage(web("Next", .button), "Next on the account step")
         try throughSetup()
         Self.phoneHoldsTheAccount = true
