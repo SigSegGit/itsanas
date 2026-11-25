@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-25 — 1780 test functions across 48 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 707 are red-team tests.**
+**Last updated: 2026-11-25 — 1781 test functions across 48 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 708 are red-team tests.**
 
-**1664 of the 1780 tests have an entry of their own on this page** — an *entry*,
+**1665 of the 1781 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 26 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 235 |
+| `itsanas-store` unit | 236 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 52 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
@@ -226,7 +226,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 53 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 71 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 72 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 244 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -475,7 +475,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (193, plus the 42 vault tests below)
+# `itsanas-store` — unit tests (194, plus the 42 vault tests below)
 
 | **`red_team_what_the_store_writes_to_disk_keeps_its_bytes`** | One sample of each type the store writes to its index, its segments and its protected list (`FileEntry`, `Tombstone`, `LogEntry`, `SegmentEnvelope`, `SegmentBody`, `LocalState`, `Reliability`, `Uptime`, the protected map), folded and pinned one row per type and format (`disk_bytes.rs`, §8 17): a format that moves without a reader for the old one is a node that cannot open what it wrote. Sabotaged (two fields of `Reliability` swapped): red. |
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
@@ -629,10 +629,11 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_blob_is_storable_and_distinguishable_from_a_missing_one` | Zero-length content is not confused with absence. |
 | `total_bytes_counts_stored_bytes` | Size accounting is correct. |
 
-## `index` — transactional metadata, and an idle round that commits nothing (14)
+## `index` — transactional metadata, and an idle round that commits nothing (15)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_summary_is_read_once_while_quiet_and_again_after_every_write`** | A quiet round asks for the chunk summary once per peer, and it read every chunk id each time: sixteen million rows at a terabyte, every five minutes. The index keeps the last one against a count bumped after each committed write to `CHUNK_REFS`: asked again with nothing written, nothing is read; after `put_file`, `release_chunk` and `forget_chunk` it is the summary read afresh (`release_file` and `remove_file` only lower counts and leave rows, so they cannot move it, and are counted all the same). Sabotaged (each of those three bumps dropped; the cache never matching): red each. |
 | **`red_team_only_traces_older_than_kept_go_and_a_clock_never_set_keeps_its_own`** | `forget_tombstones_between`: a trace older than the account keeps goes; one within its days, one on the day itself and one dated 1970 by a machine whose clock was never set stay (before `traces::CLOCK_FLOOR` a date is not believed). Sabotaged (the floor dropped; the cutoff day let go): red each. |
 | `an_idle_round_of_contacts_commits_nothing_and_the_stamp_still_moves` | ROADMAP "An idle node's disk writes": forgetting a loss never recorded, admitting a member already admitted, and a contact inside `SEEN_STEP` (15 min) with nothing new leave the index file's bytes unchanged -- each was a commit a round, about 24 KB on redb. The stamp still moves once the step has passed, a clock set back is written, and a recorded loss is still forgotten. Sabotaged (each of the four read-before-writes removed): red. |
 | **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing every 5 ms while 100 opens run: none fails; a lock held for good is still `Locked`. A probe spinning with no pause starved every open on Linux CI (a load no caller makes; the tray polls every few seconds). Sabotaged (patience 0): red, 78 of 100 opens gave up. |

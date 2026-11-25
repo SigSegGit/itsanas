@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1780 test functions, 21 of them `#[ignore]`d into the slow job, and 707 of
+**1781 test functions, 21 of them `#[ignore]`d into the slow job, and 708 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2618,9 +2618,16 @@ it.** A quiet round performs two O(account) scans of the local index — one to
 compute the summary, one for `refresh_released` to page the ledger for this peer
 — and neither touches the network. At the sizes measured that is nothing; at a
 terabyte it is sixteen million rows read twice, every five minutes, on a machine
-with an SD card. Caching the summary against a change counter, and giving
-`refresh_released` the same periodic treatment the ledger walk now has, are the
-next two steps and are not built.
+with an SD card. ✅ **The first is built (2026-11-25):** the index keeps the last
+summary against a count bumped after every write to `CHUNK_REFS`, so a quiet
+round reads it from memory
+(`red_team_the_summary_is_read_once_while_quiet_and_again_after_every_write`).
+The second, giving `refresh_released` the ledger walk's schedule, is not: it is
+what notices, on the next round, that a host threw away a chunk this machine
+released (`a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding`),
+and on the walk's schedule that would take up to `REFRESH_AFTER`, three and a
+half days. A cost at a terabyte against a detection delay at any size:
+Nicolas's call.
 
 **Two things a hostile peer can still do.** It can replay an old summary and be
 believed for up to `REFRESH_AFTER`, which makes the storage challenge the only

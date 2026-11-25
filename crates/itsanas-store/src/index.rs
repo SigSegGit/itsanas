@@ -11,7 +11,10 @@
 use std::{
     collections::BTreeMap,
     path::Path,
-    sync::{Mutex, MutexGuard},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -328,6 +331,15 @@ pub struct Index {
     /// after committing, so a count taken on another thread cannot be replaced
     /// by one read before the commit it missed.
     local_bytes: Mutex<Option<u64>>,
+    /// Bumped after every committed write to `CHUNK_REFS`.
+    refs_changed: AtomicU64,
+    /// The last [`Index::chunk_summary`], with the [`Self::refs_changed`] it
+    /// was read at. A quiet round asks for it once per peer, and computing it
+    /// reads every chunk id: sixteen million rows at a terabyte, every five
+    /// minutes, on an SD card (ROADMAP, "What a round still costs locally").
+    summary: Mutex<Option<(u64, Vec<crate::summary::Digest>)>>,
+    /// How many times the summary was read from the table, for its test.
+    summary_reads: AtomicU64,
 }
 
 /// The index's filename inside a store root.
@@ -459,6 +471,9 @@ impl Index {
             db,
             audit_key,
             local_bytes: Mutex::new(None),
+            refs_changed: AtomicU64::new(0),
+            summary: Mutex::new(None),
+            summary_reads: AtomicU64::new(0),
         };
         index.rebuild_holdings_if_stale()?;
         index.build_holder_counts_if_missing()?;
@@ -707,6 +722,8 @@ impl Index {
         }
 
         txn.commit()?;
+        // The file's chunks are in the summary now.
+        self.refs_changed.fetch_add(1, Ordering::Release);
         if let Some(total) = local_bytes.as_mut() {
             *total = total
                 .saturating_sub(replaced_size)
@@ -766,6 +783,9 @@ impl Index {
         }
 
         txn.commit()?;
+        // A count only falls here and a row at zero stays, so the summary
+        // moves only if the index disagreed with itself; counted all the same.
+        self.refs_changed.fetch_add(1, Ordering::Release);
         if let Some(total) = local_bytes.as_mut() {
             *total = total.saturating_sub(dropped_size);
         }
@@ -816,6 +836,9 @@ impl Index {
         }
 
         txn.commit()?;
+        // A count only falls here and a row at zero stays, so the summary
+        // moves only if the index disagreed with itself; counted all the same.
+        self.refs_changed.fetch_add(1, Ordering::Release);
         if let Some(total) = local_bytes.as_mut() {
             *total = total.saturating_sub(dropped_size);
         }
@@ -1360,6 +1383,26 @@ impl Index {
     }
 
     pub fn chunk_summary(&self) -> Result<Vec<crate::summary::Digest>> {
+        // Read before the transaction: a write committed after this is either
+        // in what is read (and the next call reads again for nothing) or
+        // counted after it, never cached under a count it is not in.
+        let changed = self.refs_changed.load(Ordering::Acquire);
+        if let Ok(cached) = self.summary.lock()
+            && let Some((at, digests)) = cached.as_ref()
+            && *at == changed
+        {
+            return Ok(digests.clone());
+        }
+        let digests = self.summary_read()?;
+        if let Ok(mut cached) = self.summary.lock() {
+            *cached = Some((changed, digests.clone()));
+        }
+        Ok(digests)
+    }
+
+    /// [`Self::chunk_summary`] read from the table, every row.
+    fn summary_read(&self) -> Result<Vec<crate::summary::Digest>> {
+        self.summary_reads.fetch_add(1, Ordering::Relaxed);
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;
 
@@ -1539,6 +1582,8 @@ impl Index {
         // Out of the live set, so out of placement's queue too.
         Self::purge_chunk_in(&txn, chunk)?;
         txn.commit()?;
+        // Let go: out of the summary.
+        self.refs_changed.fetch_add(1, Ordering::Release);
         Ok(())
     }
 
@@ -1584,6 +1629,8 @@ impl Index {
         // the safety net would keep trying to place data nobody wants.
         Self::purge_chunk_in(&txn, chunk)?;
         txn.commit()?;
+        // Collected: out of the summary.
+        self.refs_changed.fetch_add(1, Ordering::Release);
         Ok(())
     }
 
@@ -2932,6 +2979,52 @@ mod tests {
             removed_unix: 1_700_000_100,
             author: itsanas_crypto::DeviceId::from_bytes([1; 32]),
         }
+    }
+
+    /// A quiet round reads the summary from memory, not from every row of the
+    /// table; and after each of the five writers of `CHUNK_REFS` it is the
+    /// summary read afresh, never the one from before the write. Sabotage:
+    /// drop any one writer's bump (it then answers what the account held
+    /// before); drop the cache (the quiet round reads every row again).
+    #[test]
+    fn red_team_the_summary_is_read_once_while_quiet_and_again_after_every_write() {
+        let (_dir, index) = index();
+        let fresh = |index: &Index| index.summary_read().expect("read");
+        let check = |index: &Index, after: &str| {
+            assert_eq!(
+                index.chunk_summary().expect("summary"),
+                fresh(index),
+                "after {after} the summary is the one from before it: a peer is told the account holds what it no longer does"
+            );
+        };
+
+        index.put_file("a", &entry(&[1, 2])).expect("put");
+        index.put_file("b", &entry(&[3])).expect("put");
+        let first = index.chunk_summary().expect("summary");
+        let reads = index.summary_reads.load(Ordering::Relaxed);
+        for _ in 0..3 {
+            assert_eq!(index.chunk_summary().expect("summary"), first);
+        }
+        assert_eq!(
+            index.summary_reads.load(Ordering::Relaxed),
+            reads,
+            "a quiet round read every chunk id again to say nothing changed"
+        );
+
+        index.put_file("c", &entry(&[4])).expect("put");
+        check(&index, "put_file");
+        index.release_file("c").expect("release");
+        check(&index, "release_file");
+        index.remove_file("b", &tombstone()).expect("remove");
+        check(&index, "remove_file");
+        index.release_chunk(&chunk(3)).expect("release chunk");
+        check(&index, "release_chunk");
+        index.put_file("d", &entry(&[5])).expect("put");
+        index.chunk_summary().expect("cached");
+        index.remove_file("d", &tombstone()).expect("remove");
+        index.chunk_summary().expect("cached");
+        index.forget_chunk(&chunk(5)).expect("forget");
+        check(&index, "forget_chunk");
     }
 
     /// Traces older than the account keeps go; a recent one stays, and so does

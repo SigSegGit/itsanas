@@ -1,0 +1,33 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-store",
+    "--lib",
+    "--",
+    "red_team_the_summary_is_read_once"
+  ],
+  "defences": {
+    "index: put_file invalidates the summary": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "        // The file's chunks are in the summary now.\n        self.refs_changed.fetch_add(1, Ordering::Release);",
+      "dead": "        // The file's chunks are in the summary now.\n        let _ = &self.refs_changed;"
+    },
+    "index: release_chunk invalidates the summary": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "        // Let go: out of the summary.\n        self.refs_changed.fetch_add(1, Ordering::Release);",
+      "dead": "        // Let go: out of the summary.\n        let _ = &self.refs_changed;"
+    },
+    "index: forget_chunk invalidates the summary": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "        // Collected: out of the summary.\n        self.refs_changed.fetch_add(1, Ordering::Release);",
+      "dead": "        // Collected: out of the summary.\n        let _ = &self.refs_changed;"
+    },
+    "index: the summary is cached": {
+      "file": "crates/itsanas-store/src/index.rs",
+      "live": "            && *at == changed\n",
+      "dead": "            && *at == changed.wrapping_add(1)\n"
+    }
+  }
+}
