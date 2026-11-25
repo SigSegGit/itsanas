@@ -420,7 +420,15 @@ itsanas pause        # stop syncing here; this machine keeps hosting for the oth
 itsanas resume       # start again, and sync at once
 itsanas sync-now     # don't wait for the next round
 itsanas interval 10m # how often it syncs: 30s to 1d, or auto
+itsanas app on       # application mode (see below)
 ```
+
+A machine that backs up a program's data -- small files written every few
+minutes -- can run in application mode: `itsanas app on`. A new file then
+goes out two seconds after it is written, and the other machines in
+application mode are dialled first and every minute. The first line of
+`status.snapshot` then ends with `newest M`: the newest modification time
+among the files its `copies HAVE of WANT` counts.
 
 Nothing is lost while paused: what you change waits until you resume.
 `itsanas pause --for 2h` (1 min to 30 days) pauses with an end, and syncing

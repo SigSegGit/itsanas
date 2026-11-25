@@ -1248,6 +1248,8 @@ fn sync_loop(
     // from now. A daemon restarted after a config change should act on it
     // now, and someone watching the first run should see something happen.
     let mut last_round: Option<Instant> = None;
+    // The last full round: light ones (application mode) do not put it off.
+    let mut last_full: Option<Instant> = None;
     let mut next_deep = Instant::now();
     let mut warned_alone = false;
     let mut outage = Outage::new();
@@ -1286,11 +1288,11 @@ fn sync_loop(
             steering.changed_here(Instant::now());
         }
 
-        let next = if scope.connects() {
-            steering.next(Instant::now(), last_round, base)
-        } else {
-            Next::Wait
-        };
+        let next = decide(node, &mut steering, scope, (last_round, last_full), base);
+        if next == Next::Light {
+            light_round(node, shutdown, folder.as_ref(), scope);
+            last_round = Some(Instant::now());
+        }
         if next == Next::Publish {
             paused_round(node, shutdown, &mut contact, bound, &mut outage);
             board.replace(contact.board());
@@ -1312,6 +1314,7 @@ fn sync_loop(
                 interval,
             );
             last_round = Some(Instant::now());
+            last_full = last_round;
             // What `isolated` ages (`steering.rs`'s
             // red_team_a_round_that_reaches_the_account_stamps_the_contact).
             seen.reached = last_contact(in_touch, seen.reached);
@@ -1583,6 +1586,9 @@ fn snapshot_header(
 }
 
 fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, seen: &Seen) {
+    // Read before the copies are counted: a file taken in between is then
+    // counted and not yet named, never named and not counted.
+    let newest = newest_words(node);
     let Ok((text, counted)) =
         crate::render_status_and_copies(node, Some(&bound.to_string()), seen.unwritable.as_deref())
     else {
@@ -1632,7 +1638,7 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
             copies,
             &reached,
             seen.unwritable.is_some(),
-            &alerts
+            &format!("{alerts}{newest}")
         )
     );
 
@@ -1640,6 +1646,25 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
     if std::fs::write(&pending, stamped).is_ok() {
         let _ = std::fs::rename(&pending, &final_path);
     }
+}
+
+/// ` newest M` on the snapshot's first line, in application mode only
+/// (HANDOVER §8 00): M is the newest modification time, in Unix seconds, among
+/// the files the `copies` count on the same line covers. A program that writes
+/// one file at a time into the folder reads its newest file as on `HAVE` other
+/// machines once `newest` has reached that file's modification time. Empty
+/// otherwise: the files are read once more per snapshot, a cost only the
+/// machines that asked for the line pay.
+fn newest_words(node: &Node) -> String {
+    if !local(node).app.load(Ordering::Relaxed) {
+        return String::new();
+    }
+    node.store
+        .entries()
+        .ok()
+        .and_then(|entries| entries.iter().map(|(_, entry)| entry.modified_unix).max())
+        .map(|newest| format!(" newest {newest}"))
+        .unwrap_or_default()
 }
 
 /// Say what a device short of room did with this round.
@@ -1726,6 +1751,7 @@ fn peer_service<'a>(
     .with_placement(crate::placing::slot())
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
     .noting_siblings(&SIBLING_SEEN)
+    .in_app_mode(&local(node).app)
 }
 
 /// When this node last reached the account, after a round: now if the round
@@ -1755,6 +1781,12 @@ struct Local {
     answers_only: AtomicBool,
     /// The hosts the coordinator last named, and when ([`introduced`]).
     introduced: std::sync::Mutex<Option<Introduced>>,
+    /// Whether this machine runs in application mode and syncs in full now:
+    /// what the listener answers to [`itsanas_net::protocol::Request::AppMode`],
+    /// and whether a round asks its peers the same (HANDOVER §8 00).
+    app: AtomicBool,
+    /// The other machines in application mode it found ([`crate::app_mode`]).
+    app_peers: std::sync::Mutex<crate::app_mode::AppPeers>,
 }
 
 /// [`Local`] for `node`. One per device and not one per process: a phone's
@@ -1773,6 +1805,8 @@ fn local(node: &Node) -> &'static Local {
                 .asking(node.store.owner(), coordinator::asker(node)),
             answers_only: AtomicBool::new(false),
             introduced: std::sync::Mutex::new(None),
+            app: AtomicBool::new(false),
+            app_peers: std::sync::Mutex::new(crate::app_mode::AppPeers::default()),
         }))
     })
 }
@@ -2058,6 +2092,13 @@ fn one_round(
         reconcile_once(node, folder, false);
     }
 
+    // The other machines in application mode, before every other host: they
+    // asked for it, and the program's newest file is waiting for two of them
+    // (HANDOVER §8 00).
+    if local(node).app.load(Ordering::Relaxed) {
+        dial_app_peers(node, shutdown, &mut reached, scope);
+    }
+
     in_touch |= dial_introduced(
         node,
         shutdown,
@@ -2128,6 +2169,138 @@ fn one_round(
     }
 
     (reached, in_touch, announced)
+}
+
+/// What this turn of the loop does, and whether this machine says it runs in
+/// application mode meanwhile: only while it is on and the machine syncs in
+/// full. On a metered link nobody should dial it every minute, and paused it
+/// answers nobody's files.
+fn decide(
+    node: &Node,
+    steering: &mut Steering,
+    scope: PolicyScope,
+    (any, full): (Option<Instant>, Option<Instant>),
+    base: Duration,
+) -> Next {
+    let rounds = control::Rounds { any, full };
+    let app = steering.app_mode() && scope == PolicyScope::Everything && !steering.paused();
+    local(node).app.store(app, Ordering::Relaxed);
+    if !scope.connects() {
+        return Next::Wait;
+    }
+    steering.next_with(Instant::now(), rounds, base, app && app_peers_known(node))
+}
+
+/// Ask `client` whether it runs in application mode, if this machine does:
+/// the others never dial anybody every minute, so the answer would be a round
+/// trip for nothing. `None` when not asked or not answered.
+fn ask_app_mode(node: &Node, peer: &str, client: &mut PeerClient) -> Option<bool> {
+    if !local(node).app.load(Ordering::Relaxed) {
+        return None;
+    }
+    client.app_mode().unwrap_or_else(|error| {
+        println!("{peer}: could not ask whether it runs in application mode ({error})");
+        None
+    })
+}
+
+/// Whether a light round would dial anybody now.
+fn app_peers_known(node: &Node) -> bool {
+    local(node)
+        .app_peers
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .any(Instant::now())
+}
+
+/// Note what `device`, reached at `peer`, said of its application mode.
+///
+/// Kept only for a machine that has something to do with this account: one of
+/// its own, one that holds some of its data or took some this session, or one
+/// already kept. A stranger that says "on" costs nothing to mint and would be
+/// dialled every minute. `None` (not asked, too old, or no answer) changes
+/// nothing: a peer that stopped answering ages out ([`crate::app_mode`]).
+fn note_app_peer(
+    node: &Node,
+    device: DeviceId,
+    peer: &str,
+    through: Option<&(DeviceId, String)>,
+    answer: Option<bool>,
+    earned_trust: bool,
+) {
+    let Some(on) = answer else {
+        return;
+    };
+    let mut peers = local(node)
+        .app_peers
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let ours = || {
+        earned_trust
+            || node.store.is_member(&device).unwrap_or(false)
+            || node.store.bytes_held_by(&device).unwrap_or(0) > 0
+    };
+    if !on || peers.knows(&device) || ours() {
+        peers.heard(device, peer, through, on, Instant::now());
+    }
+}
+
+/// Dial the other machines in application mode this one knows, the one heard
+/// from last first, and note each that answered in `reached` so the rest of
+/// the round does not dial it twice.
+fn dial_app_peers(
+    node: &Node,
+    shutdown: &AtomicBool,
+    reached: &mut BTreeSet<DeviceId>,
+    scope: PolicyScope,
+) {
+    let due = local(node)
+        .app_peers
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .due(Instant::now());
+    for (device, peer) in due {
+        if halted(node, shutdown) {
+            break;
+        }
+        if reached.contains(&device) {
+            continue;
+        }
+        let through = peer.through.as_ref();
+        if let Some(outcome) = sync_once(
+            node,
+            &peer.address,
+            through,
+            Some(device),
+            false,
+            false,
+            scope,
+        ) {
+            reached.insert(outcome.device);
+        }
+    }
+}
+
+/// A light round (application mode): what changed here is taken in and sent
+/// to the other machines in application mode, and nobody else is dialled --
+/// not the coordinator, not the hosts of other accounts, not the LAN. Those
+/// wait for the full round, at its own interval.
+fn light_round(
+    node: &Node,
+    shutdown: &AtomicBool,
+    folder: Option<&(Folder, Option<Watcher>)>,
+    scope: PolicyScope,
+) {
+    let folder = folder.map(|(folder, _)| folder);
+    if let Some(folder) = folder.filter(|_| !control::paused_on_disk(&node.home)) {
+        reconcile_once(node, folder, false);
+    }
+    let mut reached = BTreeSet::new();
+    dial_app_peers(node, shutdown, &mut reached, scope);
+    // What they sent back is written out now, not a minute later.
+    if let Some(folder) = folder.filter(|_| !control::paused_on_disk(&node.home)) {
+        reconcile_once(node, folder, false);
+    }
 }
 
 /// Dial the hosts of other accounts the coordinator names, for a machine with
@@ -2837,6 +3010,7 @@ fn sync_once(
     };
     let answered = client.peer_device();
     present_claim(node, peer, &mut client);
+    let app_answer = ask_app_mode(node, peer, &mut client);
 
     // Make the peer prove it still holds what the ledger says it took, a
     // handful of chunks per round. Without this the ledger is a list of
@@ -2949,6 +3123,7 @@ fn sync_once(
     };
 
     take_on_hosting(node, peer, &mut client);
+    note_app_peer(node, answered, peer, through, app_answer, earned_trust);
 
     // One exchange on a connection already open. A failure costs this round
     // the answer and nothing else: the coordinator remains the other source.

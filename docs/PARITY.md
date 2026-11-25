@@ -93,6 +93,7 @@ app, or it is not done there.
 | `itsanas resume` | ✅ | ✅ | ✅ | ⬜ a phone syncs on the policy's schedule |
 | `itsanas sync-now` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas interval` | ✅ | ✅ | ✅ | ⬜ a phone syncs on the policy's schedule |
+| `itsanas app` | ✅ | ✅ | ✅ | ⬜ a phone syncs on the policy's schedule, never every minute |
 | `itsanas whoami` | ✅ | ✅ | ✅ | ⬜ terminal only: the account's name is on the screen already |
 | `itsanas check-passphrase` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas instances` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account |

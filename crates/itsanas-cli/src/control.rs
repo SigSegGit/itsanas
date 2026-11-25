@@ -72,6 +72,18 @@ pub const MIN_INTERVAL: Duration = Duration::from_secs(30);
 /// files takes a few seconds to land.
 pub const SETTLE: Duration = Duration::from_secs(5);
 
+/// The settle in application mode (HANDOVER §8 00): the program writes one
+/// small file at a time and closes it, so there is no burst to wait out, and
+/// the seconds saved are seconds the file is on one machine only.
+pub const APP_SETTLE: Duration = Duration::from_secs(2);
+
+/// How often a machine in application mode dials the other machines in
+/// application mode it knows, between its full rounds (a light round: only
+/// them, nobody else). A minute: both ends asked for it, and the machines
+/// that did not -- a phone, the Pi, a laptop -- are dialled at their own
+/// interval as before.
+pub const APP_INTERVAL: Duration = Duration::from_secs(60);
+
 /// The longest: a day. Past that a machine is not syncing, it is off, and the
 /// snapshot's "stale after two intervals" would take days to say so.
 pub const MAX_INTERVAL: Duration = Duration::from_secs(86_400);
@@ -102,6 +114,9 @@ pub struct Control {
     pub interval: Option<u64>,
     /// When "sync now" was last asked for, in Unix seconds.
     pub sync_asked: Option<u64>,
+    /// `1` while this machine runs in application mode (`itsanas app on`);
+    /// anything else, or nothing, is off.
+    pub app: Option<u64>,
 }
 
 impl Control {
@@ -169,6 +184,7 @@ impl Control {
                 "until" => &mut control.until,
                 "interval" => &mut control.interval,
                 "sync-now" => &mut control.sync_asked,
+                "app" => &mut control.app,
                 _ => continue,
             };
             let number = value
@@ -189,12 +205,19 @@ impl Control {
             ("until", self.until),
             ("interval", self.interval),
             ("sync-now", self.sync_asked),
+            ("app", self.app),
         ] {
             if let Some(value) = value {
                 let _ = writeln!(text, "{key} {value}");
             }
         }
         text
+    }
+
+    /// Whether this machine runs in application mode.
+    #[must_use]
+    pub fn app_mode(&self) -> bool {
+        self.app == Some(1)
     }
 
     /// Whether the pause holds at `now_unix`: written, and either open-ended
@@ -255,6 +278,9 @@ pub enum Next {
     Publish,
     /// A full round.
     Round,
+    /// Application mode: send what changed to the other machines in
+    /// application mode, and dial nobody else ([`APP_INTERVAL`]).
+    Light,
 }
 
 /// The daemon's reading of the control file, kept between reads.
@@ -390,6 +416,19 @@ impl Steering {
         clamp(self.current.interval).unwrap_or(base)
     }
 
+    /// Whether this machine runs in application mode, as the file said last.
+    #[must_use]
+    pub fn app_mode(&self) -> bool {
+        self.current.app_mode()
+    }
+
+    /// How long a change is left to settle: [`APP_SETTLE`] in application
+    /// mode, else [`SETTLE`].
+    #[must_use]
+    pub fn settle(&self) -> Duration {
+        if self.app_mode() { APP_SETTLE } else { SETTLE }
+    }
+
     /// The folder changed here at `now`: files to send out. The first change
     /// since the last round is the one that counts, so a folder that never
     /// stops changing still has its round.
@@ -407,27 +446,73 @@ impl Steering {
     /// A "sync now" is consumed whether or not it is acted on: asked while
     /// paused, it is refused at the command line, and one written anyway must
     /// not wait in the file to fire the moment somebody resumes.
+    #[cfg(test)]
     pub fn next(&mut self, now: Instant, last_round: Option<Instant>, base: Duration) -> Next {
+        self.next_with(
+            now,
+            Rounds {
+                any: last_round,
+                full: last_round,
+            },
+            base,
+            false,
+        )
+    }
+
+    /// [`Self::next`], with light rounds: in application mode, and with
+    /// `app_peers` known to dial, a change goes out in a light round rather
+    /// than a full one, and a light round is due every [`APP_INTERVAL`]. The
+    /// full round keeps its own interval, counted from the last full one.
+    /// Without application mode, or with nobody to dial in a light round,
+    /// this is [`Self::next`] exactly.
+    pub fn next_with(
+        &mut self,
+        now: Instant,
+        rounds: Rounds,
+        base: Duration,
+        app_peers: bool,
+    ) -> Next {
+        let last_round = rounds.any;
         let asked = self.current.sync_asked.is_some() && self.current.sync_asked != self.honoured;
         if asked {
             self.honoured = self.current.sync_asked;
         }
         let lifted = std::mem::take(&mut self.lifted);
-        let early = self.changed.is_some_and(|since| now >= since + SETTLE)
+        let early = self
+            .changed
+            .is_some_and(|since| now >= since + self.settle())
             && last_round.is_none_or(|last| now >= last + MIN_INTERVAL.min(self.interval(base)));
-        let due = asked
-            || lifted
-            || early
-            || last_round.is_none_or(|last| now >= last + self.interval(base));
-        match (due, self.paused()) {
-            (false, _) => Next::Wait,
-            (true, true) => Next::Publish,
-            (true, false) => {
+        let light = self.app_mode() && app_peers;
+        let full_due = rounds
+            .full
+            .is_none_or(|last| now >= last + self.interval(base));
+        let due = asked || lifted || full_due || (early && !light);
+        let light_due =
+            light && (early || last_round.is_none_or(|last| now >= last + APP_INTERVAL));
+        match (due, light_due, self.paused()) {
+            // Paused, nothing moves: not even to the machines that asked for
+            // a minute.
+            (false, false, _) | (false, true, true) => Next::Wait,
+            (true, _, true) => Next::Publish,
+            (true, _, false) => {
                 self.changed = None;
                 Next::Round
             }
+            (false, true, false) => {
+                self.changed = None;
+                Next::Light
+            }
         }
     }
+}
+
+/// When the last round of each kind ended.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Rounds {
+    /// The last round of either kind, light or full.
+    pub any: Option<Instant>,
+    /// The last full round.
+    pub full: Option<Instant>,
 }
 
 fn clamp(seconds: Option<u64>) -> Option<Duration> {
@@ -567,6 +652,100 @@ mod tests {
         Steering::start(Ok(control), NOW).0
     }
 
+    fn app_steering() -> Steering {
+        steering(Control {
+            app: Some(1),
+            ..Control::default()
+        })
+    }
+
+    #[test]
+    fn red_team_application_mode_sends_a_change_to_its_peers_in_seconds_and_nobody_else() {
+        // The program writes a file; it must be on the other machines in
+        // application mode within seconds, not at the end of a five-minute
+        // interval -- and without dialling every host of the network for it.
+        let mut app = app_steering();
+        let start = Instant::now();
+        let full = Rounds {
+            any: Some(start),
+            full: Some(start),
+        };
+        let changed = start + MIN_INTERVAL;
+        app.changed_here(changed);
+        assert_eq!(
+            app.next_with(changed + APP_SETTLE, full, BASE, true),
+            Next::Light,
+            "a change in application mode waited past its two-second settle, or dialled everybody"
+        );
+        // Without anybody to dial in a light round, it is the full round, as
+        // before: the file must still leave this machine.
+        let mut alone = app_steering();
+        alone.changed_here(changed);
+        assert_eq!(
+            alone.next_with(changed + APP_SETTLE, full, BASE, false),
+            Next::Round,
+            "with no peer in application mode, a change waited for the interval"
+        );
+        // Off, the settle is the usual one.
+        let mut off = steering(Control::default());
+        off.changed_here(changed);
+        assert_eq!(
+            off.next_with(changed + APP_SETTLE, full, BASE, true),
+            Next::Wait,
+            "a machine not in application mode took the short settle"
+        );
+    }
+
+    #[test]
+    fn red_team_application_mode_dials_its_peers_every_minute_and_the_rest_at_the_interval() {
+        let mut app = app_steering();
+        let start = Instant::now();
+        let mut rounds = Rounds {
+            any: Some(start),
+            full: Some(start),
+        };
+        let mut light = 0;
+        let mut full = 0;
+        for second in 1..=BASE.as_secs() {
+            let now = start + Duration::from_secs(second);
+            match app.next_with(now, rounds, BASE, true) {
+                Next::Light => {
+                    light += 1;
+                    rounds.any = Some(now);
+                }
+                Next::Round => {
+                    full += 1;
+                    rounds = Rounds {
+                        any: Some(now),
+                        full: Some(now),
+                    };
+                }
+                Next::Wait => {}
+                Next::Publish => panic!("not paused"),
+            }
+        }
+        assert_eq!(
+            (light, full),
+            (4, 1),
+            "five minutes in application mode: a light round a minute and one full round"
+        );
+        // Paused, nothing moves, not even to the machines that asked.
+        let mut paused = steering(Control {
+            app: Some(1),
+            paused_since: Some(1),
+            ..Control::default()
+        });
+        let quiet = Rounds {
+            any: Some(start),
+            full: Some(start),
+        };
+        assert_eq!(
+            paused.next_with(start + APP_INTERVAL, quiet, BASE, true),
+            Next::Wait,
+            "a paused machine in application mode dialled its peers"
+        );
+    }
+
     #[test]
     fn the_file_round_trips_and_ignores_keys_it_does_not_know() {
         let control = Control {
@@ -574,6 +753,7 @@ mod tests {
             until: Some(1_759_757_200),
             interval: Some(600),
             sync_asked: Some(1_759_750_123),
+            app: Some(1),
         };
         assert_eq!(Control::parse(&control.render()), Ok(control));
         let newer = "paused 5\nbandwidth 20M\n# a comment\n\ninterval 60 # one minute\n";
@@ -584,6 +764,7 @@ mod tests {
                 until: None,
                 interval: Some(60),
                 sync_asked: None,
+                app: None,
             }),
             "a key from a newer tray stopped an older daemon reading the rest"
         );

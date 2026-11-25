@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 12;
+pub const PROTOCOL_VERSION: u16 = 13;
 
 /// The oldest version this node will still talk to.
 ///
@@ -154,6 +154,13 @@ pub const PROTOCOL_WITH_ROSTER: u16 = 11;
 ///
 /// A peer at 11 is asked the whole summary, as before.
 pub const PROTOCOL_WITH_SUMMARY_ROOT: u16 = 12;
+
+/// The first version in which a peer says whether it runs in application
+/// mode ([`Request::AppMode`]): two machines that both do are each other's
+/// privileged hosts, dialled first and every minute (HANDOVER §8 00).
+///
+/// A peer at 12 is not asked, and is taken as not in application mode.
+pub const PROTOCOL_WITH_APP_MODE: u16 = 13;
 
 /// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
 /// integers, a flag and a signature: under 200 bytes.
@@ -417,6 +424,11 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     SummaryRoot { owner: UserId },
+    /// Whether this peer runs in application mode ([`Response::AppMode`]).
+    /// Names no account and reads nothing it holds.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    AppMode,
 }
 
 /// What a peer answers.
@@ -506,6 +518,12 @@ pub enum Response {
     ///
     /// Appended last: postcard numbers variants by position.
     SummaryRoot([u8; 32]),
+    /// The answer to [`Request::AppMode`].
+    ///
+    /// Appended last: postcard numbers variants by position.
+    AppMode {
+        on: bool,
+    },
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -673,6 +691,7 @@ mod tests {
             },
             Request::Claims { owner: user() },
             Request::SummaryRoot { owner: user() },
+            Request::AppMode,
         ]
     }
 
@@ -708,6 +727,7 @@ mod tests {
             Request::MayEvict { .. } => {}
             Request::Claims { .. } => {}
             Request::SummaryRoot { .. } => {}
+            Request::AppMode => {}
         }
     }
 
@@ -786,6 +806,7 @@ mod tests {
             Response::MayEvict { marked: 7 },
             Response::Claims(vec![vec![1, 2], Vec::new()]),
             Response::SummaryRoot([3; 32]),
+            Response::AppMode { on: true },
         ]
     }
 
@@ -793,7 +814,10 @@ mod tests {
     /// fields in declaration order), one row per published
     /// [`PROTOCOL_VERSION`] from 12, when the pin began. A row is never edited
     /// once its version shipped: new bytes are a new row and a new version.
-    const WIRE_BY_VERSION: &[(u16, u64)] = &[(12, 4_349_036_195_717_396_686)];
+    const WIRE_BY_VERSION: &[(u16, u64)] = &[
+        (12, 4_349_036_195_717_396_686),
+        (13, 7_877_340_313_677_921_213),
+    ];
 
     #[test]
     fn red_team_a_peer_message_that_changes_its_bytes_changes_the_version() {
@@ -977,6 +1001,7 @@ mod tests {
             Request::MayEvict { .. } => 18,
             Request::Claims { .. } => 19,
             Request::SummaryRoot { .. } => 20,
+            Request::AppMode => 21,
         }
     }
 
@@ -1002,6 +1027,7 @@ mod tests {
             Response::MayEvict { .. } => 16,
             Response::Claims(_) => 17,
             Response::SummaryRoot(_) => 18,
+            Response::AppMode { .. } => 19,
         }
     }
 
@@ -1052,6 +1078,7 @@ mod tests {
             Response::MayEvict { marked: 0 },
             Response::Claims(Vec::new()),
             Response::SummaryRoot([0; 32]),
+            Response::AppMode { on: false },
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();
@@ -1164,7 +1191,8 @@ mod tests {
         // The client gates `MayEvict` on this number; a version bump that
         // forgot it would send the verb to a peer that closes the connection
         // on it. Sabotage: leave `PROTOCOL_VERSION` at 11.
-        assert_eq!(PROTOCOL_WITH_SUMMARY_ROOT, PROTOCOL_VERSION);
+        assert_eq!(PROTOCOL_WITH_APP_MODE, PROTOCOL_VERSION);
+        const { assert!(PROTOCOL_WITH_APP_MODE > PROTOCOL_WITH_SUMMARY_ROOT) };
         const { assert!(PROTOCOL_WITH_SUMMARY_ROOT > PROTOCOL_WITH_ROSTER) };
         const { assert!(PROTOCOL_WITH_ROSTER > PROTOCOL_WITH_EVICTION) };
         const { assert!(PROTOCOL_WITH_EVICTION > PROTOCOL_WITH_RELAY) };

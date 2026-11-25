@@ -155,6 +155,7 @@ pub const fn read_owner(request: &Request) -> Option<UserId> {
         | Request::Claim { .. }
         | Request::Draining { .. }
         | Request::Park
+        | Request::AppMode
         | Request::Splice { .. } => None,
     }
 }
@@ -321,6 +322,9 @@ pub struct PeerService<'a> {
     /// Set to the time a machine of this node's own account last presented a
     /// claim here ([`Self::noting_siblings`]).
     sibling_seen: Option<&'a std::sync::atomic::AtomicU64>,
+    /// Whether this node runs in application mode now, as the daemon keeps
+    /// it ([`Self::in_app_mode`]); absent, it does not.
+    app_mode: Option<&'a std::sync::atomic::AtomicBool>,
     /// Held across "is there room" and "store it".
     ///
     /// The listener serves connections concurrently, and the pledge check is a
@@ -356,6 +360,7 @@ impl<'a> PeerService<'a> {
             disk_room: None,
             protocol: PROTOCOL_VERSION,
             sibling_seen: None,
+            app_mode: None,
             storing: std::sync::Mutex::new(()),
         }
     }
@@ -396,6 +401,14 @@ impl<'a> PeerService<'a> {
     #[must_use]
     pub const fn noting_siblings(mut self, seen: &'a std::sync::atomic::AtomicU64) -> Self {
         self.sibling_seen = Some(seen);
+        self
+    }
+
+    /// Answer [`Request::AppMode`] from `on`, which the daemon sets while
+    /// this machine runs in application mode and syncs in full.
+    #[must_use]
+    pub const fn in_app_mode(mut self, on: &'a std::sync::atomic::AtomicBool) -> Self {
+        self.app_mode = Some(on);
         self
     }
 
@@ -602,6 +615,11 @@ impl<'a> PeerService<'a> {
             Request::WantHosted { limit } => self.want_hosted(*limit, caller),
 
             Request::ChunkSummary { owner } => Ok(Response::ChunkSummary(self.summary_of(*owner)?)),
+            Request::AppMode => Ok(Response::AppMode {
+                on: self
+                    .app_mode
+                    .is_some_and(|on| on.load(std::sync::atomic::Ordering::Relaxed)),
+            }),
             Request::SummaryRoot { owner } => Ok(Response::SummaryRoot(
                 itsanas_store::summary::root(&self.summary_of(*owner)?),
             )),

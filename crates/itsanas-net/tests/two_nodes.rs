@@ -157,6 +157,54 @@ fn red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences() {
     }
 }
 
+/// Application mode is what makes two machines each other's privileged hosts
+/// (HANDOVER §8 00): a peer that says it is on is dialled first and every
+/// minute. So the answer must follow the host's own switch, both ways, and a
+/// peer from before protocol 13 must not be asked at all -- it would close the
+/// connection on a verb it cannot decode, and the round would lose the peer.
+#[test]
+fn red_team_a_peer_says_its_application_mode_as_it_is_and_an_older_one_is_never_asked() {
+    use itsanas_net::protocol::PROTOCOL_WITH_APP_MODE;
+    let host = node(&alice(), 77);
+    let me = node(&alice(), 78);
+
+    for (version, on, expected) in [
+        (PROTOCOL_WITH_APP_MODE, true, Some(true)),
+        (PROTOCOL_WITH_APP_MODE, false, Some(false)),
+        // On, but too old to say so: read as not, and never asked.
+        (PROTOCOL_WITH_APP_MODE - 1, true, None),
+    ] {
+        let switch = AtomicBool::new(on);
+        let server = PeerServer::bind("127.0.0.1:0").expect("bind loopback");
+        let address = server.local_addr().expect("local address");
+        let shutdown = AtomicBool::new(false);
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&itsanas_net::Unscoped)
+            .in_app_mode(&switch)
+            .speaking_at_most(version);
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = server.serve_until(&service, &host.device, &shutdown);
+            });
+            let _stop = StopOnDrop(&shutdown, address);
+
+            let mut client =
+                PeerClient::connect(address, &me.device, me.store.owner(), None).expect("connect");
+            assert_eq!(
+                client.app_mode().expect("asked"),
+                expected,
+                "a host at protocol {version} with application mode {on} was read wrong"
+            );
+            // The connection is still good for the round after the question.
+            assert!(
+                client.presences().is_ok(),
+                "asking for application mode cost the connection the round needed"
+            );
+        });
+    }
+}
+
 #[test]
 fn a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs() {
     // This test passing means it *finished*. There is no assertion that can

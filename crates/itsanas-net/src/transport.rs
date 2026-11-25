@@ -59,10 +59,10 @@ use crate::relay::NOT_RELAYING;
 use crate::{
     error::{NetError, Result},
     protocol::{
-        Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
-        PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DRAINING, PROTOCOL_WITH_DROP_NOTICES,
-        PROTOCOL_WITH_EVICTION, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES,
-        PROTOCOL_WITH_SUMMARY_ROOT, Request, Response,
+        Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_APP_MODE,
+        PROTOCOL_WITH_CHUNK_SUMMARY, PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DRAINING,
+        PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_EVICTION, PROTOCOL_WITH_LEAVING,
+        PROTOCOL_WITH_PRESENCES, PROTOCOL_WITH_SUMMARY_ROOT, Request, Response,
     },
     service::PeerService,
 };
@@ -1111,6 +1111,22 @@ impl PeerClient {
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "a summary root",
+            }),
+        }
+    }
+
+    /// Whether this peer runs in application mode: `None` when it is too old
+    /// to be asked (before [`PROTOCOL_WITH_APP_MODE`]), which the caller
+    /// takes as not.
+    pub fn app_mode(&mut self) -> Result<Option<bool>> {
+        if self.spoken < PROTOCOL_WITH_APP_MODE {
+            return Ok(None);
+        }
+        match self.request(&Request::AppMode)? {
+            Response::AppMode { on } => Ok(Some(on)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "whether the peer runs in application mode",
             }),
         }
     }

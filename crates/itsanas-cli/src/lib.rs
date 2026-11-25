@@ -20,6 +20,7 @@
 // account's devices, the figures a phone shows of its space, the machines to
 // dial. `pub` so the phone's app reaches them through `shell`.
 pub mod account;
+mod app_mode;
 mod backup;
 mod bench;
 mod control;
@@ -329,6 +330,11 @@ enum Command {
     /// How often the daemon syncs: `30s` to `1d`, e.g. `10m` or `1h`, or `auto`
     /// for its own setting. Without a value, says what it is.
     Interval { every: Option<String> },
+    /// Application mode, for a machine that backs up a program's data:
+    /// `on` or `off`. On, a change goes out two seconds after it is written,
+    /// and the other machines in application mode are dialled first and
+    /// every minute. Without a value, says which.
+    App { state: Option<String> },
     /// Show this account's public identity.
     Whoami,
     /// Check this node's passphrase and nothing else; exit 0 when it opens the
@@ -1009,7 +1015,8 @@ fn command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> 
         command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
-        | Command::Interval { .. }) => steer(&home, &command),
+        | Command::Interval { .. }
+        | Command::App { .. }) => steer(&home, &command),
         Command::Instances | Command::Migrate { .. } => {
             unreachable!("answered before a home is resolved")
         }
@@ -2556,7 +2563,8 @@ fn steer_said(home: &Path, command: &Command) -> Result<String> {
                 None => "The daemon syncs on its own setting again.".to_owned(),
             }
         }
-        _ => unreachable!("only pause, resume, sync-now and interval are dispatched here"),
+        Command::App { state } => app_mode(&mut control, state.as_deref())?,
+        _ => unreachable!("only pause, resume, sync-now, interval and app are dispatched here"),
     };
     control.write(home).map_err(|source| CliError::Io {
         path: home.join(control::CONTROL),
@@ -2573,6 +2581,34 @@ fn steer_said(home: &Path, command: &Command) -> Result<String> {
         said.push_str("\n(No daemon is running this node now; it reads this when it starts.)");
     }
     Ok(said)
+}
+
+/// `itsanas app [on|off]`: what it says back, with the control file changed
+/// as asked.
+fn app_mode(control: &mut control::Control, state: Option<&str>) -> Result<String> {
+    match state {
+        None if control.app_mode() => Ok(concat!(
+            "on: changes go out two seconds after they are written, and the other ",
+            "machines in application mode are dialled first and every minute"
+        )
+        .to_owned()),
+        None => Ok("off (`itsanas app on` turns it on)".to_owned()),
+        Some("on") => {
+            control.app = Some(1);
+            Ok(concat!(
+                "Application mode is on. The other machines in application mode ",
+                "are found at the next round; `status.snapshot` says `newest`."
+            )
+            .to_owned())
+        }
+        Some("off") => {
+            control.app = None;
+            Ok("Application mode is off.".to_owned())
+        }
+        Some(other) => Err(CliError::Usage(format!(
+            "`itsanas app {other}`: say `on` or `off`"
+        ))),
+    }
 }
 
 fn status(home: &Path, brief: bool) -> Result<()> {

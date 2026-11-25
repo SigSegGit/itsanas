@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-25 — 1773 test functions across 48 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 701 are red-team tests.**
+**Last updated: 2026-11-25 — 1780 test functions across 48 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 707 are red-team tests.**
 
-**1657 of the 1773 tests have an entry of their own on this page** — an *entry*,
+**1664 of the 1780 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,7 +167,7 @@ guarantee and is not one.
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 9 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 74 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 82 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 83 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 396 |
+| `itsanas-cli` unit | 401 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 22 |
 | `itsanas-drive` unit | 21 |
@@ -195,7 +195,7 @@ guarantee and is not one.
 | `itsanas-node` account pledges (`tests/account_pledges.rs`) | 3 |
 | `itsanas-node` recovery by name (`tests/recovery_by_name.rs`) | 1 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 13 (13 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-cli` idle (`tests/idle.rs`) | 1 |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
@@ -225,9 +225,9 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 52 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 53 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 71 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 239 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 244 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -978,7 +978,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
-| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`, the current version), appended so older numbers are unchanged. |
+| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`), `AppMode` from 13 (`PROTOCOL_WITH_APP_MODE`, the current version), appended so older numbers are unchanged. |
 | **`red_team_a_peer_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every peer request and response, folded (FNV-1a), one row per published `PROTOCOL_VERSION` from 12, never edited, the last row the current version: the coordinator's twin. A field added to a message at the same version is read as garbage by every peer of the release before; the number test sees only a variant moved. Sabotaged (a `Head` written without its `length`): red. |
 
 ## `service` — what a peer may obtain (36)
@@ -1070,7 +1070,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (82)
+# `itsanas-net` — two-node tests (83)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1141,6 +1141,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
 | **`red_team_an_audit_answered_away_is_no_failed_audit`** | A host whose vault disk is away answers an audit with `Refused(HOSTING_AWAY)` ("this machine's hosting disk is away; ask again later"). The audit client maps that refusal to `Err`, the same as an unreachable host, never to a failed audit that would count against it. Sabotaged (refusal read as a failed audit): red. |
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_node_listener`** | The deadline is unit-tested in `itsanas-tls`; this proves the node's listener applies it. Going back to plain `accept` left every other test green, which is how the Rodin audit of 2026-09-17 found the gap. Fails when the listener ignores its deadline. |
+| **`red_team_a_peer_says_its_application_mode_as_it_is_and_an_older_one_is_never_asked`** | `AppMode` (protocol 13, HANDOVER §8 00) answers the host's own switch, on and off, and a host at 12 with the switch on is never asked: the client reads `None`, and the connection still serves the round after the question. A machine that says `on` is dialled every minute by its peers in application mode, so a wrong answer either way costs copies or a dial storm. Sabotaged (the answer `on` whatever the switch; the client's `spoken < 13` gate removed): red each. |
 | **`red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences`** | A machine not yet on protocol 6 does not know `Presences`: asking costs a refusal a round, or a dropped connection if it misparses. `PeerService::speaking_at_most(5)` stands in for it and a counting `Relay` records every question: a v6 service is asked once (the control), a v5 one never, and the client reads its silence as `None`. Sabotaged (the client's `spoken < 6` gate removed): red. |
 | **`red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others`** | The listener served one connection at a time, so one silent TCP connection held it for the thirty-second read timeout, and one every thirty seconds made the node undialable for everybody, for free. Harmless on a home network, an off switch on a forwarded port. With three silent connections open, an honest peer must authenticate and get an answer within five seconds. Fails, after thirty seconds, when the listener is made serial again. |
 | **`a_device_takes_the_files_it_asked_for_and_none_of_the_others`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The device names what it wants and the source declines everything else, so the merge engine treats the rest as it treats a sleeping peer — deferred, nothing half-written, still listed for a client to fetch on demand. This was a byte budget inside the pull, which stopped when the allowance ran out and therefore kept whatever the log replayed first; deciding *which* files is now `itsanas_policy::keeping`, and this is the network half. |
@@ -1293,7 +1294,7 @@ derivations; the release job runs them on Linux (about 7 s for the three).
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (12, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (13, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -1317,11 +1318,12 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 | **`red_team_a_daemon_asked_to_restart_or_stop_exits_with_the_code_that_says_so`** | A real daemon given `restart` in `<home>/lifecycle` exits 75 (the code Windows wrapper loop, systemd `Restart=on-failure` and launchd `SuccessfulExit=false` all start again), given `stop` exits 0 (none does), and the file is removed so the request acts once. From the 2026-10-22 hand test, where `update` said "restarted" and three daemons stayed on 0.1.8. |
 | **`red_team_a_round_that_reaches_the_account_stamps_the_contact`** | The wiring of `isolated` in the real `sync_loop`, which every unit test builds by hand (the review of #345: deleting the stamp left them all green and the alert dead). A daemon whose configured peer, a second device of the account, answers its round writes `reached T` on its header, T no earlier than its start; the peer, only dialled into, writes `reached never since T` -- an inbound connection is no contact. Sabotaged under WSL (the stamp dropped; stamped every round): red, both. |
 | **`red_team_a_running_daemon_says_when_its_vault_takes_no_write`** | Unix only (mode 0o555; skipped as root). The wiring of `unwritable`: a node pledging 100M whose vault root is made read-only after `init` and one `status` (its database file and the account's directories exist, so the daemon starts and its own `status` runs) has ` unwritable` on its header after the first round and `CANNOT KEEP    the vault at` in the snapshot `status` prints. Sabotaged under WSL (the `probe_vault` call dropped from `sync_loop`): red. |
+| **`red_team_application_mode_sends_a_new_file_to_its_peer_and_dials_nobody_else`** | HANDOVER §8 00 through two real daemons of one account, both `itsanas app on`, the full interval an hour: after the first round, a file written on the first is held by the second in a light round at the half-minute floor (the first's header reads `copies 1 of` with `newest`; 33 s in all under the CI profile), and the configured stranger beside it, dialled by the first round, is not dialled again. Sabotaged (no light round; no peer noted): red. |
 | **`red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns`** | The unplug test that also runs on Windows: the vault's marker goes away under a running daemon, nothing is written on the bare place, the daemon does not exit, and it resumes when the marker returns. A real disk pulled mid-write remains the manual 8.0c test. Sabotaged. |
 
 ---
 
-# `itsanas-cli` — unit tests (396)
+# `itsanas-cli` — unit tests (401)
 
 ## `bench` — measuring this machine (4)
 
@@ -1349,7 +1351,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | **`red_team_silence_is_no_evidence_while_discovery_warms_up`** | Red team, 2026-10-23: `Neighbourhood::heard_here` answers `None` -- as if discovery were off -- until discovery has listened for `WARM_UP` (two announce intervals, 60 s), so the first rounds after a start dial the coordinator's private addresses; after that, a machine is heard for `EXPIRY` after its last beacon, not for as long as the table keeps it (a machine of the account is never evicted). Sabotaged (no warm-up; heard for ever): red both. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
-## `control` — pause (open-ended or timed), resume, sync now, how often (14)
+## `control` — pause (open-ended or timed), resume, sync now, how often (16)
 
 What a tray, a wizard or a terminal asks of the running daemon, through a file
 in the home (`crates/itsanas-cli/src/control.rs`). The daemon holds the store's
@@ -1376,7 +1378,20 @@ refused, `1m` taken.
 | `a_person_types_durations_and_learns_the_bounds` | `10m`, `1h`, `90`, `1d`, `auto` parse; `5s` and `2d` are refused with the bounds named rather than clamped to a number nobody typed. |
 | **`red_team_a_timed_pause_that_has_expired_syncs_by_itself`** | A pause whose end has passed stops holding by itself: the log says "pause over, syncing resumed" and a round is due at once, with no resume and no wait for the interval; Sabotaged (until ignored; comparison inverted; no immediate round when the pause ends): red. |
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
+| **`red_team_application_mode_sends_a_change_to_its_peers_in_seconds_and_nobody_else`** | In application mode (HANDOVER §8 00), with a privileged host known, a change is due two seconds after it (`APP_SETTLE`) as a light round, not a full one; with none known it is a full round, so the file still leaves; a machine not in the mode keeps the five-second settle. Sabotaged (`SETTLE` always; no light round): red. |
+| **`red_team_application_mode_dials_its_peers_every_minute_and_the_rest_at_the_interval`** | Five minutes in application mode at a five-minute interval: four light rounds and one full round, the full one counted from the last full one; paused, not even a light round is due. Sabotaged (no light round; a light round while paused): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
+
+## `app_mode` — privileged hosts, bounded (3)
+
+The other machines in application mode a machine dials first and every minute
+(`crates/itsanas-cli/src/app_mode.rs`, HANDOVER §8 00).
+
+| Test | What it proves |
+|---|---|
+| **`red_team_privileged_hosts_are_bounded_and_the_oldest_gives_way`** | Nine peers saying `on` leave eight kept (`MAX_APP_PEERS`), the one heard from longest ago gone, and the one heard from last dialled first: every one is dialled every minute, so a list that grew would turn a light round into a dial storm. Sabotaged (nothing displaced): red. |
+| **`red_team_a_peer_that_says_off_or_goes_quiet_is_no_longer_dialled_every_minute`** | A peer that answers `off` leaves at once; one unheard for `FORGET_AFTER` (an hour) is neither counted nor dialled. Sabotaged (`off` kept): red. |
+| `a_peer_reached_through_a_relay_is_dialled_through_it_again` | A privileged host reached through a relay keeps its relay and its address for the light round. |
 
 ## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase, a vault on the disk chosen (21)
 
