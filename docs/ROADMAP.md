@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1780 test functions, 21 of them `#[ignore]`d into the slow job, and 707 of
+**1782 test functions, 21 of them `#[ignore]`d into the slow job, and 709 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -370,10 +370,12 @@ What is missing before this is a *network* rather than a personal sync tool:
   ladder, the keyed audit order — was aimed at an adversary with no way in.
   ECONOMICS.md §6 had named invitation as the answer and left it as a sentence.
 
-  Not built, and the next lever: **a limit on how many people one member may
-  invite.** Nothing rate-limits it, so a member can invite themselves as often
-  as they like. Attribution makes that visible after the fact; it does not stop
-  it.
+  ✅ **Built 2026-11-25: a limit on how many people one member may invite.** A
+  member offers at most `INVITED_PLACES` (10) places per 30 days, every use of
+  a code counted; past that a new code is refused and a code already given still
+  works (`red_team_a_member_invites_at_most_ten_places_a_month`). It slows a
+  member inviting themselves; ten accounts a month each, from many members
+  acting together, is still possible, and attribution is what shows it.
 - ~~**Recovery from username plus passphrase is not wired.**~~ Wired:
   `itsanas login --username` fetches the container from the coordinator and
   opens it with the passphrase (`recover_from_coordinator`), end to end in
@@ -1164,8 +1166,8 @@ would take the account past what the pledges of all its machines earn, joining
 allowance included -- the other machines' pledges as the coordinator last listed
 them -- and ask the file's size before reading it. A refusal part-way through a stream removes what that stream had stored.
 The account counts the files other devices hold too, read from the vault.
-This binds the honest client only: a host bounding what one owner stores
-(HANDOVER §8 1c) is not built. Not built either: refusing a write that would
+A host bounds what one owner stores on its side too, since HANDOVER §8 1c
+(`red_team_a_host_that_bounds_accounts_asks_before_every_store`). Not built: refusing a write that would
 eat into the disk room pledged to others, and the operating system seeing the
 quota (Explorer still believes the volume's free space).
 
@@ -2343,11 +2345,11 @@ account to dial.
 live devices, not rows (20 live and any number withdrawn, as before); a device silent for more than a week
 re-registering through a coordinator older than `Devices` reads only
 `ClaimedPeers` and can be refused by its own client on an account at the
-bound. Reads are still not scoped to the account (any device
-key reads any account's envelopes, see "The confidentiality surface, by hand"),
-and a thief with the master secret can still fill the slots, as they could
-already withdraw every device. The bounded roster is what HANDOVER §10 question
-7's option 2 (an account device roster) would be built on; it is not built.
+bound. Reads are scoped to the account since 2026-10-19
+(`red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`), and a thief with the master secret can still fill the slots, as they could
+already withdraw every device. The account device roster of HANDOVER §10
+question 7, option 2, was built on it on 2026-10-19 (see "Lift a genuine body
+into an envelope signed by its own key").
 
 ### The have/missing sweep was going to kill the process before it cost bandwidth
 
@@ -2618,9 +2620,16 @@ it.** A quiet round performs two O(account) scans of the local index — one to
 compute the summary, one for `refresh_released` to page the ledger for this peer
 — and neither touches the network. At the sizes measured that is nothing; at a
 terabyte it is sixteen million rows read twice, every five minutes, on a machine
-with an SD card. Caching the summary against a change counter, and giving
-`refresh_released` the same periodic treatment the ledger walk now has, are the
-next two steps and are not built.
+with an SD card. ✅ **The first is built (2026-11-25):** the index keeps the last
+summary against a count bumped after every write to `CHUNK_REFS`, so a quiet
+round reads it from memory
+(`red_team_the_summary_is_read_once_while_quiet_and_again_after_every_write`).
+The second, giving `refresh_released` the ledger walk's schedule, is not: it is
+what notices, on the next round, that a host threw away a chunk this machine
+released (`a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding`),
+and on the walk's schedule that would take up to `REFRESH_AFTER`, three and a
+half days. A cost at a terabyte against a detection delay at any size:
+Nicolas's call.
 
 **Two things a hostile peer can still do.** It can replay an old summary and be
 believed for up to `REFRESH_AFTER`, which makes the storage challenge the only
