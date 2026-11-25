@@ -208,8 +208,14 @@ enum DeviceCommand {
 /// What `itsanas backup` does.
 #[derive(Debug, Subcommand)]
 enum BackupAction {
-    /// Write this account's cold copy into DIR (empty or new).
-    Export { dir: PathBuf },
+    /// Write this account's cold copy into DIR: empty, new, or holding an
+    /// earlier copy of this account, refreshed in place.
+    Export {
+        dir: PathBuf,
+        /// Delete from the earlier copy the chunks no file uses any more.
+        #[arg(long)]
+        prune: bool,
+    },
     /// Read a cold copy of this account from DIR and apply it.
     Restore { dir: PathBuf },
 }
@@ -1526,11 +1532,42 @@ fn login(
     Ok(())
 }
 
+/// Name the machines of the account resting past a week, calmly: a key in a
+/// drawer is not a fault, and the copy count leaves them out until they are
+/// heard from again, which a person would otherwise read as copies lost.
+fn report_dormant_members(node: &Node, out: &mut String, now: u64) -> Result<()> {
+    let dormant = node.store.dormant_members(now)?;
+    if dormant.is_empty() {
+        return Ok(());
+    }
+    let _ = writeln!(
+        out,
+        "\nresting machines of this account (not heard from for over a week; their copies count again once they are)"
+    );
+    for (device, seen) in &dormant {
+        let when = seen.map_or_else(
+            || "never heard from here".to_owned(),
+            |at| format!("last heard {}", describe_age(now.saturating_sub(at))),
+        );
+        let _ = writeln!(out, "  {}  {when}", device.short());
+    }
+    Ok(())
+}
+
 /// Say which peers have failed a storage challenge, if any have.
 ///
 /// Silence means every peer that has ever been audited answered, which is the
 /// ordinary case and worth no words at all.
 fn report_unreliable_peers(node: &Node, out: &mut String) -> Result<()> {
+    // The machines resting past a week first: the other half of "which of my
+    // machines is not doing its part", and the calm one.
+    report_dormant_members(node, out, itsanas_store::now_unix())?;
+    if let Some(why) = node.store.twin() {
+        let _ = writeln!(
+            out,
+            "\nTHIS MACHINE WRITES NOTHING: another disk holds its identity ({why}).\n  Two copies of one key image are both in use. Keep one; set the other up\n  afresh as a machine of its own (itsanas setup on a new home). Nothing was deleted."
+        );
+    }
     let unreliable = node.store.unreliable_devices()?;
     if unreliable.is_empty() {
         return Ok(());
@@ -1774,6 +1811,12 @@ fn coverage_report(node: &Node, status: &mut String) -> Result<Option<safety::Co
             w!("                 nothing above speaks for them, and this node cannot");
             w!("                 audit them: a challenge is checked against a local copy");
         }
+
+        // The question a USB key, a laptop before a trip or a phone before a
+        // reset is plugged in to answer: may it go now? (HANDOVER §8 0e step
+        // 5.) Said from the same count as the promise below, so the two never
+        // disagree.
+        w!("{}", unplug_words(coverage.complete_elsewhere));
 
         if !coverage.meets(SAFE_COPIES) {
             w!(
@@ -2324,7 +2367,14 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         _ => daemon::DEFAULT_INTERVAL.as_secs(),
     };
     let age = now.saturating_sub(taken);
-    if age > every.saturating_mul(2) {
+    if Node::store_path(home)
+        .join(itsanas_store::store::TWIN)
+        .exists()
+    {
+        // Another disk holds this identity: nothing written here reaches
+        // anybody, whatever else is true. Red, before every other word.
+        format!("twin {age}")
+    } else if age > every.saturating_mul(2) {
         format!("stale {age}")
     } else {
         // A control file nobody can read is not "healthy": the daemon is
@@ -2339,6 +2389,18 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
             // Running, and this account's files are not where they are meant
             // to be yet (MVP.md test L). Before `short`: that one is about the
             // room promised to others, this one about the person's own files.
+            // Back from a long silence (a key out of its drawer): copies are
+            // being proved again, not lost. Blue, for at most ISOLATED_AFTER;
+            // the seconds since it came back follow.
+            Ok(_)
+                if copies.is_some_and(|c| c.exposed(now, every))
+                    && safety::catching_up(header, now).is_some() =>
+            {
+                format!(
+                    "catching-up {age} {}",
+                    safety::catching_up(header, now).unwrap_or_default()
+                )
+            }
             Ok(_) if copies.is_some_and(|c| c.exposed(now, every)) => {
                 let copies = copies.unwrap_or(safety::Copies {
                     have: 0,
@@ -3667,7 +3729,7 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
             }
             match &enrolled {
                 Some(list) => {
-                    for entry in list {
+                    for entry in by_silence(list) {
                         println!("{}", describe_enrolled(entry, entry.device == mine));
                     }
                     // The coordinator stops at this many. Saying so is the
@@ -3745,6 +3807,39 @@ fn describe_folder(folder: &std::path::Path) -> String {
     out
 }
 
+/// Whether this machine may be unplugged or switched off without losing a
+/// file, from the complete copies of everything written here that exist on
+/// other machines.
+fn unplug_words(complete_elsewhere: usize) -> String {
+    if complete_elsewhere == 0 {
+        "  unplugging     NOT yet: some of what is here is on no other machine; keep it connected until a round copies it".to_owned()
+    } else {
+        format!(
+            "  unplugging     loses nothing: everything here has {complete_elsewhere} complete copy(ies) on other machines"
+        )
+    }
+}
+
+/// The enrolled devices, the most silent first: never announced, then the
+/// longest silence. The machine somebody opens the list to find is the one
+/// that has gone quiet, and it should not be at the bottom of twenty.
+fn by_silence(
+    list: &[itsanas_coord::protocol::EnrolledDevice],
+) -> Vec<&itsanas_coord::protocol::EnrolledDevice> {
+    let mut sorted: Vec<_> = list.iter().collect();
+    sorted.sort_by_key(|entry| std::cmp::Reverse(entry.silent_for.unwrap_or(u64::MAX)));
+    sorted
+}
+
+/// Whether a device silent for `silent_for` is resting past a week: said in
+/// words, never in colour, because a key in a drawer is not a fault.
+const fn dormant(silent_for: Option<u64>) -> bool {
+    match silent_for {
+        Some(seconds) => seconds > itsanas_store::holders::LIVE_FOR,
+        None => true,
+    }
+}
+
 /// One line of `itsanas device list`.
 ///
 /// The silence is the coordinator's own measurement, so it is what decides
@@ -3756,8 +3851,13 @@ fn describe_enrolled(entry: &itsanas_coord::protocol::EnrolledDevice, here: bool
     };
     let address = entry.address.as_deref().unwrap_or("no address");
     let this = if here { "  (this machine)" } else { "" };
+    let resting = if dormant(entry.silent_for) && !here {
+        "  resting"
+    } else {
+        ""
+    };
     format!(
-        "{}  {address}  pledges {}  {heard}{this}",
+        "{}  {address}  pledges {}  {heard}{resting}{this}",
         entry.device,
         config::format_size(entry.pledged_bytes)
     )
@@ -4086,9 +4186,17 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// cost nothing.
 /// `itsanas vault [PATH]`.
 fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
+    if let BackupAction::Export { prune: true, .. } = &action
+        && daemon_holds(home)
+    {
+        return Err(CliError::Usage(
+            "--prune deletes from the copy, so it runs with the store in hand: stop the daemon (itsanas stop), or refresh the copy without --prune"
+                .to_owned(),
+        ));
+    }
     if daemon_holds(home) {
         let (kind, dir) = match &action {
-            BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+            BackupAction::Export { dir, .. } => (jobs::Kind::Export, dir),
             BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
         };
         return hand_to_daemon(home, kind, dir);
@@ -4097,7 +4205,7 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         // A daemon that started between the two looks.
         Err(_) if daemon_holds(home) => {
             let (kind, dir) = match &action {
-                BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+                BackupAction::Export { dir, .. } => (jobs::Kind::Export, dir),
                 BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
             };
             return hand_to_daemon(home, kind, dir);
@@ -4105,16 +4213,12 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         other => other?,
     };
     match action {
-        BackupAction::Export { dir } => {
-            let moved = backup::export(&node, &dir)?;
+        BackupAction::Export { dir, prune } => {
+            let moved = backup::export_with(&node, &dir, prune)?;
             println!(
-                "backed up {} segments and {} chunks ({}) to {}",
-                moved.segments,
-                moved.chunks,
-                format_size(moved.bytes),
-                dir.display()
+                "{}",
+                backup::export_summary(&moved, &dir.display().to_string())
             );
-            println!("sealed as hosts hold it: the 24 words are what opens it, keep them apart");
             if let Some(warning) = drives::warning_for(&dir, "the backup") {
                 println!("note: {warning}");
             }
@@ -6128,6 +6232,143 @@ const UNPINNED_RELAY: &str = "a relayed address needs the device it reaches";
 
 #[cfg(test)]
 mod tests {
+    /// A cold copy in a drawer is refreshed now and then: the same directory
+    /// again, writing only what it lacks, deleting nothing a person did not
+    /// ask to delete, dated, and saying what it left out. It used to refuse
+    /// any directory that was not empty, so the person kept a second copy
+    /// beside the first, or deleted the first to write the second (HANDOVER
+    /// §8 0e step 8). Sabotage: delete stale chunks without `--prune`; or
+    /// rewrite every chunk.
+    #[test]
+    fn red_team_a_backup_is_refreshed_in_place_and_deletes_only_when_pruned() {
+        // Bytes that do not repeat, so the chunker cuts several chunks.
+        let varied = |seed: u64, len: usize| {
+            let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state.to_le_bytes()[0]
+                })
+                .collect::<Vec<u8>>()
+        };
+        let base = tempfile::tempdir().expect("temp dir");
+        let (laptop, _) =
+            itsanas_node::Node::create(&base.path().join("laptop"), "a passphrase", "camille")
+                .expect("create");
+        let file = varied(1, 300 * 1024);
+        laptop.store.write_file("keep.bin", &file).expect("write");
+        laptop
+            .store
+            .write_file("goes.bin", &varied(2, 300 * 1024))
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        let copy = base.path().join("drawer");
+        let first = super::backup::export(&laptop, &copy).expect("first copy");
+        // A chunk of an older copy that no file of the account uses any more.
+        let gone = copy.join("chunks").join("ab".repeat(32));
+        std::fs::write(&gone, b"sealed bytes of a file long deleted").expect("old chunk");
+
+        laptop.store.remove_file("goes.bin").expect("remove");
+        laptop
+            .store
+            .write_file("new.bin", b"written since")
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        let second =
+            super::backup::export(&laptop, &copy).expect("a refresh of this account's copy");
+        assert!(
+            second.kept > 0,
+            "the refresh wrote every chunk again: {second:?}"
+        );
+        assert!(
+            second.chunks >= 1 && second.chunks < first.chunks,
+            "{second:?}"
+        );
+        assert!(
+            second.stale > 0,
+            "the deleted file's chunks were not counted: {second:?}"
+        );
+        assert_eq!(
+            second.pruned, 0,
+            "a refresh without --prune deleted from the copy"
+        );
+        let on_disk = std::fs::read_dir(copy.join("chunks"))
+            .expect("chunks")
+            .count();
+        assert_eq!(
+            on_disk,
+            first.chunks + second.chunks + 1,
+            "a chunk went missing from the copy without --prune"
+        );
+        assert!(gone.is_file(), "an old chunk was deleted without --prune");
+        assert!(copy.join("written").is_file(), "the copy is not dated");
+        assert!(
+            copy.join(super::backup::MARKER).is_file(),
+            "the refreshed copy lost its marker"
+        );
+
+        let third = super::backup::export_with(&laptop, &copy, true).expect("pruned");
+        assert_eq!(third.pruned, second.stale, "{third:?}");
+        assert!(!gone.exists(), "--prune left the chunk no file uses");
+        assert!(super::backup::export_summary(&third, "the drawer").contains("deleted (--prune)"));
+    }
+
+    /// `itsanas device list` puts the machine somebody opened it to find --
+    /// the one gone quiet -- first, never announced before any silence, and
+    /// says "resting" past a week in a word, for no other machine and never
+    /// for this one. Sabotage: drop the sort in `by_silence`.
+    #[test]
+    fn red_team_the_device_list_puts_the_quiet_machine_first_and_calls_it_resting() {
+        use itsanas_coord::protocol::EnrolledDevice;
+        let id = |seed: u8| {
+            itsanas_crypto::DeviceKeys::from_seed(&itsanas_crypto::SecretBytes::new([seed; 32]))
+                .device_id()
+        };
+        let day = 24 * 3600;
+        let row = |seed: u8, silent_for: Option<u64>| EnrolledDevice {
+            device: id(seed),
+            pledged_bytes: 0,
+            silent_for,
+            address: None,
+        };
+        let listed = vec![
+            row(1, Some(60)),
+            row(2, Some(30 * day)),
+            row(3, None),
+            row(4, Some(8 * day)),
+        ];
+        let order: Vec<_> = super::by_silence(&listed)
+            .iter()
+            .map(|entry| entry.device)
+            .collect();
+        assert_eq!(
+            order,
+            vec![id(3), id(2), id(4), id(1)],
+            "the quiet machines are not first"
+        );
+        let line = |seed: u8, here: bool| {
+            let entry = listed
+                .iter()
+                .find(|entry| entry.device == id(seed))
+                .expect("row");
+            super::describe_enrolled(entry, here)
+        };
+        assert!(
+            line(2, false).contains("resting"),
+            "a month silent is not said: {}",
+            line(2, false)
+        );
+        assert!(
+            !line(1, false).contains("resting"),
+            "a machine heard a minute ago is called resting"
+        );
+        assert!(
+            !line(2, true).contains("resting"),
+            "this machine calls itself resting"
+        );
+    }
     /// `itsanas mv` while the daemon holds the store: the job carries both
     /// names, and the daemon's node renames. Sabotage: split the job's name on
     /// a space (a name with a space moves nothing, or to the wrong place).
@@ -6213,9 +6454,12 @@ mod tests {
         let copy = base.path().join("drawer");
         let moved = super::backup::export(&laptop, &copy).expect("export");
         assert!(moved.chunks > 0 && moved.segments > 0, "{moved:?}");
+        let stray = base.path().join("photos");
+        std::fs::create_dir_all(&stray).expect("dir");
+        std::fs::write(stray.join("holiday.jpg"), b"not a backup").expect("file");
         assert!(
-            super::backup::export(&laptop, &copy).is_err(),
-            "an export overwrote a directory that already held a backup"
+            super::backup::export(&laptop, &stray).is_err(),
+            "an export wrote into a directory of somebody's own files"
         );
 
         let (stranger, _) =
@@ -6720,6 +6964,7 @@ mod tests {
             segments: 4,
             chunks: 9,
             bytes: 1024,
+            ..super::backup::Moved::default()
         };
         let clean = itsanas_sync::SyncReport {
             adopted: 2,
@@ -7363,6 +7608,121 @@ mod tests {
             brief_status(&home, true, now),
             "exposed 60 0 2",
             "a pledge the disk cannot hold hid that the person's own files are on this disk only"
+        );
+    }
+
+    /// A machine whose store recorded a twin writes nothing that reaches
+    /// anybody; its icon says so in red, whatever else the snapshot says, and
+    /// even over a fresh, healthy-looking one. Sabotage: drop the `twin` arm.
+    #[test]
+    fn red_team_a_twin_is_drawn_red_over_a_healthy_snapshot() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 2_000_000;
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!(
+                "snapshot {} every 300 version 0.1.22 copies 2 of 2 reached {}\n",
+                now - 60,
+                now - 60
+            ),
+        )
+        .expect("snapshot");
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        let store = itsanas_node::node::Node::store_path(&home);
+        std::fs::create_dir_all(&store).expect("store dir");
+        std::fs::write(
+            store.join(itsanas_store::store::TWIN),
+            "segment ab12 seen 1",
+        )
+        .expect("twin");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "twin 60",
+            "a machine whose writes reach nobody was drawn green"
+        );
+    }
+
+    /// "May I unplug it?" is answered from the copies elsewhere: no while a
+    /// file is here alone, which is when unplugging loses it; yes, with the
+    /// count, once every file has a complete copy elsewhere. Sabotage: answer
+    /// yes from zero copies.
+    #[test]
+    fn red_team_status_says_unplugging_loses_nothing_only_once_a_copy_is_elsewhere() {
+        assert!(
+            super::unplug_words(0).contains("NOT yet"),
+            "a key whose files are nowhere else was told it could go: {}",
+            super::unplug_words(0)
+        );
+        assert!(super::unplug_words(1).contains("loses nothing"));
+        assert!(super::unplug_words(2).contains("2 complete"));
+    }
+
+    /// A key out of its drawer after a month reaches a machine again: its
+    /// holder records aged out, it counts no copy, and it read `exposed`,
+    /// red, "only on this machine", while the rounds proved the copies again.
+    /// It reads `catching-up` (blue) from the contact that ended the silence,
+    /// for at most `ISOLATED_AFTER`, and never for a laptop closed an evening;
+    /// past the bound a copy still missing is said as it is (HANDOVER §8 0e
+    /// step 5). Sabotage: drop the `catching-up` arm, or keep `back` for ever.
+    #[test]
+    fn red_team_a_key_back_after_a_month_reads_catching_up_not_only_on_this_machine() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let month_ago = 1_000_000;
+        let back = month_ago + 30 * 24 * 3600;
+        let header_after = |previous: &str, seen: Option<u64>, now: u64| {
+            format!(
+                " copies 0 of 2{}",
+                crate::safety::reached_words(seen, previous, now)
+            )
+        };
+        // The round that reaches a machine after the month.
+        let first = header_after(&format!(" reached {month_ago}"), Some(back), back);
+        assert!(
+            first.contains(&format!(" back {back}")),
+            "the return was not noted: {first}"
+        );
+        // An evening closed is no return.
+        let evening = header_after(&format!(" reached {}", back - 3 * 3600), Some(back), back);
+        assert!(
+            !evening.contains(" back "),
+            "a laptop closed an evening read as back: {evening}"
+        );
+
+        let write = |rest: &str, now: u64| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!(
+                    "snapshot {} every 300 version 0.1.22{rest}
+  files 3
+",
+                    now - 60
+                ),
+            )
+            .expect("snapshot");
+        };
+        let later = back + 3600;
+        let carried = header_after(&first, Some(later), later);
+        write(&carried, later);
+        assert_eq!(
+            brief_status(&home, true, later),
+            "catching-up 60 3600",
+            "a key back an hour ago, proving its copies again, was drawn red"
+        );
+        let past = back + crate::safety::ISOLATED_AFTER + 60;
+        let expired = header_after(&carried, Some(past), past);
+        assert!(
+            !expired.contains(" back "),
+            "catching up never ended: {expired}"
+        );
+        write(&expired, past);
+        assert_eq!(
+            brief_status(&home, true, past),
+            "exposed 60 0 2",
+            "a copy still missing hours after the return was hidden behind catching up"
         );
     }
 

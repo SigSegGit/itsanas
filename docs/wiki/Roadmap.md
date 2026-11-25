@@ -7,7 +7,7 @@ Everything on this page that is a status is **redrawn from
 page behind. To change a status, change it there.
 
 <!-- GENERATED:stats -->
-**1771 tests, 698 of them red-team** (a red-team test passes when the attack fails) · **11/16 milestones done**
+**1780 tests, 707 of them red-team** (a red-team test passes when the attack fails) · **11/16 milestones done**
 <!-- /GENERATED:stats -->
 
 ## Progress
@@ -93,7 +93,7 @@ in [MVP.md](https://github.com/SigSegGit/itsanas/blob/main/docs/MVP.md) section 
 is where each test stands.
 
 <!-- GENERATED:acceptance -->
-A🟨 B🟨 C🟩 D🟩 E🟩 F🟦 G🟦 H🟨 I🟦 J🟨 K❔ L❔ M❔ N❔ O🟨
+A🟨 B🟨 C🟩 D🟩 E🟩 F🟦 G🟦 H🟨 I🟦 J🟨 K🟦 L🟨 M🟦 N🟨 O🟨
 
 | | Test | Verdict recorded in MVP.md §6 |
 | --- | --- | --- |
@@ -107,10 +107,10 @@ A🟨 B🟨 C🟩 D🟩 E🟩 F🟦 G🟦 H🟨 I🟦 J🟨 K❔ L❔ M❔ N❔ 
 | 🟨 | **H** It is not expensive to leave running | In progress |
 | 🟦 | **I** The coordinator is not a single point of failure | Laboratory only |
 | 🟨 | **J** Everything reboots, nothing needs a human | In progress |
-| ❔ | **K** A host that throws away what it holds | no row yet |
-| ❔ | **L** The person is told when their data is not safe yet | no row yet |
-| ❔ | **M** Two accounts on one machine cannot see each other | no row yet |
-| ❔ | **N** The filenames real people actually have | no row yet |
+| 🟦 | **K** A host that throws away what it holds | Laboratory only |
+| 🟨 | **L** The person is told when their data is not safe yet | In progress |
+| 🟦 | **M** Two accounts on one machine cannot see each other | Laboratory only |
+| 🟨 | **N** The filenames real people actually have | In progress |
 | 🟨 | **O** It works from somewhere that is not home | In progress |
 
 🟦 passed in the laboratory (tests, local nodes) and has not been run on the fleet, which is what the MVP asks for. ❔ is not a failure: it means MVP.md section 6 has no row for that test, so nobody has written a verdict down. That section is written by hand and can lag the nightly fleet run; where they disagree, trust the run. Passing the tests A-M and O unassisted on the fleet is the definition of the MVP in [MVP.md](https://github.com/SigSegGit/itsanas/blob/main/docs/MVP.md).

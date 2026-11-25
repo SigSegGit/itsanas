@@ -399,15 +399,10 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
             );
             crate::backup::export(node, &job.path)
                 .map(|moved| {
-                    format!(
-                        "backed up {} segments and {} chunks ({}) to {target}; sealed: the 24 \
-                         words open it, keep them apart",
-                        moved.segments,
-                        moved.chunks,
-                        itsanas_node::config::format_size(moved.bytes)
-                    ) + &crate::drives::warning_for(&job.path, "the backup")
-                        .map(|warning| format!(". Note: {warning}"))
-                        .unwrap_or_default()
+                    crate::backup::export_summary(&moved, &target)
+                        + &crate::drives::warning_for(&job.path, "the backup")
+                            .map(|warning| format!(". Note: {warning}"))
+                            .unwrap_or_default()
                 })
                 .map_err(|error| error.to_string())
         }

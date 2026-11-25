@@ -696,6 +696,10 @@
   const STATUS_WORDS = {
     healthy: [N('Running and up to date'), 'ok'],
     paused: [N('Paused: your files wait until you resume'), ''],
+    // Back from a long silence: copies are being proved again, not lost.
+    'catching-up': [N('Back after a long silence: catching up with your other machines'), ''],
+    // A copied key image in use on two disks: this one writes nothing.
+    twin: [N('Another disk holds this machine’s identity: it writes nothing until one of the two is set up afresh'), 'bad'],
     stale: [N('Running, but it has not synced for a while'), 'bad'],
     // MVP.md test L: the daemon runs, the person's files are not elsewhere yet.
     exposed: [N('Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere'), 'bad'],
@@ -930,7 +934,9 @@
       const item = document.createElement('li');
       const label = document.createElement('span');
       label.textContent = device.short + (device.address ? ' \u00b7 ' + device.address : '') +
-        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '');
+        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '') +
+        (device.dormant ? ' \u00b7 ' + t('resting, not heard from for over a week') : '') +
+        (device.unconfirmed ? ' \u00b7 ' + t('named only by the coordinator; no signed record of it here') : '');
       item.appendChild(label);
       if (!device.thisPhone) {
         const button = document.createElement('button');
@@ -1061,6 +1067,21 @@
     }
     showTraces(reply);
     line.textContent = t('Saved.');
+  }
+
+  // What a drive is for decides which of three tools it wants (HANDOVER §8
+  // 0e step 7): the one asked points at the field, and the other two stay.
+  function diskUse(choice) {
+    const said = $('disk-use-said');
+    const go = {
+      drawer: ['A backup: sealed, it opens with your 24 words only. Use “Backup to a drive you keep apart” below.', 'disk-backup'],
+      mine: ['A USB key: ITSaNAS for every system, with this account on it. Use “Copy this account to a USB key”.', 'st-h-usb'],
+      others: ['A portable ITSaNAS: it hosts nothing for others, and its keys stay on the drive. Use “Put a portable ITSaNAS on a drive” below.', 'disk-portable'],
+    }[choice];
+    if (!go) { said.textContent = ''; return; }
+    said.textContent = t(go[0]);
+    const target = $(go[1]);
+    if (target && !target.closest('[hidden]')) { target.scrollIntoView({ block: 'center' }); target.focus(); }
   }
 
   async function saveRules(scope) {
@@ -1588,6 +1609,9 @@
     $('st-traces-slider').addEventListener('input', showTraceValue);
     $('st-traces-never').addEventListener('change', showTraceValue);
     $('st-traces-save').addEventListener('click', saveTraces);
+    document.querySelectorAll('input[name="disk-use"]').forEach(function (box) {
+      box.addEventListener('change', function () { diskUse(box.value); });
+    });
     $('st-files-show').addEventListener('click', function () { files(null, ''); });
     // In the page only: the list is already here, so a long one is narrowed
     // without pausing the machine again.

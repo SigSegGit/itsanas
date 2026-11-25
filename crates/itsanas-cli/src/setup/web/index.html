@@ -304,6 +304,13 @@
       <section class="card" data-feature="disks" aria-labelledby="st-h-disks">
         <h2 id="st-h-disks">Disks</h2>
         <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
+        <div class="field" role="radiogroup" aria-labelledby="disk-use-label">
+          <span class="label" id="disk-use-label">What will the drive be for?</span>
+          <label class="choice"><input type="radio" name="disk-use" value="drawer"> In a drawer, as a spare</label>
+          <label class="choice"><input type="radio" name="disk-use" value="mine"> My own computers, now and then</label>
+          <label class="choice"><input type="radio" name="disk-use" value="others"> A computer that is not mine</label>
+          <p id="disk-use-said" class="help" aria-live="polite"></p>
+        </div>
         <div class="field">
           <span class="label">Space for others is kept in:</span>
           <strong id="st-vault" class="value"></strong>

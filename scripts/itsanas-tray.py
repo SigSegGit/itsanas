@@ -150,6 +150,10 @@ def format_silence(seconds):
 def state_words(brief):
     """The state as the status line and the tooltip say it."""
     state, _ = split_brief(brief)
+    if state == "twin":
+        return "another disk holds this machine's identity: it writes nothing (itsanas status says what to do)"
+    if state == "catching-up":
+        return "back after a long silence, catching up with the account's other machines"
     silent = silent_of(brief)
     if silent is not None:
         return "not synced with any machine for %s" % format_silence(silent)
@@ -224,7 +228,9 @@ def colour(state, brief=""):
     return {
         "healthy": "green",
         "paused": "blue",
+        "catching-up": "blue",
         "stopped": "red",
+        "twin": "red",
         "departed": "red",
         "signed-out": "grey",
     }.get(state, "orange")

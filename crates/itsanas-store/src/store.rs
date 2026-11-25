@@ -46,6 +46,10 @@ use crate::{
 /// chunks nothing else can read.
 pub use itsanas_crypto::seal::CHUNK_PURPOSE as CHUNK_SEAL_PURPOSE;
 
+/// Where [`Store::note_twin`] records a twin, next to the store: read by a
+/// status that cannot open the store while the daemon holds it.
+pub const TWIN: &str = "twin";
+
 /// A device's local state.
 #[derive(Debug)]
 pub struct Store {
@@ -478,6 +482,7 @@ impl Store {
     /// the first 100 MB of a file refused once per folder pass.
     pub fn write_stream<R: std::io::Read>(&self, path: &str, reader: R) -> Result<FileEntry> {
         logical_path::validate(path)?;
+        self.refuse_if_twin()?;
 
         let _guard = self.write_lock.lock().map_err(|_| {
             StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
@@ -609,6 +614,7 @@ impl Store {
     /// Delete a file, leaving a tombstone behind and in the log.
     pub fn remove_file(&self, path: &str) -> Result<bool> {
         logical_path::validate(path)?;
+        self.refuse_if_twin()?;
 
         let _guard = self.write_lock.lock().map_err(|_| {
             StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
@@ -1014,6 +1020,56 @@ impl Store {
         self.index.files()
     }
 
+    /// What [`Self::note_twin`] recorded, when another disk holds this
+    /// machine's identity: this store then writes nothing.
+    #[must_use]
+    pub fn twin(&self) -> Option<String> {
+        std::fs::read_to_string(self.root.join(TWIN))
+            .ok()
+            .map(|text| text.trim().to_owned())
+    }
+
+    fn refuse_if_twin(&self) -> Result<()> {
+        self.twin().map_or(Ok(()), |why| Err(StoreError::Twin(why)))
+    }
+
+    /// Record that another disk holds this machine's identity, from `proof`:
+    /// a segment signed by this machine's own key that its own chain does not
+    /// hold, at a position where it holds another -- the two copies of one
+    /// key image have each written their own changes. From then on this
+    /// store writes nothing and seals no segment, and deletes nothing.
+    ///
+    /// Checked here, not by the caller: a peer's word that "you have a twin"
+    /// would let any peer stop a machine writing; a signature by this
+    /// machine's own key cannot be made by anybody else.
+    ///
+    /// # Errors
+    ///
+    /// When the proof is not one, or the record cannot be written.
+    pub fn note_twin(&self, proof: &SegmentEnvelope) -> Result<()> {
+        proof.verify_signature()?;
+        if proof.device != self.device_id() || proof.owner != self.owner() {
+            return Err(StoreError::Corrupt(
+                "a segment of another device or account is no twin of this one".to_owned(),
+            ));
+        }
+        if self
+            .segments()?
+            .iter()
+            .any(|own| own.segment_id == proof.segment_id)
+        {
+            return Err(StoreError::Corrupt(
+                "a segment this machine wrote itself is no twin".to_owned(),
+            ));
+        }
+        let text = format!(
+            "segment {} signed by this machine's key, not written here, seen {}",
+            proof.segment_id.short(),
+            crate::now_unix()
+        );
+        std::fs::write(self.root.join(TWIN), text).map_err(|error| StoreError::io(TWIN, error))
+    }
+
     /// Let go of the traces of files deleted before `cutoff` (unix seconds),
     /// those dated by a clock never set excepted ([`crate::traces`]); how
     /// many went.
@@ -1042,6 +1098,7 @@ impl Store {
     ///
     /// Returns `None` when there is nothing to seal.
     pub fn flush_segment(&self) -> Result<Option<SegmentEnvelope>> {
+        self.refuse_if_twin()?;
         let pending = self.index.pending_entries()?;
         if pending.is_empty() {
             return Ok(None);
@@ -1424,6 +1481,29 @@ impl Store {
     /// The live members of this account's roster. See [`Index::members`].
     pub fn members(&self) -> Result<Vec<DeviceId>> {
         self.index.members()
+    }
+
+    /// The members of the account this node has not heard from within
+    /// [`LIVE_FOR`](crate::holders::LIVE_FOR) at `now`, with when it last
+    /// did, the most silent first (never heard before any date).
+    ///
+    /// Resting, not lost: in a network of machines that are usually off, a
+    /// key in a drawer and a laptop on holiday are this. Named so a person
+    /// knows which machines the copy count leaves out, and why.
+    pub fn dormant_members(&self, now: u64) -> Result<Vec<(DeviceId, Option<u64>)>> {
+        let me = self.device_id();
+        let mut dormant = Vec::new();
+        for member in self.index.members()? {
+            if member == me {
+                continue;
+            }
+            let seen = self.index.last_seen(&member)?;
+            if seen.is_none_or(|at| now.saturating_sub(at) > crate::holders::LIVE_FOR) {
+                dormant.push((member, seen));
+            }
+        }
+        dormant.sort_by_key(|(device, seen)| (seen.unwrap_or(0), *device));
+        Ok(dormant)
     }
 
     /// The chunks among `chunks` that this account's files use: what a

@@ -128,6 +128,8 @@ function formatSilence(seconds) {
 
 // The state as the status line and the tooltip say it.
 function stateWords(brief) {
+    if (splitBrief(brief)[0] === 'twin') { return "another disk holds this machine's identity: it writes nothing (itsanas status says what to do)"; }
+    if (splitBrief(brief)[0] === 'catching-up') { return "back after a long silence, catching up with the account's other machines"; }
     var silent = silentOf(brief);
     if (silent !== null) { return 'not synced with any machine for ' + formatSilence(silent); }
     if (splitBrief(brief)[0] === 'unwritable') { return 'its vault cannot be written (itsanas status says why)'; }
@@ -174,7 +176,7 @@ function colour(state, brief) {
     // On this disk and nowhere else: the colour of a stopped node, because it
     // is the same loss when this disk goes.
     if (state === 'exposed' && (copiesOf(brief) || [0])[0] === 0) { return 'red'; }
-    var known = { healthy: 'green', paused: 'blue', stopped: 'red', departed: 'red', 'signed-out': 'grey' };
+    var known = { healthy: 'green', paused: 'blue', 'catching-up': 'blue', stopped: 'red', twin: 'red', departed: 'red', 'signed-out': 'grey' };
     return Object.prototype.hasOwnProperty.call(known, state) ? known[state] : 'orange';
 }
 

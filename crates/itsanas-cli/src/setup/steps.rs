@@ -412,6 +412,7 @@ impl Setup<'_> {
                 // The devices the refusal names are what Settings offers to
                 // withdraw, as a phone's screen did.
                 if let Some(named) = crate::coordinator::cap_named(refused) {
+                    let named = crate::devices::unrevoked(&node, named);
                     crate::devices::remember(node.store.device_id(), named);
                 }
             })?;

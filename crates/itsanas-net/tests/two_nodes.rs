@@ -4908,3 +4908,65 @@ fn red_team_an_audit_answered_away_is_no_failed_audit() {
         );
     });
 }
+
+/// One USB key image copied onto two disks, both in use: two machines with one
+/// identity, each writing its own changes. The account's log forks on that
+/// key, every host refuses the second copy's segments for ever, and in
+/// silence: what it writes never reaches anybody. The twin learns it from a
+/// segment signed by its own key, at a position where its chain holds
+/// another, writes nothing more, and deletes nothing. A copy that is only
+/// behind (restored from an older image) is no twin (HANDOVER §8 0e step 6).
+/// Sabotage: return `None` from `forked_segment`; or call any head the chain
+/// lacks a fork.
+#[test]
+fn red_team_a_cloned_key_image_stops_writing_and_a_copy_behind_does_not() {
+    let host = node(&alice(), 0x71);
+    let original = node(&alice(), 0x72);
+    original
+        .store
+        .write_file("from-the-original.txt", b"one")
+        .unwrap();
+    original.store.flush_segment().unwrap();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &original.device, original.store.owner(), None).unwrap();
+        session::round(&original.store, &original.vault, &mut client).unwrap();
+
+        // The same key, nothing written: a copy restored from an older image.
+        let behind = node(&alice(), 0x72);
+        let mut client =
+            PeerClient::connect(address, &behind.device, behind.store.owner(), None).unwrap();
+        let report = session::round(&behind.store, &behind.vault, &mut client).unwrap();
+        assert!(
+            !report.push.twin,
+            "a copy that is only behind was taken for a twin"
+        );
+        assert!(behind.store.twin().is_none());
+
+        // The same key, its own write: the second disk of the image.
+        let twin = node(&alice(), 0x72);
+        twin.store.write_file("from-the-twin.txt", b"two").unwrap();
+        twin.store.flush_segment().unwrap();
+        let mut client =
+            PeerClient::connect(address, &twin.device, twin.store.owner(), None).unwrap();
+        let report = session::round(&twin.store, &twin.vault, &mut client).unwrap();
+        assert!(
+            report.push.twin,
+            "the second disk of one key image went on writing a forked log"
+        );
+        assert!(twin.store.twin().is_some());
+        assert!(
+            twin.store.write_file("after.txt", b"three").is_err(),
+            "a twin accepted a write that could never reach another machine"
+        );
+        assert_eq!(
+            twin.store
+                .read_file("from-the-twin.txt")
+                .unwrap()
+                .as_deref(),
+            Some(&b"two"[..]),
+            "stopping the twin deleted what it held"
+        );
+    });
+}
