@@ -117,6 +117,22 @@ const AVAILABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("av
 /// cannot redeem, which is the whole reason the secret stays with the inviter
 /// and the invitee.
 const INVITATIONS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("invitations");
+/// Inviter's user id -> the places it offered in its current window and when
+/// that window opened ([`INVITED_PLACES`], [`INVITE_WINDOW`]).
+const INVITED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("invited");
+
+/// How many places one member may offer in invitations per [`INVITE_WINDOW`],
+/// every use of a code counted.
+///
+/// A member could invite themselves as often as they liked: an invitation is
+/// signed by one key, and nothing counted how many it signed. Attribution
+/// showed it afterwards and stopped nothing. Ten a month is a household and
+/// its friends; a member filling the network with accounts of its own is held
+/// to that, and is visible as their source.
+pub const INVITED_PLACES: u32 = 10;
+
+/// The window [`INVITED_PLACES`] is counted over: thirty days.
+pub const INVITE_WINDOW: u64 = 30 * 24 * 60 * 60;
 /// Device id -> the signed notice and when **this coordinator** received it.
 ///
 /// A table of its own rather than a flag on availability, because a silence
@@ -593,13 +609,15 @@ impl Directory {
         let lodged;
         {
             let mut table = txn.open_table(INVITATIONS)?;
-            lodged = match table.get(key.as_slice())? {
-                Some(value) => postcard::from_bytes(value.value())?,
-                None => LodgedInvitation {
+            lodged = if let Some(value) = table.get(key.as_slice())? {
+                postcard::from_bytes(value.value())?
+            } else {
+                count_invited(&txn, signed.invitation.inviter, signed.invitation.uses, now)?;
+                LodgedInvitation {
                     signed: signed.clone(),
                     remaining: signed.invitation.uses,
                     admitted: Vec::new(),
-                },
+                }
             };
             table.insert(key.as_slice(), postcard::to_stdvec(&lodged)?.as_slice())?;
         }
@@ -1763,6 +1781,34 @@ fn escrow_try(bytes: &[u8]) -> Option<(u32, u64)> {
     Some((count, since))
 }
 
+/// Count `places` more offered by `inviter` at `now`, or refuse: past
+/// [`INVITED_PLACES`] in its [`INVITE_WINDOW`], nothing is written.
+fn count_invited(
+    txn: &redb::WriteTransaction,
+    inviter: UserId,
+    places: u32,
+    now: u64,
+) -> Result<()> {
+    let mut table = txn.open_table(INVITED)?;
+    let current = table
+        .get(inviter.as_bytes().as_slice())?
+        .and_then(|value| escrow_try(value.value()));
+    let (offered, since) = match current {
+        Some((offered, since)) if !window_over(since, now, INVITE_WINDOW) => (offered, since),
+        _ => (0, now),
+    };
+    let offered = offered.saturating_add(places);
+    if offered > INVITED_PLACES {
+        return Err(CoordError::Rejected(
+            "this member has offered all the places it may invite this month; an invitation already given still works",
+        ));
+    }
+    let mut value = offered.to_le_bytes().to_vec();
+    value.extend_from_slice(&since.to_le_bytes());
+    table.insert(inviter.as_bytes().as_slice(), value.as_slice())?;
+    Ok(())
+}
+
 /// Whether a window opened at `since` is over at `now`. A clock that went
 /// backwards keeps it open: the cautious side.
 const fn window_over(since: u64, now: u64, window: u64) -> bool {
@@ -2310,6 +2356,44 @@ mod tests {
             join(&directory, &carol, "carol", None, 1_100).is_err(),
             "a stranger with no code joined a coordinator that admits by invitation"
         );
+    }
+
+    /// THE ATTACK: a member signs invitations for accounts of its own, as
+    /// many as it likes, and fills the network with them. A member offers at
+    /// most `INVITED_PLACES` places a month, every use of a code counted: past
+    /// that a new code is refused and a given one still works; re-lodging a
+    /// code costs nothing; another member is not held by the first one's
+    /// count; a month later there is room again. Sabotage: count nothing;
+    /// count codes, not their uses; never open a new window.
+    #[test]
+    fn red_team_a_member_invites_at_most_ten_places_a_month() {
+        let (_dir, directory) = directory();
+        let (alice, bob) = (user(1), user(2));
+        for (who, name) in [(&alice, "alice"), (&bob, "bob")] {
+            directory
+                .register(&open_registration(who, name, 1_000), 1_000)
+                .expect("member");
+        }
+        let code = |n: u8| [n; SECRET_LEN];
+        let lodge = |who: &UserKeys, n: u8, uses: u32, at: u64| {
+            directory.lodge_invitation(&invite(who, &code(n), uses, at), at)
+        };
+
+        lodge(&alice, 10, 4, 1_000).expect("a household of four");
+        for n in 11..17 {
+            lodge(&alice, n, 1, 1_000).expect("within ten places");
+        }
+        lodge(&alice, 10, 4, 1_100).expect("re-lodging a code costs nothing");
+        assert!(
+            lodge(&alice, 17, 1, 1_200).is_err(),
+            "an eleventh place was offered in one month: a member invites as many accounts of its own as it likes"
+        );
+        join(&directory, &user(3), "invited", Some(&code(16)), 1_300)
+            .expect("a code given before the limit still admits");
+        lodge(&bob, 30, 10, 1_300).expect("another member is not held by the first's count");
+
+        let month = INVITE_WINDOW + 1_000;
+        lodge(&alice, 19, 1, month).expect("a month later there is room again");
     }
 
     #[test]

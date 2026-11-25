@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1781 test functions, 21 of them `#[ignore]`d into the slow job, and 708 of
+**1782 test functions, 21 of them `#[ignore]`d into the slow job, and 709 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -370,10 +370,12 @@ What is missing before this is a *network* rather than a personal sync tool:
   ladder, the keyed audit order — was aimed at an adversary with no way in.
   ECONOMICS.md §6 had named invitation as the answer and left it as a sentence.
 
-  Not built, and the next lever: **a limit on how many people one member may
-  invite.** Nothing rate-limits it, so a member can invite themselves as often
-  as they like. Attribution makes that visible after the fact; it does not stop
-  it.
+  ✅ **Built 2026-11-25: a limit on how many people one member may invite.** A
+  member offers at most `INVITED_PLACES` (10) places per 30 days, every use of
+  a code counted; past that a new code is refused and a code already given still
+  works (`red_team_a_member_invites_at_most_ten_places_a_month`). It slows a
+  member inviting themselves; ten accounts a month each, from many members
+  acting together, is still possible, and attribution is what shows it.
 - ~~**Recovery from username plus passphrase is not wired.**~~ Wired:
   `itsanas login --username` fetches the container from the coordinator and
   opens it with the passphrase (`recover_from_coordinator`), end to end in

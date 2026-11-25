@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-25 — 1781 test functions across 48 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 708 are red-team tests.**
+**Last updated: 2026-11-25 — 1782 test functions across 48 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 709 are red-team tests.**
 
-**1665 of the 1781 tests have an entry of their own on this page** — an *entry*,
+**1666 of the 1782 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 142 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 143 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 25 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 5 |
 | `identity` | keys, accounts, devices, claims, invitations | 86 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 80 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 81 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
@@ -2705,7 +2705,7 @@ sentence somebody can act on.
 | **`a_member_whose_address_reaches_the_wrong_machine_is_told_which_way_it_is_wrong`** | The answer distinguishes "nothing resolves" from "nothing answers" from "something answered and it was not you", because those are three different evenings of work. |
 | **`a_member_who_publishes_an_address_only_their_lan_can_dial_is_told_why`** | A private announced address comes back as **not checked** rather than as a verdict. The three states are not decoration: `Reachable`, `Unreachable` and `Unknown` were two states for half a day, and `doctor` on a perfectly reachable machine printed "NOTHING can reach this machine" followed by the reason — which was that it had been asked twice within the hour. Somebody reading the first line rewires a router that works. |
 
-# `itsanas-coord` — admission (17 of the coordinator's unit tests)
+# `itsanas-coord` — admission (18 of the coordinator's unit tests)
 
 `src/invitation.rs` and the invitation half of `src/directory.rs`. The front
 door: until this existed, every other defence in the project — audits, the
@@ -2717,6 +2717,7 @@ hostile *host*, and a hostile host is somebody who joined.
 | **`red_team_a_registration_that_fails_does_not_burn_the_invitation`** | Redeeming and creating the account were two transactions: spend the use, commit, then write the account. Anything failing after the first — and `NameTaken` is trivial to provoke on purpose and easy to hit by mistyping — destroyed the invitation and created nothing. Free denial of service against the inviter, and an invitee locked out by their own typing error. |
 | **`red_team_the_coordinator_cannot_write_itself_an_invitation`** | The coordinator holds every invitation and every account. If it could mint one it would be the admission authority rather than a notice board, and ECONOMICS.md §7 is a promise that it is not. It may refuse — denial of service, already in the threat model — and must not be able to admit. |
 | **`red_team_an_invitation_cannot_be_edited_after_signing`** | Every field is in the signed payload. If the expiry, the use count, the inviter or the code were outside it, an invitation for one machine on one afternoon would become an open door. |
+| **`red_team_a_member_invites_at_most_ten_places_a_month`** | Nothing counted how many invitations one member signed, so a member could fill the network with accounts of its own. A member offers at most `INVITED_PLACES` (10) places per `INVITE_WINDOW` (30 days), every use of a code counted: past that a new code is refused and one already given still admits; re-lodging a code costs nothing; another member is not held by the first's count; a month later there is room again. Sabotaged (counting nothing; counting codes, not uses; never reopening the window): red each. |
 | **`red_team_one_invitation_admits_one_stranger_however_many_try_it`** | A code posted in a group chat, or forwarded by the person it was sent to. Without spending uses, one endorsement admits everybody who ever saw it and "membership costs a member's endorsement" is false for every account after the first. |
 | **`red_team_re_lodging_a_spent_invitation_does_not_refill_it`** | The way round the previous test. A client whose connection dropped re-sends what it signed; if lodging reset the counter an inviter could refill their own code for ever. |
 | **`red_team_a_stranger_cannot_vouch_for_a_stranger`** | Otherwise invitation buys nothing: mint one keypair, sign invitations with it, admit as many accounts as you like. The endorsement has to come from somebody already inside. |

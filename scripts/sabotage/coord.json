@@ -80,6 +80,21 @@
       "file": "crates/itsanas-coord/src/server.rs",
       "live": "if last_expired.elapsed() >= self.expire_every {",
       "dead": "if false {"
+    },
+    "directory: invited places are counted": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "count_invited(&txn, signed.invitation.inviter, signed.invitation.uses, now)?;",
+      "dead": "count_invited(&txn, signed.invitation.inviter, 0, now)?;"
+    },
+    "directory: every use of a code is a place": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "let offered = offered.saturating_add(places);",
+      "dead": "let offered = offered.saturating_add(places.min(1));"
+    },
+    "directory: the invitation window reopens": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "Some((offered, since)) if !window_over(since, now, INVITE_WINDOW) => (offered, since),",
+      "dead": "Some((offered, since)) => (offered, since),"
     }
   }
 }
