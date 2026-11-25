@@ -1166,8 +1166,8 @@ would take the account past what the pledges of all its machines earn, joining
 allowance included -- the other machines' pledges as the coordinator last listed
 them -- and ask the file's size before reading it. A refusal part-way through a stream removes what that stream had stored.
 The account counts the files other devices hold too, read from the vault.
-This binds the honest client only: a host bounding what one owner stores
-(HANDOVER §8 1c) is not built. Not built either: refusing a write that would
+A host bounds what one owner stores on its side too, since HANDOVER §8 1c
+(`red_team_a_host_that_bounds_accounts_asks_before_every_store`). Not built: refusing a write that would
 eat into the disk room pledged to others, and the operating system seeing the
 quota (Explorer still believes the volume's free space).
 
@@ -2345,11 +2345,11 @@ account to dial.
 live devices, not rows (20 live and any number withdrawn, as before); a device silent for more than a week
 re-registering through a coordinator older than `Devices` reads only
 `ClaimedPeers` and can be refused by its own client on an account at the
-bound. Reads are still not scoped to the account (any device
-key reads any account's envelopes, see "The confidentiality surface, by hand"),
-and a thief with the master secret can still fill the slots, as they could
-already withdraw every device. The bounded roster is what HANDOVER §10 question
-7's option 2 (an account device roster) would be built on; it is not built.
+bound. Reads are scoped to the account since 2026-10-19
+(`red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`), and a thief with the master secret can still fill the slots, as they could
+already withdraw every device. The account device roster of HANDOVER §10
+question 7, option 2, was built on it on 2026-10-19 (see "Lift a genuine body
+into an envelope signed by its own key").
 
 ### The have/missing sweep was going to kill the process before it cost bandwidth
 
