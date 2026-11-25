@@ -920,36 +920,32 @@ fn red_team_application_mode_sends_a_new_file_to_its_peer_and_dials_nobody_else(
         b"the program's newest file",
     )
     .expect("write into the folder");
-    let deadline = Instant::now() + PATIENCE + Duration::from_secs(30);
-    let arrived = loop {
-        if snapshot(&other).is_some_and(|(_, files)| files >= 1) {
-            break true;
-        }
-        if Instant::now() >= deadline {
-            break false;
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    };
+    // The sending machine's own header says when the other one holds the
+    // file: its copies count rises to one, and `newest` names the file. Read
+    // here rather than on the other machine, whose snapshot may wait half a
+    // minute for its own turn.
+    let header = wait_for_header(
+        &home,
+        &daemon,
+        concat!(
+            "a file written in application mode never reached the other machine in ",
+            "application mode: it waits for the hour-long round"
+        ),
+        |header| header.contains(" copies 1 of ") && header.contains(" newest "),
+    );
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = counter.join();
-    assert!(
-        arrived,
-        "a file written in application mode never reached the other machine in \
-         application mode within {:?}: it waits for the hour-long round\n--- a's log\n{}\n--- b's log\n{}",
-        PATIENCE + Duration::from_secs(30),
-        daemon.log(),
-        peer.log()
-    );
     assert_eq!(
         dialled.load(std::sync::atomic::Ordering::SeqCst),
         after_first,
-        "the round that sent the file dialled the configured stranger too: a light \
-         round must dial only the machines in application mode\n--- a's log\n{}",
-        daemon.log()
+        concat!(
+            "the round that sent the file dialled the configured stranger too: a light ",
+            "round must dial only the machines in application mode\n--- a's log\n{}\n",
+            "--- b's log\n{}"
+        ),
+        daemon.log(),
+        peer.log()
     );
-    let header = wait_for_header(&home, &daemon, "no `newest` on the header", |header| {
-        header.contains(" newest ")
-    });
     assert!(
         header.lines().next().unwrap_or("").contains(" newest "),
         "the snapshot of a machine in application mode does not name its newest file"
