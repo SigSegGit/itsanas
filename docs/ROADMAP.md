@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1764 test functions, 20 of them `#[ignore]`d into the slow job, and 692 of
+**1771 test functions, 21 of them `#[ignore]`d into the slow job, and 698 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -54,6 +54,14 @@ What is missing before this is a *network* rather than a personal sync tool:
   (2026-10-19, HANDOVER §8 7) chooses hosts by measured availability and lets
   surplus copies go (`MayEvict`). It becomes the default only after a week of
   its figures on the fleet (§8 7(a)).
+- 🟨 **Application mode** (2026-11-25, HANDOVER §8 00): `itsanas app on` for a
+  machine that backs up a program's data. A new file goes out two seconds after
+  it is written; the other machines in the mode that are of the account or hold
+  its data are dialled first in every round and alone every minute (peer
+  protocol 13, `Request::AppMode`), and the snapshot's first line names the
+  newest file its copies count covers (`newest M`). Not yet: measured placement
+  preferring those hosts (§8 00 (ii)), and a check on the live `itsaresume`
+  client (§8 00 (iii)).
 - ~~**Nothing challenges a host on a schedule.**~~ Built. The daemon audits
   every peer it contacts on chunks **drawn at random** from what the ledger says
   that peer took, and a host that cannot prove it still holds one has that

@@ -1,0 +1,27 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "red_team_application_mode"
+  ],
+  "defences": {
+    "application mode: the short settle": {
+      "file": "crates/itsanas-cli/src/control.rs",
+      "live": "if self.app_mode() { APP_SETTLE } else { SETTLE }",
+      "dead": "SETTLE"
+    },
+    "application mode: light rounds": {
+      "file": "crates/itsanas-cli/src/control.rs",
+      "live": "let light = self.app_mode() && app_peers;",
+      "dead": "let light = false && app_peers;"
+    },
+    "application mode: nothing moves while paused": {
+      "file": "crates/itsanas-cli/src/control.rs",
+      "live": "(false, false, _) | (false, true, true) => Next::Wait,",
+      "dead": "(false, false, _) => Next::Wait,\n            (false, true, true) => Next::Light,"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "two_nodes",
+    "application_mode"
+  ],
+  "defences": {
+    "AppMode answers the host's switch": {
+      "file": "crates/itsanas-net/src/service.rs",
+      "live": "                    .is_some_and(|on| on.load(std::sync::atomic::Ordering::Relaxed)),",
+      "dead": "                    .is_some(),"
+    },
+    "AppMode is not asked of an older peer": {
+      "file": "crates/itsanas-net/src/transport.rs",
+      "live": "        if self.spoken < PROTOCOL_WITH_APP_MODE {",
+      "dead": "        if self.spoken < 1 {"
+    }
+  }
+}

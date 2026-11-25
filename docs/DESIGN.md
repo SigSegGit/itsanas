@@ -489,6 +489,16 @@ reading your own data independent of anyone else being online, and it means the
 system degrades to "a slightly odd local folder" rather than to "unavailable"
 when the swarm is quiet.
 
+### Application mode: privileged hosts
+
+Application mode (`itsanas app on`, peer protocol 13) is for a machine that
+backs up a program's data. Each session it asks its peer whether it runs in the
+mode too (`Request::AppMode`); the ones that do, and that are machines of the
+account or hold some of its data, are its privileged hosts: dialled right after
+the account's own machines in every round, and alone in a light round every
+minute and two seconds after a change. The others are dialled at the interval
+as before, so the cost of a minute stays between the machines that asked for it.
+
 ### Replication now, erasure coding later
 
 Replication factor 3 is 3× overhead; RS(4,2) gives the same two-failure

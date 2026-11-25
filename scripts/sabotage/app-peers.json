@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "app_mode::"
+  ],
+  "defences": {
+    "privileged hosts: bounded": {
+      "file": "crates/itsanas-cli/src/app_mode.rs",
+      "live": "            self.peers.remove(&oldest);",
+      "dead": "            let _ = oldest;"
+    },
+    "privileged hosts: off leaves at once": {
+      "file": "crates/itsanas-cli/src/app_mode.rs",
+      "live": "            self.peers.remove(&device);\n            return;",
+      "dead": "            return;"
+    }
+  }
+}

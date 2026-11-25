@@ -15,6 +15,16 @@ WRITTEN-AT: 2026-11-24
 BASE: 0d24be3
 -->
 
+**2026-11-25: application mode (§8 00, Nicolas's top priority).** `itsanas app on` per machine
+(control file `app 1`); peer protocol 13 appends `AppMode`, asked only by a machine in the mode;
+the peers that answer `on` and are of the account or hold its data are dialled first in every
+round and alone in a light round every minute and two seconds after a change; the snapshot's
+first line ends with `newest M` in the mode. Left: measured placement preferring those hosts
+(§8 00 (ii)), and `itsanas app on` on the live `itsaresume` client and its always-on hosts
+(§8 00 (iii)). The pointer still says 8.0c: (ii) waits for an application account on `measured`,
+(iii) for Nicolas. Trap: a light round obeys the `MIN_INTERVAL` floor (30 s after the last
+round), so a file goes out 2 to 32 s after it is written, never sooner.
+
 **2026-11-24, after #459: the test day scripted.** Nicolas's Mac hand test (8.0c) is for
 Wednesday or Thursday; he wants as much of it as possible run by the machines. `scripts/kit-day.sh`,
 started on every machine of the day at once (`--away` on the one away from home), runs B, O and
@@ -2057,6 +2067,61 @@ Detail and measurements are in ROADMAP.md; this is the map.
   Windows; macOS in CI.
 
 ## 8. What is next, in order
+
+00. **Application mode: Nicolas's top priority (2026-11-25).** For a machine that backs up a
+    program's data (small encrypted files written about every five minutes, append-only), such as
+    itsaresume's premium base, which goes through an account of its own (`itsaresume`). Goal: each
+    new file on at least two other machines within minutes, and the program able to read that it
+    is. Nicolas's words: prioritise compatible hosts (responsive, with enough space, highly
+    available); a machine that turned the mode on becomes a privileged host for the other machines
+    in that mode, and between them the interval drops by itself to a minute, or 30 s.
+
+    Already true before this item (not rebuilt): a change in the folder starts a round 5 to 35 s
+    later (`control.rs`, `Steering::next`; the watcher in `itsanas-folder/src/watch.rs`).
+
+    (i) ✅ **The switch, the reciprocity, the light round and the readout** (this PR):
+      - `itsanas app on|off` writes `app 1` in the control file (`control.rs`), per machine; the
+        daemon reads it within two seconds, no restart.
+      - Peer protocol 13 appends `Request::AppMode` / `Response::AppMode { on }`
+        (`PROTOCOL_WITH_APP_MODE`); a peer at 12 is not asked. A machine answers `on` only while
+        the mode is on, it syncs in full (not metered) and it is not paused (`daemon::sync_loop`).
+      - Only a machine in the mode asks, in each session (`sync_once`). It keeps a peer that says
+        `on` only if it is a machine of the account, holds some of the account's data, or took
+        some this session (`note_app_peer`): at most 8 (`app_mode::MAX_APP_PEERS`), forgotten
+        after an hour unheard or at once when it says `off`.
+      - Those peers are dialled right after the account's own machines in every full round, before
+        the hosts of other accounts and the LAN (`one_round`, `dial_app_peers`): the first ones
+        a push reaches.
+      - Between full rounds, a light round (`Next::Light`) every `APP_INTERVAL` (60 s), and two
+        seconds after a change (`APP_SETTLE`, 5 s otherwise; never sooner than `MIN_INTERVAL`,
+        30 s, after the last round): it takes the folder in and dials those peers alone, not the
+        coordinator, other hosts or the LAN. Machines not in the mode (a phone, the Pi, a laptop)
+        are dialled at their own interval as before; the full round keeps its interval (300 s by
+        default).
+      - The readout: in the mode, the first line of `status.snapshot` ends with `newest M`, the
+        newest modification time among the files that line's `copies HAVE of WANT` counts. A
+        program that writes one file at a time reads its file as on `HAVE` other machines once
+        `newest` has reached the file's modification time; `snapshot T` says when that was
+        measured.
+      Tests: `red_team_a_peer_says_its_application_mode_as_it_is_and_an_older_one_is_never_asked`,
+      `red_team_application_mode_*` (control.rs, steering.rs), `red_team_privileged_hosts_*`,
+      `red_team_a_peer_that_says_off_or_goes_quiet_*`; sabotage plans `app-mode-*.json`,
+      `app-peers.json`.
+    (ii) **Measured placement prefers compatible hosts.** In `measured`, `Placement::build`
+      (`itsanas-placement`, called from `placing::begin_round`) ranks hosts by measured uptime
+      already; for an account whose machine is in application mode, rank the privileged hosts
+      (the `AppPeers` set) first among those with enough room and an availability figure (not
+      "not enough history yet"), and never a phone on metered data. `itsaresume` is in
+      `everyone` today, where every host reached takes every chunk and the dial order of (i) is
+      the whole preference, so this waits until an application account runs `measured`. Test to
+      write: an app account with an app peer and a non-app peer of equal uptime places on the app
+      peer first; sabotage by dropping the rank.
+    (iii) **Check on the live client.** On Nicolas's VM, the `itsaresume` account's container:
+      `itsanas app on` there and on the always-on hosts that hold its data, then read
+      `status.snapshot`'s first line after a changeset: `copies 2 of 2` (or more) and `newest` at
+      the changeset's time within about a minute. Needs Nicolas's access (private handover).
+    (iv) For itsaresume (its own repository): read `newest` and `copies` from the snapshot and
+      raise its alert when the newest changeset is not on two machines after a few minutes.
 
 0. **Pass the MVP on the fleet, before any more enforcement.** Decided
    2026-09-14, when Nicolas asked for a valid MVP. `docs/MVP.md` defines it as
