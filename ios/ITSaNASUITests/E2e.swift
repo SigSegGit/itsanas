@@ -149,6 +149,14 @@ class E2eCase: XCTestCase {
         let page = app.webViews.firstMatch
         let visiblePage = { (frame: CGRect) -> CGRect in
             var visible = frame.intersection(self.app.windows.firstMatch.frame)
+            // The page runs under the navigation bar: a switch scrolled behind
+            // it (y 57.5) was tapped there, and the bar took the touch.
+            if let bar = try? self.app.navigationBars.firstMatch.snapshot().frame,
+               !bar.isEmpty, bar.maxY > visible.minY {
+                visible = CGRect(
+                    x: visible.minX, y: bar.maxY,
+                    width: visible.width, height: max(0, visible.maxY - bar.maxY))
+            }
             if let keyboard = try? self.app.keyboards.firstMatch.snapshot().frame, !keyboard.isEmpty {
                 visible.size.height = max(0, min(visible.maxY, keyboard.minY) - visible.minY)
             }
