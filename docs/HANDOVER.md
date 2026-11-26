@@ -11,9 +11,18 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas's hand test, with Mandarine's Mac, on 0.1.20 (§8 0c)
-WRITTEN-AT: 2026-11-25
-BASE: 0d24be3
+WRITTEN-AT: 2026-11-26
+BASE: 3e9c629
 -->
+
+**2026-11-26: the iPhone renames and brings versions back (§8 15).** The core had
+`itsanas_rename`, `itsanas_versions` and `itsanas_bring_back` since 2026-11-19; no Swift called
+them. A swipe on a file now offers Rename and Versions (`VersionsViewController`), and
+`FileEditsTest` runs both against the computer of `iphone-e2e.sh`, which puts
+`two-versions.txt` twice and `to-rename.txt`, and checks afterwards that the rename reached
+it. Also in #465: two flaky UI-test helpers fixed (the recovery-copy box looked for before it
+rendered; a switch tapped under the navigation bar). Trap: `FileEditsTest` sorts before
+`FreeTest`, so it is now the scenario that logs in from an empty phone.
 
 **2026-11-25: application mode (§8 00, Nicolas's top priority).** `itsanas app on` per machine
 (control file `app 1`); peer protocol 13 appends `AppMode`, asked only by a machine in the mode;
@@ -4493,8 +4502,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
     (`red_team_the_page_brings_a_version_back_and_renames`). Then the hosts of other accounts the
     coordinator names are asked too, for a version and for `itsanas get` alike
     (`red_team_a_version_comes_back_from_a_host_and_never_from_its_noise`,
-    `a_file_only_listed_here_is_fetched_from_a_host`). **Left:** the iPhone's screens for both; a
-    rename that crosses an edit it did not see leaves both names (the edit is kept, on purpose).
+    `a_file_only_listed_here_is_fetched_from_a_host`). Since 2026-11-26 the iPhone has both too: a
+    swipe on a file offers Rename (the whole path, so a slash moves it) and Versions (a tap on an
+    earlier one brings it back), run by `FileEditsTest` in the Mac job. **Left:** a rename that
+    crosses an edit it did not see leaves both names (the edit is kept, on purpose).
 
 14. 🟨 **Sharing, both ways, as a storage app does** (asked by Nicolas, 2026-11-16: never a public
     link to thousands, but send a file to someone, and take in what any app shares). Android: each

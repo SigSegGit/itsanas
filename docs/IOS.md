@@ -196,7 +196,13 @@ says it was kept, since no two machines have proved yet that they hold it. After
 a round that changed anything, that line names it ("2 new: a, b · 1 changed:
 c"), from the `new`, `changed` and `gone` of the round's answer.
 
-`FreeTest`, which runs first, and steps 1 and 4 start from an empty phone; the others open the account the
+`FileEditsTest` adds two, as Android's `VersionsTest` and `RenameTest` do: a
+file the computer put twice shows its earlier version on the Versions screen
+(a swipe, then Versions), and a tap brings it back as the file now; a file
+renamed from its swipe leaves its old name, on the phone and, the script
+checks afterwards, on the computer.
+
+`FileEditsTest`, which runs first, and steps 1 and 4 start from an empty phone; the others open the account the
 step before left on it. A login fetches the account's recovery copy, which the
 coordinator gives one username five times in 15 minutes, and a run has more
 steps than that.

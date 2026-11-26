@@ -70,6 +70,18 @@ enum Core {
     static func release(_ path: String) throws -> [String: Any] { try object(itsanas_release(path)) }
     static func sync() throws -> [String: Any] { try object(itsanas_sync(false)) }
 
+    /// A new name, or a folder with a slash, on every machine.
+    static func rename(_ from: String, to: String) throws { _ = try take(itsanas_rename(from, to)) }
+    /// Every version the account knows, newest first: `modified`, `size`,
+    /// `current`, `here`, `mine`.
+    static func versions(_ path: String) throws -> [[String: Any]] {
+        try object(itsanas_versions(path))["versions"] as? [[String: Any]] ?? []
+    }
+    /// Version `at` (0 the newest) becomes the file again, everywhere.
+    static func bringBack(_ path: String, at: Int) throws {
+        _ = try take(itsanas_bring_back(path, UInt32(clamping: at)))
+    }
+
     /// What a round brought, named: "2 new: a, b · 1 changed: c", or nil
     /// when nothing changed. Android's `changesLine`, from the same answer.
     static func changesLine(_ answer: [String: Any]) -> String? {
