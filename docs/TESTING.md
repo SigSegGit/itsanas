@@ -2294,13 +2294,13 @@ is tested by `ios/ITSaNASTests`** on a simulator, in the `ios-app` job
 **and by the hand test's UI tests, `ios/ITSaNASUITests`** (`scripts/iphone-e2e.sh`,
 run by the same job after the unit tests): the debug app on a simulator, pinned
 to a coordinator the script starts, logs in to an account a computer made (a
-node on the Mac, `register --recovery`, holding two files), and does steps 1 to
+node on the Mac, `register --recovery`, holding four files), and does steps 1 to
 4, 8 and 9 of the hand test as a person would (step 5 is a person's: the
 simulator's enrolment change seals nothing away). Each scenario starts from a phone
 with nothing on it; a failure stops with its consequence, the screen's texts
 and a screenshot in `result.xcresult`.
 
-| UI test (`HandTest`, `FreeTest`) | What it establishes |
+| UI test (`HandTest`, `FreeTest`, `FileEditsTest`) | What it establishes |
 | --- | --- |
 | `test1_anExistingAccountOpensOnThePhone` | Step 1: Welcome, "I already have an account", the name, the passphrase in the native question, and the file list opens. |
 | `test2_aFileFromAComputerIsListedAndOpens` | Step 2: a file the computer holds is listed after Sync, and tapping it fetches it and opens the share sheet. |
@@ -2309,6 +2309,8 @@ and a screenshot in `result.xcresult`.
 | `test8_settingsHidesWhatAnIPhoneDoesNotDo` | Step 8: Settings, its sections opened, shows no Disks, no USB key, no Advanced, no lending of space, and no empty section where that would be. |
 | **`test9_signingOutLocksTheAppUntilThePassphrase`** | Step 9: Sign out asks, then locks the app; opened again, it asks for the passphrase. It found that the page's `window.confirm` answered "no" unseen on an iPhone (the web view had no `WKUIDelegate`), so Sign out did nothing. |
 | **`FreeTest.testFreeUpKeepsAFileNoOtherMachineHasProvedItHolds`** | Free up, as Android's `FreeTest`: the file from the computer, fetched and freed on the phone, stays, and the line above the list says it was kept, since the account has one computer and a file goes only once two machines have proved they hold it. |
+| `FileEditsTest.testAnEarlierVersionComesBackFromTheVersionsScreen` | Versions, as Android's `VersionsTest`: a file the computer put twice lists its earlier version on the iPhone's Versions screen, and a tap on it brings it back as a third version, the file now. |
+| `FileEditsTest.testARenamedFileLeavesItsOldName` | Rename, as Android's `RenameTest`: a file renamed from its swipe takes the new name and leaves the old one off the list; the script then finds the new name, and not the old, on the computer. |
 
 The UI tests run on the Mac job only, so their sabotages cannot be plans in
 `scripts/sabotage/` (that job runs on Linux): the core's side of them is the

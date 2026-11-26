@@ -189,12 +189,49 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
             self.work { try Core.trashPut(path) }
             done(true)
         }
-        guard file["here"] as? Bool ?? false else { return UISwipeActionsConfiguration(actions: [delete]) }
+        let rename = UIContextualAction(style: .normal, title: NSLocalizedString("Rename", comment: "")) { _, _, done in
+            self.askNewName(path)
+            done(true)
+        }
+        rename.backgroundColor = .systemIndigo
+        let versions = UIContextualAction(style: .normal, title: NSLocalizedString("Versions", comment: "")) { _, _, done in
+            self.navigationController?.pushViewController(VersionsViewController(path: path), animated: true)
+            done(true)
+        }
+        versions.backgroundColor = .systemTeal
+        guard file["here"] as? Bool ?? false else {
+            return UISwipeActionsConfiguration(actions: [delete, rename, versions])
+        }
         let free = UIContextualAction(style: .normal, title: NSLocalizedString("Free up", comment: "")) { _, _, done in
             self.free(path)
             done(true)
         }
-        return UISwipeActionsConfiguration(actions: [delete, free])
+        return UISwipeActionsConfiguration(actions: [delete, free, rename, versions])
+    }
+
+    /// Rename asks for the whole path, so a slash moves the file into a
+    /// folder, as on Android; the core refuses a name already taken.
+    private func askNewName(_ path: String) {
+        let alert = UIAlertController(title: NSLocalizedString("Rename", comment: ""), message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = path
+            field.accessibilityIdentifier = "rename-name"
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel))
+        alert.addAction(UIAlertAction(title: NSLocalizedString("Rename", comment: ""), style: .default) { _ in
+            let to = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !to.isEmpty, to != path else { return }
+            // A round straight after: the rename is for every machine, and
+            // iOS may not run a background one for hours. A round that fails
+            // (no machine up) is not the rename failing; the next one carries it.
+            self.work {
+                try Core.rename(path, to: to)
+                _ = try? Core.sync()
+            }
+        })
+        present(alert, animated: true)
     }
 
     private func show(_ message: String) {

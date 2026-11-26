@@ -83,6 +83,14 @@ printf 'written on a computer\n' >"$work/from-computer.txt"
 printf 'to be deleted from the phone\n' >"$work/to-trash.txt"
 must desk put from-computer.txt "$work/from-computer.txt"
 must desk put to-trash.txt "$work/to-trash.txt"
+# FileEditsTest: two versions of one file, and one the phone renames.
+printf 'the first version\n' >"$work/two-versions.txt"
+must desk put two-versions.txt "$work/two-versions.txt"
+sleep 1
+printf 'the second version, longer\n' >"$work/two-versions.txt"
+must desk put two-versions.txt "$work/two-versions.txt"
+printf 'renamed on the phone\n' >"$work/to-rename.txt"
+must desk put to-rename.txt "$work/to-rename.txt"
 # The recovery copy is what lets the phone log in with a name and a passphrase.
 must desk register --recovery
 ITSANAS_HOME="$work/desk" ITSANAS_PASSPHRASE="$passphrase" "$itsanas" daemon --interval 2 --no-discovery \
@@ -141,6 +149,11 @@ if [ "$status" = 0 ] && [ -z "$only" ]; then
         status=1
         echo "== the computer's last lines" >&2
         tail -n 40 "$out/computer.log" >&2 || true
+    fi
+    if printf '%s\n' "$listing" | grep -q 'to-rename.txt' \
+        || ! printf '%s\n' "$listing" | grep -q 'renamed.txt'; then
+        echo "the phone renamed to-rename.txt to renamed.txt, and the computer does not list it so" >&2
+        status=1
     fi
     if ! printf '%s\n' "$listing" | grep -q 'from-computer.txt'; then
         echo "from-computer.txt left the computer, and nobody deleted it" >&2
