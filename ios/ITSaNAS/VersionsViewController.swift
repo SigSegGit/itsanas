@@ -65,7 +65,11 @@ final class VersionsViewController: UITableViewController {
         let path = self.path
         // Off the main thread: a version not here is fetched from another machine.
         DispatchQueue.global(qos: .userInitiated).async {
-            let outcome = Result { try Core.bringBack(path, at: at) }
+            // Then a round, as after a rename: the version is for every machine.
+            let outcome = Result {
+                try Core.bringBack(path, at: at)
+                _ = try? Core.sync()
+            }
             DispatchQueue.main.async {
                 self.busy = false
                 if case .failure(let error) = outcome { self.show(error.localizedDescription) }

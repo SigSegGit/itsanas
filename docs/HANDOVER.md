@@ -20,7 +20,9 @@ BASE: 3e9c629
 them. A swipe on a file now offers Rename and Versions (`VersionsViewController`), and
 `FileEditsTest` runs both against the computer of `iphone-e2e.sh`, which puts
 `two-versions.txt` twice and `to-rename.txt`, and checks afterwards that the rename reached
-it. Also in #465: two flaky UI-test helpers fixed (the recovery-copy box looked for before it
+it. A rename and a bring-back run a round straight after: the first CI run
+found the rename still on the phone when the next scenario wiped it, iOS having run no round
+between. Also in #465: two flaky UI-test helpers fixed (the recovery-copy box looked for before it
 rendered; a switch tapped under the navigation bar). Trap: `FileEditsTest` sorts before
 `FreeTest`, so it is now the scenario that logs in from an empty phone.
 

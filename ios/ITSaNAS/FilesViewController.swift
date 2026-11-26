@@ -223,7 +223,13 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         alert.addAction(UIAlertAction(title: NSLocalizedString("Rename", comment: ""), style: .default) { _ in
             let to = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !to.isEmpty, to != path else { return }
-            self.work { try Core.rename(path, to: to) }
+            // A round straight after: the rename is for every machine, and
+            // iOS may not run a background one for hours. A round that fails
+            // (no machine up) is not the rename failing; the next one carries it.
+            self.work {
+                try Core.rename(path, to: to)
+                _ = try? Core.sync()
+            }
         })
         present(alert, animated: true)
     }
