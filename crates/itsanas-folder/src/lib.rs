@@ -426,7 +426,7 @@ impl Folder {
         let on_disk = scan::scan(&self.root)?;
         // Before anything is written: is this directory the folder, or is it a
         // mount point with nothing mounted on it?
-        self.check_storage(store, &on_disk)?;
+        self.check_storage(store, &on_disk, deletions)?;
         let in_store = store.entries()?;
         let ledger = store.local_states()?;
 
@@ -565,10 +565,22 @@ impl Folder {
     ///   is present on disk, the directory is real and gets a marker; if it
     ///   knows files and *none* of them is there, the storage is gone. An empty
     ///   ledger is a new folder, and gets a marker.
-    fn check_storage(&self, store: &Store, on_disk: &BTreeMap<String, DiskFile>) -> Result<()> {
+    fn check_storage(
+        &self,
+        store: &Store,
+        on_disk: &BTreeMap<String, DiskFile>,
+        deletions: Deletions,
+    ) -> Result<()> {
         let device = store.device_id();
         match read_marker(&self.root, device) {
             Marker::Ours => return Ok(()),
+            // Somebody typed `itsanas folder --confirm` about this directory:
+            // it is the folder, emptied or moved on purpose. The refusal names
+            // that command, so the command must get past it.
+            Marker::Missing if deletions == Deletions::ApplyWhateverTheCount => {
+                write_marker(&self.root, device);
+                return Ok(());
+            }
             Marker::Foreign(named) => {
                 return Err(FolderError::StorageUnreachable {
                     root: self.root.clone(),
@@ -619,7 +631,13 @@ impl Folder {
         store: &Store,
         on_disk: &BTreeMap<String, DiskFile>,
     ) -> Result<Option<usize>> {
-        let ledger = store.local_states()?;
+        // The account's own files are written back when they go missing, never
+        // deleted, so they count for neither side.
+        let ledger: Vec<_> = store
+            .local_states()?
+            .into_iter()
+            .filter(|(path, _)| !deletion::is_reserved(path))
+            .collect();
         let held = ledger.len();
         let vanished = ledger
             .iter()
@@ -677,6 +695,13 @@ impl Folder {
                 // asks the same question. Writing the deletion is the one step
                 // that cannot be taken back, because it replicates.
                 if hold_deletions {
+                    return Ok(());
+                }
+                // The account's own files (its rules, its trash) are nobody's
+                // to delete from a folder: gone from disk, as after a move to a
+                // new folder, the next pass writes them back.
+                if deletion::is_reserved(path) {
+                    store.clear_local_state(path)?;
                     return Ok(());
                 }
                 Self::trash_or_remove(store, path, &real)?;

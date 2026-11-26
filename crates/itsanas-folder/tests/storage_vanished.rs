@@ -233,3 +233,75 @@ fn the_marker_is_never_synced() {
         "the marker was taken into the account as a file"
     );
 }
+
+/// A machine moved to a new, empty folder. The daemon refuses it as a storage
+/// that vanished and its message says `itsanas folder --confirm` answers that.
+/// The confirmed pass must then accept the folder and write the deletions, not
+/// stop at the same check (2026-11-26: a node on a VM refused its new folder
+/// for 40 minutes, and the command its message named refused too).
+#[test]
+fn red_team_a_confirmed_pass_takes_a_folder_that_holds_none_of_the_known_files() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let home = dir.path().join("node");
+    let folder = dir.path().join("ITSaNAS");
+    let store = machine(&home, &folder, &["a.txt", "b.txt", "c.txt"]);
+
+    let moved = dir.path().join("moved");
+    std::fs::create_dir_all(&moved).expect("new folder");
+    std::fs::write(moved.join("d.txt"), "a new file").expect("write");
+    let opened = Folder::open(&moved).expect("open folder");
+    assert!(
+        opened.reconcile(&store, false).is_err(),
+        "the fixture is wrong: an unmarked folder with none of the files must be refused"
+    );
+
+    let confirmed = opened
+        .reconcile_confirmed(&store, false)
+        .expect("`itsanas folder --confirm` must accept the folder it was asked about");
+    assert_eq!(confirmed.removed_from_store.len(), 3);
+    assert_eq!(confirmed.imported, ["d.txt"]);
+    assert!(
+        moved.join(scan::MARKER).exists(),
+        "a confirmed folder must carry the marker, or the next pass refuses it again"
+    );
+}
+
+/// The account's own files (`.itsanas/...`: its rules and its trash) are written
+/// into the folder like any other. Gone from disk, as after a move to a new
+/// folder, they are written back: a person cannot delete them, and reading
+/// their absence as a delete failed on every one of them, every pass.
+#[test]
+fn red_team_the_accounts_own_files_missing_from_disk_are_written_back_not_deleted() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let home = dir.path().join("node");
+    let folder = dir.path().join("ITSaNAS");
+    let store = machine(&home, &folder, &["a.txt", "b.txt", "c.txt"]);
+    let opened = Folder::open(&folder).expect("open folder");
+
+    // One file deleted: it goes to the account's trash, whose marker the next
+    // pass writes into the folder.
+    std::fs::remove_file(folder.join("a.txt")).expect("remove");
+    opened.reconcile(&store, false).expect("the delete");
+    opened
+        .reconcile(&store, false)
+        .expect("the trash written out");
+    let own = folder.join(itsanas_store::deletion::RESERVED);
+    assert!(
+        own.is_dir(),
+        "the fixture is wrong: the account's trash was not written into the folder"
+    );
+
+    std::fs::remove_dir_all(&own).expect("remove the account's files");
+    let report = opened.reconcile(&store, false).expect("the pass runs");
+    assert!(
+        report.failed.is_empty(),
+        "the account's own files read as deleted by a person: {:?}",
+        report.failed
+    );
+    assert_eq!(report.removed_from_store.len(), 0);
+    opened.reconcile(&store, false).expect("the next pass");
+    assert!(
+        own.is_dir(),
+        "the account's own files were not written back"
+    );
+}

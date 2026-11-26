@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-folder",
+    "--test",
+    "storage_vanished"
+  ],
+  "defences": {
+    "folder: a confirmed pass takes an unmarked folder": {
+      "file": "crates/itsanas-folder/src/lib.rs",
+      "live": "            Marker::Missing if deletions == Deletions::ApplyWhateverTheCount => {\n                write_marker(&self.root, device);\n                return Ok(());\n            }",
+      "dead": "            Marker::Missing if deletions == Deletions::ApplyWhateverTheCount && false => {\n                write_marker(&self.root, device);\n                return Ok(());\n            }"
+    },
+    "folder: the account's own files missing are written back": {
+      "file": "crates/itsanas-folder/src/lib.rs",
+      "live": "                if deletion::is_reserved(path) {\n                    store.clear_local_state(path)?;\n                    return Ok(());\n                }\n                Self::trash_or_remove(store, path, &real)?;",
+      "dead": "                Self::trash_or_remove(store, path, &real)?;"
+    }
+  }
+}
