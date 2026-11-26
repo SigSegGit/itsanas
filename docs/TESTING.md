@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-25 — 1782 test functions across 48 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 709 are red-team tests.**
+**Last updated: 2026-11-25 — 1784 test functions across 48 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 711 are red-team tests.**
 
-**1666 of the 1782 tests have an entry of their own on this page** — an *entry*,
+**1668 of the 1784 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 34 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 28 |
-| `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
+| `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 8 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 401 |
 | `itsanas-android` unit | 26 |
@@ -226,7 +226,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 53 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 72 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 74 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 244 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -2758,7 +2758,7 @@ pass on the diff: both were ways for the report to hide a deletion.
 
 ---
 
-# `itsanas-folder` — storage that vanished (`tests/storage_vanished.rs`) (6)
+# `itsanas-folder` — storage that vanished (`tests/storage_vanished.rs`) (8)
 
 The failure this file is about is not exotic and it destroys data on every
 machine of an account at once. An unmounted disk, or a network share that
@@ -2780,6 +2780,8 @@ count**, for when the directory really is there and most of it is not.
 | `deleting_a_few_files_is_an_ordinary_thing_to_do` | Three files of seven go through untouched. A guard that held every deletion would teach its owner to pass `--confirm` out of habit, which is how a guard becomes a formality. |
 | `a_folder_from_before_markers_is_adopted_rather_than_refused` | Upgrading must not stop anybody: a folder whose files are present gets a marker and carries on. |
 | `the_marker_is_never_synced` | Syncing the marker would send one machine's device id to every other machine, where it would name the wrong device and make every folder look foreign. |
+| **`red_team_a_confirmed_pass_takes_a_folder_that_holds_none_of_the_known_files`** | A machine moved to a new, empty folder is refused as a storage that vanished, and the refusal names `itsanas folder --confirm`. The confirmed pass must then take the folder, write its marker and apply the deletions; it used to stop at the same check, so the command the message named refused too (a VM node, 2026-11-26, 40 minutes without a backup). Sabotaged (the confirmed pass checks like any other): red. |
+| **`red_team_the_accounts_own_files_missing_from_disk_are_written_back_not_deleted`** | The account's own files (`.itsanas/`: its rules, its trash) are written into the folder like any file. Gone from disk, as after a move to a new folder, they are written back, never deleted: reading their absence as a person's delete failed on each of them at every pass, about 870 log lines a minute on that VM node. Sabotaged (their absence read as a delete): red. |
 
 # `itsanas-coord` — claims kept in two orders (4)
 
