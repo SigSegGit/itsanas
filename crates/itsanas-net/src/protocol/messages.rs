@@ -5,7 +5,10 @@ use itsanas_crypto::{ChunkId, DeviceId, ObjectId, UserId};
 use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
-use super::{MAX_CLAIM_BYTES, MAX_HAVE_BATCH, MAX_SEGMENTS_PER_REQUEST, MIN_PROTOCOL_VERSION};
+use super::{
+    MAX_CLAIM_BYTES, MAX_HAVE_BATCH, MAX_SEGMENT_BYTES, MAX_SEGMENTS_PER_REQUEST,
+    MIN_PROTOCOL_VERSION,
+};
 
 /// What a node asks a peer for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +393,7 @@ impl Request {
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
             }
+            Self::StoreSegment { envelope } => envelope.sealed_body.len() <= MAX_SEGMENT_BYTES,
             _ => true,
         }
     }
