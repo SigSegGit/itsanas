@@ -14,7 +14,7 @@
 //! that treated "absent" as "deleted" would, on its first sync, announce the
 //! deletion of every file the user owns, and every other device would obey.
 //!
-//! What separates them is [`LocalState`](itsanas_store::LocalState): the record
+//! What separates them is [`itsanas_store::LocalState`]: the record
 //! of what this device last put on disk. A delete is only ever acted on for a
 //! path the ledger says this device genuinely had. That guard is tested
 //! exhaustively over every combination of the three views in [`decision`].

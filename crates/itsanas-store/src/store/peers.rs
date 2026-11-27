@@ -58,7 +58,7 @@ impl Store {
         self.index.note_audit(device, passed, now_unix())
     }
 
-    /// The live members of this account's roster. See [`Index::members`].
+    /// The live members of this account's roster. See [`Index::members`](crate::index::Index::members).
     pub fn members(&self) -> Result<Vec<DeviceId>> {
         self.index.members()
     }

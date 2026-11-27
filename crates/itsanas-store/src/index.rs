@@ -36,11 +36,11 @@ mod upgrade;
 pub use placement::{CensusRow, ShortPage, TRIGGER_LIMIT};
 use placement::{DEVICE_NETWORK, DEVICE_PASSED, DEVICE_UPTIME, RELEASED, SHORT_SINCE};
 
-/// Path → postcard-encoded [`FileEntry`].
+/// Path → postcard-encoded [`FileEntry`](crate::oplog::FileEntry).
 /// How fresh a contact stamp (`DEVICE_SEEN`) must be for a contact that
 /// changes nothing else to leave it alone.
 ///
-/// Every reader of the stamp asks in days ([`holders::CONFIRMED_FOR`], the
+/// Every reader of the stamp asks in days ([`holders::CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR), the
 /// release window, `LIVE_FOR`) and the uptime ring in hours, so a stamp up
 /// to fifteen minutes old answers all of them as a fresh one would. What it
 /// saves is a commit per peer per round -- about twenty kilobytes each on a

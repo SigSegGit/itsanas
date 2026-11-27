@@ -29,7 +29,7 @@ impl Store {
     ///
     /// # A refused write leaves nothing behind
     ///
-    /// Under a [`WriteBudget`], the chunk that would take the account past it
+    /// Under a [`WriteBudget`](crate::store::WriteBudget), the chunk that would take the account past it
     /// is never stored, and the blobs this call already created are removed
     /// again, with no index entry and nothing in the log. Every other failure
     /// part-way through does the same. Before, it left those blobs as orphans

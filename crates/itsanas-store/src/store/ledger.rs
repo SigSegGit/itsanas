@@ -35,7 +35,7 @@ impl Store {
     }
 
     /// Arm the short queue for `measured`, or disarm and empty it for
-    /// `everyone`. See [`Index::set_placement_measured`].
+    /// `everyone`. See [`Index::set_placement_measured`](crate::index::Index::set_placement_measured).
     ///
     /// # Errors
     ///
@@ -80,7 +80,7 @@ impl Store {
     /// What this node can say about who else holds `chunk`, and how recently
     /// they said it about *this* chunk.
     ///
-    /// See [`Index::holder_evidence`]. Reported by `itsanas status` and used by
+    /// See [`Index::holder_evidence`](crate::index::Index::holder_evidence). Reported by `itsanas status` and used by
     /// [`Store::release`], which is the operation that must not act on a
     /// machine-level liveness signal alone.
     ///
@@ -124,7 +124,7 @@ impl Store {
 
     /// The summary a peer of the same account is answered with: the live
     /// chunks less the ones known to be missing from this disk. See
-    /// [`Index::held_summary`].
+    /// [`Index::held_summary`](crate::index::Index::held_summary).
     ///
     /// # Errors
     ///
@@ -169,7 +169,7 @@ impl Store {
     /// One page of the chunks this device holds, in chunk order.
     ///
     /// What a push walks to ask a peer what it is missing. See
-    /// [`Index::live_chunks_page`] for why it is not a directory scan.
+    /// [`Index::live_chunks_page`](crate::index::Index::live_chunks_page) for why it is not a directory scan.
     ///
     /// # Errors
     ///
@@ -185,7 +185,7 @@ impl Store {
     /// A page of the chunks `device` is recorded as holding.
     ///
     /// What a sync round needs in order to keep the ledger honest about content
-    /// this device no longer holds itself. See [`Index::holdings_page`].
+    /// this device no longer holds itself. See [`Index::holdings_page`](crate::index::Index::holdings_page).
     ///
     /// # Errors
     ///
@@ -200,7 +200,7 @@ impl Store {
     }
 
     /// Of `chunks`, the ones `device` has not confirmed holding within
-    /// [`crate::holders::REFRESH_AFTER`]. See [`Index::without_fresh_record`].
+    /// [`crate::holders::REFRESH_AFTER`]. See [`Index::without_fresh_record`](crate::index::Index::without_fresh_record).
     ///
     /// # Errors
     ///
@@ -214,7 +214,7 @@ impl Store {
     }
 
     /// Of `chunks`, the ones `device` has any record for. See
-    /// [`Index::with_record`].
+    /// [`Index::with_record`](crate::index::Index::with_record).
     ///
     /// # Errors
     ///

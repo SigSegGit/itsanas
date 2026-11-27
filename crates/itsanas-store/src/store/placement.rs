@@ -13,7 +13,7 @@ impl Store {
     // ------------------------------------------------------------ placement
 
     /// Note that this node tried `device` and did not reach it. Known devices
-    /// only. See [`Index::note_unreached`].
+    /// only. See [`Index::note_unreached`](crate::index::Index::note_unreached).
     pub fn note_unreached_at(&self, device: &DeviceId, now: u64) -> Result<bool> {
         self.index.note_unreached(device, now)
     }
@@ -24,7 +24,7 @@ impl Store {
     }
 
     /// Admit `device` to this account's roster, or mark it revoked: the
-    /// caller verified its claim. See [`Index::admit_member`].
+    /// caller verified its claim. See [`Index::admit_member`](crate::index::Index::admit_member).
     pub fn admit_member(&self, device: &DeviceId, revoked: bool) -> Result<()> {
         self.index.admit_member(device, revoked)
     }
@@ -38,7 +38,7 @@ impl Store {
     }
 
     /// Record the network `device` was seen from over a direct session. Known
-    /// devices only. See [`Index::note_network`].
+    /// devices only. See [`Index::note_network`](crate::index::Index::note_network).
     pub fn note_network_at(
         &self,
         device: &DeviceId,
@@ -68,7 +68,7 @@ impl Store {
     }
 
     /// The highest hour any ring was written at. See
-    /// [`Index::latest_hour_written`].
+    /// [`Index::latest_hour_written`](crate::index::Index::latest_hour_written).
     pub fn latest_hour_written(&self) -> Result<u64> {
         self.index.latest_hour_written()
     }
@@ -83,7 +83,7 @@ impl Store {
         self.index.settle_short(chunks)
     }
 
-    /// A page of the short queue. See [`Index::short_page`].
+    /// A page of the short queue. See [`Index::short_page`](crate::index::Index::short_page).
     pub fn short_page(
         &self,
         after: Option<&ChunkId>,
@@ -102,7 +102,7 @@ impl Store {
         self.index.short_near(cursor)
     }
 
-    /// A page of live chunks with their holders. See [`Index::census_page`].
+    /// A page of live chunks with their holders. See [`Index::census_page`](crate::index::Index::census_page).
     pub fn census_page(
         &self,
         after: Option<&ChunkId>,
@@ -112,7 +112,7 @@ impl Store {
     }
 
     /// The next `limit` chunks of the rolling census from a caller-drawn
-    /// start. See [`Index::census_next`]. The daemon sizes the page with
+    /// start. See [`Index::census_next`](crate::index::Index::census_next). The daemon sizes the page with
     /// [`rows_per_round`](crate::holders::rows_per_round) and the caller
     /// draws the start, so a test can fix it.
     pub fn census_next(
@@ -150,7 +150,7 @@ impl Store {
     }
 
     /// Live chunks `device` holds that no other live, non-draining machine
-    /// holds. See [`Index::exposed_by`].
+    /// holds. See [`Index::exposed_by`](crate::index::Index::exposed_by).
     pub fn exposed_by(&self, device: &DeviceId, now: u64) -> Result<u64> {
         self.index.exposed_by(device, now)
     }
@@ -165,7 +165,7 @@ impl Store {
     /// The cursors must be unpredictable to the host being audited. A proof of
     /// storage is worth exactly the host's inability to guess the question, and
     /// the ordered version this replaced asked the same sixteen questions every
-    /// round for ever. See [`Index::chunks_to_challenge`].
+    /// round for ever. See [`Index::chunks_to_challenge`](crate::index::Index::chunks_to_challenge).
     pub fn chunks_to_challenge(
         &self,
         holder: &DeviceId,
