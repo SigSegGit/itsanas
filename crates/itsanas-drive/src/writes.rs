@@ -228,10 +228,13 @@ pub fn apply(change: &Change, known: &[String], target: &impl Target) -> io::Res
             }
             for file in moved {
                 let new = format!("{to}{}", &file[from.len()..]);
-                // Copied before it is removed, so a failure loses nothing.
-                if may_keep(&new) {
-                    target.copy(file, &new)?;
+                // Renamed to a scratch name (Word's save, or a program renaming
+                // everything to .tmp): the account keeps it under its old name.
+                if !may_keep(&new) {
+                    continue;
                 }
+                // Copied before it is removed, so a failure loses nothing.
+                target.copy(file, &new)?;
                 target.remove(file)?;
             }
         }
@@ -480,6 +483,31 @@ mod tests {
             ["keep report.docx"],
             "a document saved from Word never reaches the account"
         );
+    }
+
+    /// Word renames the old document to a scratch name before it puts the new
+    /// one in place; a program could rename every file to `.tmp`. Neither is a
+    /// deletion: renames are exempt from the wave guard. Sabotage: remove the
+    /// file whatever its new name.
+    #[test]
+    fn red_team_a_rename_to_a_scratch_name_deletes_nothing() {
+        let account = Account::default();
+        let away = Change::Renamed {
+            from: "report.docx".to_owned(),
+            to: "~WRL0002.tmp".to_owned(),
+        };
+        apply(&away, &known(&["report.docx"]), &account).unwrap();
+        assert!(
+            account.log.borrow().is_empty(),
+            "renaming a document to a scratch name sent it to the trash: {:?}",
+            account.log.borrow()
+        );
+        let back = Change::Renamed {
+            from: "~WRL0001.tmp".to_owned(),
+            to: "report.docx".to_owned(),
+        };
+        apply(&back, &known(&["report.docx"]), &account).unwrap();
+        assert_eq!(account.log.borrow().as_slice(), ["keep report.docx"]);
     }
 
     #[test]
