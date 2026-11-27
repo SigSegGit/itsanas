@@ -302,13 +302,15 @@ pub extern "C" fn itsanas_versions(path: *const c_char) -> *mut c_char {
     })
 }
 
-/// Make one version of a file (0 is the newest) the file again, everywhere.
+/// Make the version of a file named `id` (its `id` in the versions list) the
+/// file again, everywhere.
 #[unsafe(no_mangle)]
-pub extern "C" fn itsanas_bring_back(path: *const c_char, at: u32) -> *mut c_char {
+pub extern "C" fn itsanas_bring_back(path: *const c_char, id: *const c_char) -> *mut c_char {
     let path = c::text(path, "the path");
+    let id = c::text(id, "the version");
     answer(move || {
-        let path = path?;
-        with_node(|node| bring_back(node, &path, usize::try_from(at).unwrap_or(usize::MAX)))
+        let (path, id) = (path?, id?);
+        with_node(|node| bring_back(node, &path, &id))
     })
 }
 

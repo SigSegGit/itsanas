@@ -2364,6 +2364,51 @@ fn a_rename_onto_a_taken_name_moves_nothing_and_a_rename_keeps_the_date() {
     assert_eq!(laptop.store.stat("a.txt").expect("stat"), None);
 }
 
+/// The version a phone brings back is the one it was shown, even when an edit
+/// from another machine arrives between the list and the tap: a position in
+/// the list named another version once the newer edit came in, and the broken
+/// draft went to every machine. Sabotage: pick the version by its position.
+#[test]
+fn red_team_a_version_brought_back_after_a_newer_edit_arrived_is_the_one_shown() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    let write = |content: &[u8]| {
+        laptop
+            .store
+            .write_file("essay.txt", content)
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        pull_all(&phone, &laptop);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    };
+    write(b"the good draft");
+    write(b"the draft that broke it");
+    let shown = itsanas_store::versions(&phone.store, &phone.vault, "essay.txt")
+        .expect("versions")
+        .iter()
+        .find(|version| version.size == 14)
+        .expect("the good draft is listed")
+        .id();
+    write(b"a third edit, made on the laptop");
+
+    assert!(
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &shown)
+            .expect("bring back")
+    );
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"the good draft".to_vec()),
+        "a newer edit between the list and the tap changed which version came back"
+    );
+    assert!(
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", "0123")
+            .expect("bring back"),
+        "a key naming no version brought one back"
+    );
+}
+
 /// `itsanas versions --restore` on a phone that holds an earlier version and
 /// has only listed the newest: the earlier one becomes the file on the laptop
 /// too, not a conflict copy beside the newest. Sabotage: date the version
@@ -2391,14 +2436,14 @@ fn red_team_an_earlier_version_brought_back_on_a_phone_replaces_the_newest_every
     assert_eq!(listed.len(), 2, "both versions are not listed: {listed:?}");
     let good = listed
         .iter()
-        .position(|version| version.size == 14)
+        .find(|version| version.size == 14)
         .expect("the good draft is listed");
     assert!(
-        listed[good].here,
+        good.here,
         "the version the phone holds is said not to be here"
     );
     assert!(
-        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &good.id())
             .expect("bring back")
     );
 
@@ -2438,8 +2483,13 @@ fn a_file_deleted_for_good_comes_back_from_a_machine_that_still_holds_it() {
         "a deleted file's last version is called current"
     );
     assert!(
-        itsanas_store::bring_back_version(&laptop.store, &laptop.vault, "taxes.pdf", 0)
-            .expect("bring back")
+        itsanas_store::bring_back_version(
+            &laptop.store,
+            &laptop.vault,
+            "taxes.pdf",
+            &listed[0].id()
+        )
+        .expect("bring back")
     );
     pull_all(&phone, &laptop);
     assert_eq!(
@@ -2475,8 +2525,13 @@ fn red_team_a_version_whose_chunks_are_gone_is_never_brought_back() {
         "a version whose chunks were collected is said to be here"
     );
     assert!(
-        !itsanas_store::bring_back_version(&laptop.store, &laptop.vault, "old.txt", 0)
-            .expect("bring back"),
+        !itsanas_store::bring_back_version(
+            &laptop.store,
+            &laptop.vault,
+            "old.txt",
+            &listed[0].id()
+        )
+        .expect("bring back"),
         "a version with no chunks here was published again"
     );
     assert!(
@@ -2515,17 +2570,18 @@ fn red_team_a_version_never_held_here_comes_back_from_another_machine() {
         !listed[good].here,
         "the phone holds a version it never fetched"
     );
+    let good = listed[good].id();
     with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
         let mut client =
             PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
         assert!(
-            session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", good)
+            session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", &good)
                 .expect("fetch"),
             "the laptop holds every chunk of the version and none came"
         );
     });
     assert!(
-        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &good)
             .expect("bring back"),
         "a version whose chunks were just fetched was not brought back"
     );
@@ -2559,19 +2615,20 @@ fn a_version_no_machine_holds_stays_out() {
     let listed = itsanas_store::versions(&phone.store, &phone.vault, "old.txt").expect("versions");
     let gone = listed
         .iter()
-        .position(|version| version.size == 15)
-        .expect("listed");
+        .find(|version| version.size == 15)
+        .expect("listed")
+        .id();
     with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
         let mut client =
             PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
         assert!(
-            !session::fetch_version(&phone.store, &phone.vault, &mut client, "old.txt", gone)
+            !session::fetch_version(&phone.store, &phone.vault, &mut client, "old.txt", &gone)
                 .expect("fetch"),
             "a version whose chunks are collected everywhere was said to be here"
         );
     });
     assert!(
-        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "old.txt", gone)
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "old.txt", &gone)
             .expect("bring back")
     );
 }
@@ -2611,10 +2668,9 @@ fn red_team_a_version_comes_back_from_a_host_and_never_from_its_noise() {
         .position(|version| version.size == 14)
         .expect("listed");
     let owner = laptop.store.owner();
-    for chunk in itsanas_store::versions(&phone.store, &phone.vault, "essay.txt").expect("versions")
-        [good]
-        .chunks()
-    {
+    let listed =
+        itsanas_store::versions(&phone.store, &phone.vault, "essay.txt").expect("versions");
+    for chunk in listed[good].chunks() {
         let sealed = liar
             .vault
             .get_chunk(owner, chunk)
@@ -2625,6 +2681,7 @@ fn red_team_a_version_comes_back_from_a_host_and_never_from_its_noise() {
             .put_chunk(owner, chunk, &vec![0x7A; sealed.len()])
             .expect("noise");
     }
+    let good = listed[good].id();
     drop(laptop);
 
     let ask = |keeper: &Node| {
@@ -2633,14 +2690,14 @@ fn red_team_a_version_comes_back_from_a_host_and_never_from_its_noise() {
             let mut client = PeerClient::connect(address, &phone.device, phone.store.owner(), None)
                 .expect("dial");
             fetched =
-                session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", good)
+                session::fetch_version(&phone.store, &phone.vault, &mut client, "essay.txt", &good)
                     .expect("fetch");
         });
         fetched
     };
     assert!(!ask(&liar), "a host's noise was taken for the version");
     assert!(
-        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &good)
             .expect("bring back"),
         "a version made of a host's noise was published to every machine"
     );
@@ -2649,7 +2706,7 @@ fn red_team_a_version_comes_back_from_a_host_and_never_from_its_noise() {
         "a host keeping every chunk of the version gave none"
     );
     assert!(
-        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", good)
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &good)
             .expect("bring back")
     );
     assert_eq!(

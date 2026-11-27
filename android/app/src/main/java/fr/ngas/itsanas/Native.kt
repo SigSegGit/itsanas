@@ -99,11 +99,11 @@ object Native {
     /** A new name for a file, or a new place for a folder, on every machine: {"moved": n}. */
     external fun rename(from: String, to: String): String
 
-    /** Every version of a file, newest first: {"versions": [{modified, size, current, here, mine}]}. */
+    /** Every version of a file, newest first: {"versions": [{modified, size, current, here, mine, id}]}. */
     external fun versions(path: String): String
 
-    /** Version [at] (0 is the newest) made the file again, on every machine. */
-    external fun bringBack(path: String, at: Int): String
+    /** The version named [id] (its id in [versions]) made the file again, on every machine. */
+    external fun bringBack(path: String, id: String): String
 
     external fun trashList(): String
 

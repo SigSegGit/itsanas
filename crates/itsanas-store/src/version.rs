@@ -53,6 +53,19 @@ pub enum CausalOrder {
 pub struct VersionVector(BTreeMap<DeviceId, u64>);
 
 impl VersionVector {
+    /// A short name for this exact vector, the same on every machine: what a
+    /// phone sends back to say which version of a file it was shown, where a
+    /// position in the list would name another once a newer edit arrives.
+    #[must_use]
+    pub fn key(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        for (device, sequence) in &self.0 {
+            hasher.update(&device.to_bytes());
+            hasher.update(&sequence.to_le_bytes());
+        }
+        hasher.finalize().to_hex()[..32].to_owned()
+    }
+
     /// An empty vector: knows about nothing.
     #[must_use]
     pub fn new() -> Self {

@@ -60,14 +60,15 @@ final class VersionsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let at = indexPath.row
-        guard !busy, !(versions[at]["current"] as? Bool ?? false) else { return }
+        guard !busy, !(versions[at]["current"] as? Bool ?? false),
+              let id = versions[at]["id"] as? String else { return }
         busy = true
         let path = self.path
         // Off the main thread: a version not here is fetched from another machine.
         DispatchQueue.global(qos: .userInitiated).async {
             // Then a round, as after a rename: the version is for every machine.
             let outcome = Result {
-                try Core.bringBack(path, at: at)
+                try Core.bringBack(path, id: id)
                 _ = try? Core.sync()
             }
             DispatchQueue.main.async {

@@ -880,11 +880,11 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         VersionsDialog(
             file,
             onClose = { versionsOf = null },
-            onBack = { at ->
+            onBack = { id ->
                 versionsOf = null
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) { Native.bringBack(file.path, at) }
+                        withContext(Dispatchers.IO) { Native.bringBack(file.path, id) }
                         chosen = emptySet()
                         refresh()
                     } catch (error: Throwable) {
@@ -1092,7 +1092,7 @@ private fun FileRow(
 
 /** Every version of one file, newest first; one held here and not current can come back. */
 @Composable
-private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Unit) {
+private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (String) -> Unit) {
     var listed by remember(file.path) { mutableStateOf<org.json.JSONArray?>(null) }
     LaunchedEffect(file.path) {
         listed = withContext(Dispatchers.IO) {
@@ -1125,7 +1125,7 @@ private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Un
                                 )
                             }
                             if (version.getBoolean("here") && !version.getBoolean("current")) {
-                                TextButton({ onBack(at) }, Modifier.testTag("version-back-$at")) {
+                                TextButton({ onBack(version.getString("id")) }, Modifier.testTag("version-back-$at")) {
                                     Text(stringResource(R.string.versions_back))
                                 }
                             }

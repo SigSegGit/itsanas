@@ -314,6 +314,13 @@ impl Version {
     pub fn chunks(&self) -> &[ChunkId] {
         &self.entry.chunks
     }
+
+    /// What names this version wherever it is listed, and whatever is listed
+    /// beside it: [`bring_back_version`] takes it.
+    #[must_use]
+    pub fn id(&self) -> String {
+        self.entry.version.key()
+    }
 }
 
 /// Every version of `path` the account's logs hold, newest first: what the
@@ -395,9 +402,11 @@ pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>
     Ok(found)
 }
 
-/// Make `version` (an index into [`versions`]) the current one, on every
+/// Make the version named `id` ([`Version::id`]) the current one, on every
 /// machine: the file's content as it was then, dated now. False when that
 /// version's chunks are not all on this machine, or there is no such version.
+/// A name, not a position: an edit arriving between the list and the choice
+/// moves every position, and the wrong version would go to every machine.
 ///
 /// It replaces what the account shows, an edit or a delete alike, so a file
 /// deleted for good comes back from any machine that still holds it.
@@ -405,19 +414,17 @@ pub fn versions(store: &Store, vault: &Vault, path: &str) -> Result<Vec<Version>
 /// # Errors
 ///
 /// When the store cannot be read or written.
-pub fn bring_back_version(
-    store: &Store,
-    vault: &Vault,
-    path: &str,
-    version: usize,
-) -> Result<bool> {
+pub fn bring_back_version(store: &Store, vault: &Vault, path: &str, id: &str) -> Result<bool> {
     if crate::deletion::is_reserved(path) {
         return Err(crate::StoreError::InvalidPath(
             path.to_owned(),
             "one of the account's own files, which no one brings back",
         ));
     }
-    let Some(chosen) = versions(store, vault, path)?.into_iter().nth(version) else {
+    let Some(chosen) = versions(store, vault, path)?
+        .into_iter()
+        .find(|version| version.id() == id)
+    else {
         return Ok(false);
     };
     if !chosen.here {

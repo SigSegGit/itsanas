@@ -73,13 +73,15 @@ enum Core {
     /// A new name, or a folder with a slash, on every machine.
     static func rename(_ from: String, to: String) throws { _ = try take(itsanas_rename(from, to)) }
     /// Every version the account knows, newest first: `modified`, `size`,
-    /// `current`, `here`, `mine`.
+    /// `current`, `here`, `mine`, `id`.
     static func versions(_ path: String) throws -> [[String: Any]] {
         try object(itsanas_versions(path))["versions"] as? [[String: Any]] ?? []
     }
-    /// Version `at` (0 the newest) becomes the file again, everywhere.
-    static func bringBack(_ path: String, at: Int) throws {
-        _ = try take(itsanas_bring_back(path, UInt32(clamping: at)))
+    /// The version named `id` (its `id` in `versions`) becomes the file
+    /// again, everywhere: a name, not a row, so an edit arriving meanwhile
+    /// does not change which one.
+    static func bringBack(_ path: String, id: String) throws {
+        _ = try take(itsanas_bring_back(path, id))
     }
 
     /// What a round brought, named: "2 new: a, b · 1 changed: c", or nil
