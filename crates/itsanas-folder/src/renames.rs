@@ -27,7 +27,7 @@ impl Contents {
     }
 }
 
-/// The blake3 hash of no bytes at all.
+/// Whether `hash` is the blake3 hash of no bytes at all.
 ///
 /// Every empty file has it, so an empty file deleted and an unrelated empty
 /// file created would otherwise read as a rename.

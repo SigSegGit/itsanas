@@ -43,7 +43,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use itsanas_store::{Store, deletion, freed, trash};
+use itsanas_store::{LocalState, Store, deletion, freed, trash};
 
 pub use decision::{Decision, decide};
 pub use error::{FolderError, Result};
@@ -136,6 +136,9 @@ impl Folder {
         paths.extend(on_disk.keys().cloned());
         paths.extend(in_store.iter().map(|(path, _)| path.clone()));
         paths.extend(ledger.iter().map(|(path, _)| path.clone()));
+        if cfg!(any(windows, target_os = "macos")) {
+            skip_case_twins(&mut paths, &on_disk, &ledger, &mut report);
+        }
 
         // Decided once for the whole pass, before anything is written: a
         // guard applied file by file would let the first half of an accident
@@ -328,5 +331,42 @@ impl Folder {
         }
 
         Ok(())
+    }
+}
+
+/// On a disk that folds case, `IMG.JPG` and `img.jpg` from a machine that
+/// keeps them apart are one file here. Reconciled both, the second spelling
+/// reads as the first one edited, and this machine rewrites it for the whole
+/// account. So one spelling is kept here (the one on the disk, else one this
+/// folder already synced, else the first) and the others are left in the
+/// account untouched and reported: no export, no copy, no delete read from
+/// their absence.
+fn skip_case_twins(
+    paths: &mut BTreeSet<String>,
+    on_disk: &BTreeMap<String, DiskFile>,
+    ledger: &[(String, LocalState)],
+    report: &mut ReconcileReport,
+) {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for path in paths.iter() {
+        groups
+            .entry(path.to_lowercase())
+            .or_default()
+            .push(path.clone());
+    }
+    let synced = |path: &str| ledger.iter().any(|(known, _)| known == path);
+    for group in groups.into_values().filter(|group| group.len() > 1) {
+        let kept = group
+            .iter()
+            .position(|path| on_disk.contains_key(path))
+            .or_else(|| group.iter().position(|path| synced(path)))
+            .unwrap_or(0);
+        for (index, twin) in group.into_iter().enumerate() {
+            if index != kept {
+                paths.remove(&twin);
+                let why = "differs only in case from another file, and this disk cannot hold both; it stays in the account";
+                report.failed.push((twin, why.to_owned()));
+            }
+        }
     }
 }

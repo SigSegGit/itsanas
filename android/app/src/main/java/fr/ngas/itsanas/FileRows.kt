@@ -156,7 +156,7 @@ internal fun FileRow(
 
 /** Every version of one file, newest first; one held here and not current can come back. */
 @Composable
-internal fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Unit) {
+internal fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (String) -> Unit) {
     var listed by remember(file.path) { mutableStateOf<org.json.JSONArray?>(null) }
     LaunchedEffect(file.path) {
         listed = withContext(Dispatchers.IO) {
@@ -189,7 +189,7 @@ internal fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> U
                                 )
                             }
                             if (version.getBoolean("here") && !version.getBoolean("current")) {
-                                TextButton({ onBack(at) }, Modifier.testTag("version-back-$at")) {
+                                TextButton({ onBack(version.getString("id")) }, Modifier.testTag("version-back-$at")) {
                                     Text(stringResource(R.string.versions_back))
                                 }
                             }

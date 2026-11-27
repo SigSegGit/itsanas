@@ -428,11 +428,11 @@ internal fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String)
         VersionsDialog(
             file,
             onClose = { versionsOf = null },
-            onBack = { at ->
+            onBack = { id ->
                 versionsOf = null
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) { Native.bringBack(file.path, at) }
+                        withContext(Dispatchers.IO) { Native.bringBack(file.path, id) }
                         chosen = emptySet()
                         refresh()
                     } catch (error: Throwable) {
