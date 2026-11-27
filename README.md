@@ -8,20 +8,18 @@ gives you no way to read it.**
 You pledge some of your disk and bandwidth. Other members do the same. Your
 files live encrypted on their machines, theirs live encrypted on yours, and
 nobody can open anybody else's. Devices come and go — laptops sleep, a Pi
-reboots — and your data stays available and stays in sync.
+reboots — and your data stays in sync.
 
 > ## ⚠️ Under construction. Do not put data you care about in this.
 >
-> This is a working prototype being built in the open, not a product. **v0.1.0
-> is tagged so it can be tested**, not because anything here is finished: it has
-> three machines and two accounts behind it, all belonging to one person, and
+> This is a working prototype being built in the open, not a product. **Releases
+> are tagged so they can be tested**, not because anything here is finished, and
 > the on-disk format may change without a migration. **Treat anything you store
 > with it as already lost**, and keep another copy.
 >
 > Start at [FIRST-STEPS.md](FIRST-STEPS.md).
 >
-> **Try it** (once the first signed release is published; until then, build
-> from source as FIRST-STEPS says). Windows:
+> **Try it** from the latest release, or build from source as FIRST-STEPS says. Windows:
 > `irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex` -- Linux and macOS:
 > `curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.sh | sh`. Both install the binary and start
 > `itsanas setup`, which walks you through the rest in your browser.
@@ -50,20 +48,23 @@ reboots — and your data stays available and stays in sync.
 > 2-vCPU aarch64 VM** — same binary, same commit, measured by `itsanas bench`.
 > The laptop chunks 4.6× faster and reads 4.5× faster, and still loses, because
 > what a save costs is dominated by writing one file per chunk and that is where
-> NTFS is expensive. It is also the clearest argument for the pack files that
-> are planned: filling a terabyte means 14.7 million of those files.
+> NTFS is expensive. It is also why a new store is now written in pack files:
+> filling a terabyte one file per chunk means 14.7 million of them.
 >
 > **What is missing, and it is not small.** It has never run on four real
 > machines for a week. It **has** now run on real ARM: the whole suite passes on
 > Apple silicon in CI on every push, and on an aarch64 Ubuntu VM on a Freebox
 > Delta — every test, none failing, on 2026-09-01, installed there by its own
 > one-liner, and on a **Raspberry Pi 4B** — where the whole suite passes
-> natively, including all three `#[ignore]`d tests, and where it saves a note
+> natively, including the `#[ignore]`d tests, and where it saves a note
 > faster than the laptop. The first Pi's filesystem failed an hour after its
 > numbers were taken; the board was reimaged onto an SSD and the numbers came
 > back the same, which settles them.
-> Repair chooses no peers. Tombstones are never pruned. There is no Android app,
-> only a Termux script that builds the command line tool. See
+> Repair chooses no peers. The traces of deletes are kept a year by default (ten
+> days to five years, or for ever, per account): a machine off for longer may
+> bring back a file deleted meanwhile. There is an Android app (Kotlin and Compose
+> over the Rust core, a signed APK, no store listing), run end to end on a real
+> phone by `scripts/android-e2e.sh`, and an iPhone app tested on a simulator. See
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
 > [docs/MVP.md](docs/MVP.md) for what would make it worth trusting.
 
@@ -210,9 +211,9 @@ actually been executed on the system it claims to install, because an installer
 nobody has run is a hypothesis with a shebang. Today that column says Windows
 and Linux, both on x86-64, and nothing else.
 
-The Android script installs the **command line tool**, not an app: there is no
-APK, no file picker and no background service, and Android will kill a daemon
-left running overnight whatever you do about it. What it is for is the one thing
+The Termux script installs the **command line tool**, not the app
+(`scripts/build-apk.sh` builds that), and Android will kill a daemon left running
+overnight under Termux whatever you do about it. What it is for is the one thing
 a phone is good for here — half the constants in this project are chosen for ARM
 devices, and a phone is the ARM device most people own.
 [install/android.md](install/android.md) says what a real client would take and
@@ -235,9 +236,9 @@ and can time it out: **one minute per test, terminating**, so a hang becomes a
 failed test with a name instead of a job nobody stops. `cargo test --workspace`
 still works and still passes; it just has no such limit.
 
-Three tests — the real 64 MiB Argon2id cost, a 64 MiB streaming round trip, and
-a crash test that kills a store mid-write a dozen times — are marked
-`#[ignore]` so the normal suite stays fast. CI runs them separately, in release:
+Tests that pay the real 64 MiB Argon2id cost, stream 64 MiB, kill a store
+mid-write or start daemons are marked `#[ignore]` so the normal suite stays fast
+(their count is in [docs/TESTING.md](docs/TESTING.md)). CI runs them separately, in release:
 
 ```bash
 cargo nextest run --release --workspace --all-features --run-ignored ignored-only

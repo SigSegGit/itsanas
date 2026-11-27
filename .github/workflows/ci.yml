@@ -204,6 +204,8 @@ jobs:
       # is what noticed.
       - name: The unsafe exception is the size the documentation claims
         run: python scripts/check-unsafe.py
+      - name: No source file over a thousand lines, and the old ones only shrink
+        run: python scripts/check-file-size.py
       # And the reason that could happen: the list of gates in this file is
       # written by hand, while `scripts/check-all.sh` discovers them with a
       # glob. Adding a file to `scripts/` was enough to be run locally and not

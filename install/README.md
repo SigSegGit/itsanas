@@ -654,7 +654,7 @@ itsanas listen 0.0.0.0:9797           # only if 9797 is taken here
 To host with somebody on another network, you need their name and nothing else:
 
 ```sh
-itsanas peer find mandarine
+itsanas peer find partner
 ```
 
 The coordinator turns the name into their machines' addresses. On one network

@@ -76,7 +76,7 @@ Pourquoi deux comptes : B, E, F et G demandent des machines du **même** compte
 (`nicolas` sur les trois) ; C et le relais aveugle de E demandent un hôte d'un
 **autre** compte (`voisin`) ; et `voisin` à côté de `nicolas` sur P et V est
 exactement ton cas 1a. Adapte les noms à ce qui existe déjà sur la flotte
-(`sigseg42`, `mandarine`…), mais garde cette structure.
+(`sigseg42`, `partner`…), mais garde cette structure.
 
 ### 2.2 Mettre tout le monde sur la même version
 
@@ -129,7 +129,7 @@ coordinateur admet sur invitation.) Sur Windows, même chose avec `provision.ps1
 
 **Les nœuds qui existent déjà ne bougent pas.** Le port libre n'est choisi qu'à
 la création (`init`/`login`). Si la VM a déjà deux nœuds sur 9797 (`voisin`,
-`mandarine`), ou un nœud hors de `~/.itsanas*` que la détection ne voit pas,
+`partner`), ou un nœud hors de `~/.itsanas*` que la détection ne voit pas,
 donne-lui un port à la main : `ITSANAS_HOME=<son dossier> itsanas listen
 0.0.0.0:9798` puis `itsanas register`, ou recrée-le en instance.
 
@@ -199,7 +199,7 @@ le dépôt, et rien dans le code ne peut les vérifier à ta place.
    demande rien à personne — mais il faut que le pare-feu de la box laisse
    entrer le port sur cette machine.
 
-   **W (le laptop) et le Mac de mandarine ne prennent rien de tout ça.** Une
+   **W (le laptop) et le Mac du partenaire ne prennent rien de tout ça.** Une
    machine qui bouge n'a pas d'adresse joignable ; elle participe en appelant,
    et un seul côté joignable par paire suffit. `itsanas status` affiche
    maintenant la ligne `announced`, qui dit ce qui est publié.
@@ -221,7 +221,7 @@ qui ne résout pas c'est le DNS, une connexion refusée c'est un port, un timeou
 c'est presque toujours un pare-feu. `in` en échec sur une machine qui annonce
 quelque chose, c'est le point 3 — la redirection existe mais ne mène nulle part,
 ou mène à la mauvaise machine, et la ligne dit laquelle des deux. `in` en échec
-sur W ou sur le Mac de mandarine, c'est **normal** et c'est écrit : une machine
+sur W ou sur le Mac du partenaire, c'est **normal** et c'est écrit : une machine
 qui bouge participe en appelant.
 
 Ce contrôle coûte une connexion sortante au coordinateur, une par machine et par
@@ -239,7 +239,7 @@ bash scripts/acceptance.sh O check ~/ITSaNAS <nom> <sha256>
 `O away` échoue → le coordinateur n'est pas joignable de l'extérieur (point 1
 ou 2). `O away` passe et `O check` échoue → les adresses de l'annuaire ne sont
 dialables de nulle part (point 3). **Fais-le dans les deux sens** : toi chez
-quelqu'un, et le MacBook de mandarine chez elle. Un compte loin d'une flotte à
+quelqu'un, et le MacBook du partenaire chez lui. Un compte loin d'une flotte à
 la maison, c'est la moitié facile.
 
 ---

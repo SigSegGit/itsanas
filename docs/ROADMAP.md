@@ -97,7 +97,7 @@ What is missing before this is a *network* rather than a personal sync tool:
   name into an account, `Peers` turns an account into published addresses -- and
   between them they are the difference between "I need my friend's IP address
   and port" and "I need my friend's name". Verified by removing the manually
-  configured address for `mandarine` and recovering it from the username alone.
+  configured address for `partner` and recovering it from the username alone.
 
   **The guarantee is now measured, and measured honestly.** The question this
   project exists to answer is "could I get all of it back without this

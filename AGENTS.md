@@ -88,12 +88,16 @@ It asks Nicolas only when it has a concrete reason to doubt the merge, and
 then says what that reason is. Asking for a routine merge costs him a round
 trip for nothing. (Nicolas, 2026-10-12.)
 
-**One session, one function after another.** On 2026-11-04 one session, with no
+**One session, many functions, few agents.** On 2026-11-04 one session, with no
 subagent, built what several had been planned for: a list of ten items for about
 three points of the weekly quota, against 35 for a multi-agent batch two days
-before. So: no subagent, workflow, study or Rodin unless Nicolas asks for one in
-this session, whatever the size of the job, and a session carries on to the end
-of the list. (Nicolas, 2026-11-04; this replaced "Rodin before each major step".)
+before. So a session works by itself and carries on to the end of the list; it
+calls a subagent, a workflow or Rodin only on the triggers of the `itsanas`
+skill ([`.claude/skills/itsanas/SKILL.md`](.claude/skills/itsanas/SKILL.md),
+section 3: a red team before pushing a diff that touches the protocol, keys,
+authorisation, deletion or sync; Rodin on a plan without a specification and
+every ten merged pull requests; a full sweep every 25), or when Nicolas asks.
+(Nicolas, 2026-11-04; the skill decides the cadence since 2026-11-27.)
 A session takes many items of the list, and a pull request carries several
 features that belong together: one step per session is gone (Nicolas,
 2026-11-15). It opens the PR with auto-merge and goes on to the next feature
@@ -117,6 +121,10 @@ attempt.
   cells are `✅` or `⬜` with a reason and nothing else;
 - a sabotage changes something its test sees, or it is decoration.
 
+- a source file stays under 1,000 lines (`scripts/check-file-size.py`): a new
+  piece goes in the module it belongs to, and the files listed there as still
+  over it may only shrink.
+
 Then `scripts/preflight.sh` once, not one push per failure.
 
 **Reuse before writing.** Grep for the function first, and ask the system: a
@@ -124,7 +132,7 @@ platform API or an existing call often does the job in a few lines. No new trait
 or layer without a second caller. A report gives lines added, code and tests
 apart.
 
-**Subagents, only when Nicolas asks for one.** Versioned in
+**Subagents, on the skill's triggers.** Versioned in
 [`.claude/agents/`](.claude/agents/README.md), shared with itsaresume, so
 cloud sessions have them too: `locator` (before code: exact places and
 names, so the main context stops reading large files blind), `redteam` (the

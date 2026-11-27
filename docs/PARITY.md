@@ -63,7 +63,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:usb_key` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a key |
 | `feature:another_account` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account |
 | `feature:keep_question` | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ✅ |
-| `feature:biometric` | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Windows Hello, optional | ⬜ no reader this program can ask | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Touch ID, optional | ✅ |
+| `feature:biometric` | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Windows Hello, optional | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Touch ID, optional | ⬜ no reader this program can ask | ✅ |
 | `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
 | `feature:remove_account` | ✅ | ✅ | ✅ | ✅ |
 | `feature:hosting` | ✅ | ✅ | ✅ | ✅ |

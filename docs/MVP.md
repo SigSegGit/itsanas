@@ -540,7 +540,7 @@ away phase passing says the addresses in the directory cannot be dialled from
 where each machine stands -- which is the announce step, not the network.
 
 **Run it in both directions**, and this is where machine 5 earns its place:
-Nicolas's laptop at somebody else's house, and Mandarine's MacBook Air at hers.
+Nicolas's laptop at somebody else's house, and a partner's MacBook Air at the partner's home.
 One account away from a fleet at home is the easy half; two accounts whose
 machines are never on the same network is the shape of the thing being built.
 

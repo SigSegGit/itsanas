@@ -282,8 +282,9 @@ Account restored.
 ```
 
 Same identity, new device key. **The trade, plainly:** anybody who steals the
-coordinator's database can attack that passphrase offline. Five attempts per
-account per quarter-hour is what stands in their way, plus the Argon2id cost.
+coordinator's database can attack that passphrase offline, and only the Argon2id
+cost and the passphrase's strength stand in their way: the limit of five attempts
+per account per quarter-hour applies only to guesses sent through the coordinator.
 It is off until you ask for it, and `itsanas register --withdraw-recovery`
 takes it back — after which only the 24 words work.
 

@@ -271,6 +271,7 @@ HISTORY = {
 OLD_SPLITS_ALLOWED = (
     'docs/ECONOMICS.md',
     'docs/HANDOVER.md',
+    'docs/HANDOVER-ARCHIVE.md',
     'docs/TESTING.md',
     'crates/itsanas-coord/src/accounting.rs',
     'crates/itsanas-node/src/config.rs',
