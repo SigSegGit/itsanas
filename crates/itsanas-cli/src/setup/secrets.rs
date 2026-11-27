@@ -24,7 +24,7 @@
 
 use std::{
     io::{IsTerminal as _, Write as _},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -522,19 +522,28 @@ fn linux_save(phrase: &str) {
     ) else {
         return;
     };
-    let path = PathBuf::from(path.trim());
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let saved = options
-        .open(&path)
-        .and_then(|mut file| file.write_all(phrase.as_bytes()));
+    let saved = save_words(&PathBuf::from(path.trim()), phrase);
     zenity_says(if saved.is_ok() {
         "Saved. Move it to a USB stick or a password manager: on this disk, anyone who takes the machine has your files."
     } else {
         "The file could not be written; choose another place."
     });
+}
+
+/// The words written to `path`, readable by their owner alone, even when
+/// `path` is an existing file (zenity confirms an overwrite): opening keeps an
+/// existing file's mode, so it is narrowed before a word is written.
+fn save_words(path: &Path, phrase: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )?;
+    file.write_all(phrase.as_bytes())
 }
 
 /// Once the check ends: the clipboard emptied if it still holds the words;
@@ -1045,6 +1054,25 @@ mod tests {
                           access accident account accuse achieve acid acoustic acquire across act \
                           action actor actress actual";
     const PASSPHRASE: &str = "correct horse battery staple";
+
+    /// The person saves the words over an existing 0644 file from an earlier
+    /// attempt: the 24 words, which restore the whole account, end up in a
+    /// file only they can read.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_words_saved_over_an_open_file_are_the_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ITSaNAS recovery words.txt");
+        std::fs::write(&path, b"an earlier attempt").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        save_words(&path, PHRASE).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "other accounts can read the words");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), PHRASE);
+    }
 
     fn every_ask() -> Vec<Ask<'static>> {
         vec![

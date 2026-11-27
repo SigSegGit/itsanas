@@ -750,7 +750,7 @@ impl Node {
         let keystore =
             Keystore::lock(passphrase, KEYSTORE_LABEL, &encoded, KdfParams::RECOMMENDED)?;
 
-        std::fs::create_dir_all(home).map_err(|error| NodeError::Io {
+        create_home(home).map_err(|error| NodeError::Io {
             path: home.to_owned(),
             source: error,
         })?;
@@ -763,9 +763,7 @@ impl Node {
             let path = path.to_owned();
             move |source| NodeError::Io { path, source }
         };
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        owner_only(std::fs::OpenOptions::new().write(true).create_new(true))
             .open(&keystore_path)
             .and_then(|mut file| {
                 std::io::Write::write_all(&mut file, &keystore.to_bytes())?;
@@ -837,6 +835,7 @@ impl Node {
             }
         };
 
+        narrow_home(home);
         let keystore = Keystore::from_bytes(&bytes)?;
         let plaintext = keystore
             .unlock(passphrase, KEYSTORE_LABEL)
@@ -1163,7 +1162,12 @@ impl Node {
             }
         };
         {
-            let mut file = std::fs::File::create(&pending).map_err(io(&pending))?;
+            // A stale pending file is gone first, so the new one is created
+            // owner-only rather than inheriting whatever mode it had.
+            let _ = std::fs::remove_file(&pending);
+            let mut file = owner_only(std::fs::OpenOptions::new().write(true).create_new(true))
+                .open(&pending)
+                .map_err(io(&pending))?;
             std::io::Write::write_all(&mut file, &sealed.to_bytes()).map_err(io(&pending))?;
             // Without this the rename can reach the disk before the bytes do,
             // and a power cut leaves a keystore of zeroes under the real name.
@@ -1221,6 +1225,37 @@ pub(crate) fn existing_ancestor(path: &Path) -> &Path {
     path.ancestors()
         .find(|candidate| candidate.exists())
         .unwrap_or(path)
+}
+
+/// The home made, readable by its owner alone where the file system has
+/// modes: it holds the sealed keystore, the index and the config.
+fn create_home(home: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(std::fs::DirBuilder::new().recursive(true), 0o700)
+        .create(home)?;
+    #[cfg(not(unix))]
+    std::fs::create_dir_all(home)?;
+    narrow_home(home);
+    Ok(())
+}
+
+/// A home an older build made with the umask's mode, narrowed to its owner.
+/// Best effort: a FAT or exFAT key has no modes to set.
+fn narrow_home(home: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    let _ = home;
+}
+
+/// `options` creating a file its owner alone can read, where modes exist.
+fn owner_only(options: &mut std::fs::OpenOptions) -> &mut std::fs::OpenOptions {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(options, 0o600);
+    options
 }
 
 /// Whether `a` and `b` are on one volume; `None` when that cannot be told.
@@ -1719,6 +1754,46 @@ mod tests {
             !home.join("keystore.bin.new").exists(),
             "the pending keystore was left behind"
         );
+    }
+
+    /// A local account on a shared Linux or Mac machine copies `keystore.bin`
+    /// and guesses the passphrase offline. The home and the keystore are the
+    /// owner's alone: a new one, a home an older build left at 0755, and the
+    /// keystore a passphrase change writes, even over a stale 0644 pending one.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_a_new_home_and_its_keystore_are_the_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let others = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o077;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        std::fs::create_dir(&home).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
+        drop(Node::create(&home, PASSPHRASE, "nicolas").unwrap());
+        assert_eq!(others(&home), 0, "other accounts can open the home");
+        assert_eq!(
+            others(&home.join("keystore.bin")),
+            0,
+            "other accounts can read the keystore"
+        );
+
+        let pending = home.join("keystore.bin.new");
+        std::fs::write(&pending, b"stale").unwrap();
+        std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o644)).unwrap();
+        Node::change_passphrase(&home, PASSPHRASE, "a different long passphrase").unwrap();
+        assert_eq!(
+            others(&home.join("keystore.bin")),
+            0,
+            "a passphrase change opened the keystore"
+        );
+
+        let fresh = dir.path().join("fresh");
+        drop(Node::create(&fresh, PASSPHRASE, "nicolas").unwrap());
+        assert_eq!(others(&fresh), 0, "a new home is open to other accounts");
+
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
+        drop(Node::open(&home, "a different long passphrase").unwrap());
+        assert_eq!(others(&home), 0, "opening left an older build's home open");
     }
 
     /// Every write goes through `node.store`, and the store refuses nothing it
