@@ -21,7 +21,7 @@
       "dead": "            if record.failed > 0 {"
     },
     "audit: membership is the roster's": {
-      "file": "crates/itsanas-net/src/session.rs",
+      "file": "crates/itsanas-net/src/session/audit.rs",
       "live": "        own: store.is_member(&peer)?,",
       "dead": "        own: false,"
     }

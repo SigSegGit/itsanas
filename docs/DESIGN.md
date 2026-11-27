@@ -680,7 +680,7 @@ peer. The figure that had been sitting in `MVP.md` -- **129 MB/day** -- is a
 unit, and for a week it read as though the budget were met.
 
 **Now, within a named bucket, only the chunks with no fresh record for that
-peer are asked about** (`sweep` in `itsanas-net/src/session.rs`): the new ones,
+peer are asked about** (`sweep` in `itsanas-net/src/session/sweep.rs`): the new ones,
 and the ones the peer last confirmed more than `REFRESH_AFTER` ago. A change of
 *D* chunks lists those *D*, 32 bytes each, plus whatever in the same buckets the
 peer confirmed between two full walks and has not been asked about since --

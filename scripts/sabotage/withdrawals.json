@@ -14,7 +14,7 @@
       "dead": "        let _ = &bytes;\n"
     },
     "withdrawals: an old live claim replaces the kept withdrawal": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/claims.rs",
       "live": "                        if !unchanged && !withdrawn {\n",
       "dead": "                        if !unchanged || withdrawn {\n"
     },

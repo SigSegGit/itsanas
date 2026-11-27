@@ -250,7 +250,7 @@ mod tests {
     /// on the phone stayed on it. A pledge is room lent to other accounts; the
     /// account's own log is taken whatever it says. And a stranger pushing
     /// the account's segment is still refused here, by the claim book
-    /// (`service.rs` tests the roster on a service with none). Sabotage: the
+    /// (`service/tests/storing.rs` tests the roster on a service with none). Sabotage: the
     /// pledge checked for siblings too.
     #[test]
     fn red_team_a_computer_that_pledges_nothing_still_takes_its_phones_delete() {

@@ -816,7 +816,7 @@ device and reaching a different one is refused.
     in a fresh process whose ceiling is the one `Node::open` sets (none), and
     a person asking for their own file back should get it, not a refusal
     worded as "no machine would serve it". Same for `itsanas-drive`.
-  - **A file refused for room freezes the applied-markers** (`session.rs`,
+  - **A file refused for room freezes the applied-markers** (`session/pulling.rs`,
     `note_all_applied` only after a round with nothing deferred), so every
     round replays the peers' chains until the disk is freed. Required -- an
     advanced marker would never retry the file -- and it costs a replay a
@@ -2164,7 +2164,7 @@ the same account's data, which is what replication and audits need. Blinding
 hides content equality *across* accounts, not account identity from hosts.
 
 **Not tested here, named:** the two residues of the integrity pass. The
-has_chunk race in `session.rs` `kept` needs a second writer injected between
+has_chunk race in `session/fetching.rs` `kept` needs a second writer injected between
 the fetch and the check, and no seam exists for that -- not a five-line test.
 ✅ Repeated fetches of one noisy chunk shared by several files cost one
 chunk-sized download per file per round; since 2026-11-17 an address is asked
@@ -2609,7 +2609,7 @@ first pledge refusal, and for an hour (`FULL_RETRY`) asks that peer only about
 what it is recorded as holding; then one ordinary round probes. What it was: A host that refuses
 a chunk (`Offer::Refused`) leaves no record for it, so the next round finds it
 stale, asks about it, and sends it again; `ask` in
-`itsanas-net/src/session.rs` does not stop at the first refusal and nothing
+`itsanas-net/src/session/sweep.rs` does not stop at the first refusal and nothing
 remembers one. Against a phone holding a slice of a large account that is the
 whole unheld remainder uploaded and refused every five minutes -- far above
 anything the listing costs. Now tested by

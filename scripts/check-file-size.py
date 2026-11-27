@@ -48,7 +48,6 @@ CEILING = {
     'crates/itsanas-node/src/config.rs': 1703,
     'scripts/check-installers.sh': 1650,
     'crates/itsanas-store/src/index/placement.rs': 1508,
-    'crates/itsanas-net/src/transport.rs': 1504,
     'crates/itsanas-coord/tests/coordinator.rs': 1455,
     'crates/itsanas-folder/src/lib.rs': 1297,
     'android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt': 1273,

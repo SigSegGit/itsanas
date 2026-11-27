@@ -167,10 +167,10 @@ guarantee and is not one.
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 9 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 74 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 83 |
+| `itsanas-net` two-node (`tests/two_nodes/main.rs`) | 83 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
-| `itsanas-net` placement (`tests/placement.rs`) | 17 |
+| `itsanas-net` placement (`tests/placement/main.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 143 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 25 |
@@ -213,7 +213,7 @@ Every `red_team_*` test belongs to one surface, by the file it lives in
 a file with red-team tests is on no surface, or on two, or when a count below
 is wrong. Run one surface, ignored tests included, with
 `python3 scripts/redteam_surfaces.py run <surface>`. A file that mixes surfaces
-counts for the one most of its tests attack: `itsanas-net/tests/two_nodes.rs`
+counts for the one most of its tests attack: `itsanas-net/tests/two_nodes/`
 is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 
 | Surface | What it attacks | Red-team tests |
@@ -975,14 +975,20 @@ about reading.
 
 # `itsanas-net` — unit tests (74)
 
-## `protocol` — messages and challenges (16)
+## `protocol` — storage challenges and the version gates (4)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_proof_for_one_nonce_does_not_answer_another`** | Otherwise a host computes one proof, throws the chunk away, and answers every future challenge from cache. |
 | **`a_proof_requires_the_actual_bytes`** | A host that discarded the chunk fails. |
-| **`red_team_a_claim_to_hold_things_is_bounded_like_the_claim_to_have_dropped_them`** | `Dropped` withdraws holder records and `Hosted` writes them. The first was bounded at `MAX_HAVE_BATCH` and the second fell through to `_ => true`, so one frame could add rows to a victim's index without limit — permanent rows, in the table `Store::release` reads before deleting the last local copy. The asymmetry was the tell: somebody bounded the message that *removes* records and not the one that *adds* them. Both arms are now one arm, so the next verb added here is compared against both. |
 | **`a_single_bit_of_difference_fails_the_challenge`** | Corruption is caught, not just deletion. |
+| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`), `AppMode` from 13 (`PROTOCOL_WITH_APP_MODE`, the current version), appended so older numbers are unchanged. |
+
+## `message_tests` — every peer message on the wire, and its bounds (`protocol/`) (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_claim_to_hold_things_is_bounded_like_the_claim_to_have_dropped_them`** | `Dropped` withdraws holder records and `Hosted` writes them. The first was bounded at `MAX_HAVE_BATCH` and the second fell through to `_ => true`, so one frame could add rows to a victim's index without limit — permanent rows, in the table `Store::release` reads before deleting the last local copy. The asymmetry was the tell: somebody bounded the message that *removes* records and not the one that *adds* them. Both arms are now one arm, so the next verb added here is compared against both. |
 | **`an_unbounded_segment_request_is_not_acceptable`** | One request cannot ask a peer to assemble everything it holds. |
 | **`a_maximum_size_chunk_fits_in_one_frame`** | The largest legitimate message fits the frame limit, so normal operation does not hit it. |
 | **`red_team_no_damaged_frame_crashes_or_stalls_the_decoder`** | Every peer request and response, a thousand damaged copies each (`itsanas_testkit::mutate`: bytes changed, inserted, removed, cut, repeated, set to the largest varint), through the frame decoder a node runs on what any authenticated stranger sends: each is decoded or refused, none panics, all in bounded time. Sabotaged (an id decoder that slices 32 bytes without checking): red. |
@@ -993,10 +999,9 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
-| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`), `SummaryRoot` from 12 (`PROTOCOL_WITH_SUMMARY_ROOT`), `AppMode` from 13 (`PROTOCOL_WITH_APP_MODE`, the current version), appended so older numbers are unchanged. |
 | **`red_team_a_peer_message_that_changes_its_bytes_changes_the_version`** | The full bytes of one of every peer request and response, folded (FNV-1a), one row per published `PROTOCOL_VERSION` from 12, never edited, the last row the current version: the coordinator's twin. A field added to a message at the same version is read as garbage by every peer of the release before; the number test sees only a variant moved. Sabotaged (a `Head` written without its `length`): red. |
 
-## `service` — what a peer may obtain (36)
+## `access` — who a node serves at all (`service/tests/`) (5)
 
 | Test | What it proves |
 | --- | --- |
@@ -1004,46 +1009,71 @@ about reading.
 | **`red_team_a_host_that_bounds_nobody_serves_no_read`** | A service built without an `Owners` refuses every read `read_owner` names (`Heads`, `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary`, `Challenge`, `Claims`) with `NOT_YOUR_ACCOUNT`: the default is the safe side. |
 | **`red_team_an_away_node_serves_its_own_account_and_refuses_hosting_as_away`** | A node opened on the stand-in vault (`Node::open_away`, in `home/vault-while-away`) because the real disk is absent still serves its own account's sync, and refuses to host any other account with `HOSTING_AWAY`. Sabotaged (hosts as normal; own account refused): red. |
 | **`red_team_no_node_serves_with_the_unscoped_owners`** | `Unscoped`, the test double that lets anyone read, is named nowhere in the CLI, node or Android code outside their test modules. Its first version cut each file at the first `#[cfg(test)]` and missed code after a test helper in `daemon.rs`; sabotage found it. |
-| **`what_a_peer_fetches_is_useless_without_the_key`** | The reason there is no access-control list. The served bytes contain no plaintext, and a stranger's keys cannot open them. |
-| **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
-| **`a_host_that_discarded_a_chunk_cannot_fake_the_proof`** | Deleting to save space is detected. |
-| **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
-| **`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`** | The listener serves connections concurrently since 2026-09-17, and the pledge check is a read before a write. Sixteen offers released at the same instant all saw the same free space and all were stored: a host took on four times its pledge. The check and the write now happen under one lock. Fails when the lock is removed. |
-| **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
-| **`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`** | A host at pledge 0 stores its account's segment from a member of its roster, and refuses the same segment from a device outside it, on a service with no claim book to refuse it later. #409's iPhone run: a computer at pledge 0 refused its own phone's delete for good. Sabotaged (the pledge asked of siblings too; the roster not asked): red each. |
-| **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
-| **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
-| `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
-| `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
-| `heads_for_an_unknown_owner_are_empty_rather_than_an_error` | No invented chains. |
 | **`red_team_only_a_direct_session_from_a_known_device_records_its_network`** | §8 7c. A session from a stranger, a relayed one (no address) and a loopback one record no network; a direct session from a known device records its /24. The known-device check is the store's: removing the service's own leaves it green, which is the store's test biting. |
+
+## `answers` — what a peer is answered (`service/tests/`) (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`what_a_peer_fetches_is_useless_without_the_key`** | The reason there is no access-control list. The served bytes contain no plaintext, and a stranger's keys cannot open them. |
+| **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
+| **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
+| `heads_for_an_unknown_owner_are_empty_rather_than_an_error` | No invented chains. |
 | `hello_reports_this_nodes_device_and_agrees_on_a_version` | The opening exchange. |
-| **`red_team_a_peer_can_only_withdraw_records_about_itself`** | `Dropped` corrects a ledger, which is the shape of request that becomes an attack if the subject is taken from the message. A host able to say "device B no longer holds these" could make an owner believe its data is unreplicated, or erase the record of the only holder that still has it. The subject is the connection's proven device and cannot be named in the request at all. |
-| **`a_segment_already_held_is_answered_not_stored`** | `accepted` has to be what happened, not what the call returned. Mapping `Ok(_)` to accepted made every idle round look like a round that had moved something, so the daemon printed a line every five minutes on a quiet fleet — which is how an operator learns to stop reading the log. |
 | **`a_hello_from_a_newer_peer_is_answered_with_the_version_both_sides_know`** | The version window. Requiring an exact match — which is what this did — meant no node could speak to a node one commit ahead, so every protocol addition partitioned the network until every machine upgraded at the same instant. Survivable in one household; impossible for people who join and leave. |
 | `a_hello_from_below_the_floor_is_refused_rather_than_guessed_at` | A window has a bottom. Below it there is no shared vocabulary, and pretending otherwise fails on some later message instead of this one. |
-| **`red_team_a_leaving_notice_withdraws_only_the_caller`** | `Leaving` withdraws every record about a device at once, the most destructive notice a peer can send: pointed at the wrong device it would make an owner forget the only holder that still has its data. It carries no device, so the subject is the connection's proven one. Also checks the chunk is then under-replicated, which is what makes the next round repair it instead of waiting the seven days of `LIVE_FOR`. |
-| **`red_team_a_draining_notice_uncounts_only_the_caller`** | `Draining { seconds }` carries no device, so the subject is the connection's proven one: pointed at another machine it would make an owner ignore, and replace, a holder that is staying. The answer (`Exposed { chunks }`) counts what rests on the caller alone. Sabotaged (subject taken from elsewhere): red. |
-| `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
 | `a_node_that_keeps_no_book_says_so` | §8 0o 2b.3 (c): a `PeerService` built without `with_relay` answers `Request::Presences` with `NO_BOOK`, which `PeerClient::presences` reads as "cannot tell", not as an error. |
 | **`red_team_presences_are_answered_to_the_device_tls_proved_and_no_other`** | `Request::Presences` carries nothing: who may ask is the device the connection proved, handed to the book as `caller`. The member gets its rows; any other device gets `NOT_YOURS`. Sabotaged by asking the book about a fixed device instead of the caller. |
-| **`red_team_a_host_that_bounds_accounts_asks_before_every_store`** | §8 1c: with `with_owners`, both `StoreChunk` and `StoreSegment` ask the bound, a claim is credited to the device TLS proved, never another, and a host answers it with its own claim (`claiming`) so a machine that is never dialled can bound what it pulls. Sabotaged four ways: skip the gate on chunks, on segments, credit a fixed device, answer without the host's claim. |
 | `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
+
+## `storing` — storing for a stranger (`service/tests/`) (9)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
+| **`a_host_that_discarded_a_chunk_cannot_fake_the_proof`** | Deleting to save space is detected. |
+| **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
+| **`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`** | The listener serves connections concurrently since 2026-09-17, and the pledge check is a read before a write. Sixteen offers released at the same instant all saw the same free space and all were stored: a host took on four times its pledge. The check and the write now happen under one lock. Fails when the lock is removed. |
+| **`red_team_pledge_zero_takes_the_accounts_log_from_a_member_only`** | A host at pledge 0 stores its account's segment from a member of its roster, and refuses the same segment from a device outside it, on a service with no claim book to refuse it later. #409's iPhone run: a computer at pledge 0 refused its own phone's delete for good. Sabotaged (the pledge asked of siblings too; the roster not asked): red each. |
+| **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
+| `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
+| `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
+| **`a_segment_already_held_is_answered_not_stored`** | `accepted` has to be what happened, not what the call returned. Mapping `Ok(_)` to accepted made every idle round look like a round that had moved something, so the daemon printed a line every five minutes on a quiet fleet — which is how an operator learns to stop reading the log. |
+
+## `notices` — notices a peer sends about itself (`service/tests/`) (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_peer_can_only_withdraw_records_about_itself`** | `Dropped` corrects a ledger, which is the shape of request that becomes an attack if the subject is taken from the message. A host able to say "device B no longer holds these" could make an owner believe its data is unreplicated, or erase the record of the only holder that still has it. The subject is the connection's proven device and cannot be named in the request at all. |
+| **`red_team_a_leaving_notice_withdraws_only_the_caller`** | `Leaving` withdraws every record about a device at once, the most destructive notice a peer can send: pointed at the wrong device it would make an owner forget the only holder that still has its data. It carries no device, so the subject is the connection's proven one. Also checks the chunk is then under-replicated, which is what makes the next round repair it instead of waiting the seven days of `LIVE_FOR`. |
+| **`red_team_a_draining_notice_uncounts_only_the_caller`** | `Draining { seconds }` carries no device, so the subject is the connection's proven one: pointed at another machine it would make an owner ignore, and replace, a holder that is staying. The answer (`Exposed { chunks }`) counts what rests on the caller alone. Sabotaged (subject taken from elsewhere): red. |
+| `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
+
+## `accounts` — a host that bounds accounts (`service/tests/`) (6)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_host_that_bounds_accounts_asks_before_every_store`** | §8 1c: with `with_owners`, both `StoreChunk` and `StoreSegment` ask the bound, a claim is credited to the device TLS proved, never another, and a host answers it with its own claim (`claiming`) so a machine that is never dialled can bound what it pulls. Sabotaged four ways: skip the gate on chunks, on segments, credit a fixed device, answer without the host's claim. |
 | **`red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`** | `MayEvict` is honoured only from a caller the `Owners` gate confirms speaks for `owner`; another account's device, an unconfirmed one, and a host with no gate are refused. |
 | **`red_team_a_summary_root_is_the_root_of_the_summary_it_stands_for`** | `SummaryRoot` (protocol 12) answers the root of exactly what `ChunkSummary` would, for a hosted account with a marked chunk and for the host's own: an owner whose root matches re-stamps copies without asking, so a root over another set would have it count copies the host no longer has. Sabotaged (the store's summary for every owner; a constant): red each. |
 | **`red_team_a_marked_chunk_is_answered_missing_and_left_out_of_the_summary`** | A chunk its owner released reads as absent to that owner's next audit and summary, so the owner does not count it. |
 | **`red_team_eviction_is_asked_for_the_real_overage`** | Evicting for an `ACCOUNT_FULL` store frees what the incoming chunk exceeds the cap by, not a blanket amount. |
 | `a_full_account_makes_room_from_its_own_marks_and_never_from_anothers` | A store refused for `ACCOUNT_FULL` evicts that account's marked chunks and is admitted once more; it never touches another account. |
 
-## `transport` — binding and serving, and who counts as a caller from outside (5)
+## `server` — binding, and who counts as a caller from outside (`transport/`) (3)
 
 | Test | What it proves |
 | --- | --- |
 | `binding_a_public_address_no_longer_needs_an_override` | Documents a deliberate *removal*. Binding a public address used to be refused, because the transport leaked chunk identifiers and sizes to anyone on the path. TLS closed that, so the refusal became cargo cult and was deleted. The test exists so that nobody restores the refusal believing it was ever a security control. |
 | `loopback_still_binds` | The ordinary case did not regress while the above changed. |
 | **`red_team_a_neighbour_on_the_same_ipv6_network_is_not_a_caller_from_outside`** | `Witness::saw` counts a caller from the IPv6 /64 of the address it reached (`on_link`) as inside: a machine of this house, or the home coordinator's probe, dialling the global IPv6 address used to prove the way in works, and the laptop stopped parking on a relay while the router dropped every other house. A caller from another IPv6 network still counts from outside, and two IPv4-mapped addresses are compared as IPv4 (they share `::ffff:0:0/96`). Sabotaged (`on_link` dropped from `saw`): red; (`to_canonical` dropped): red. |
+
+## `client` — what a refusal reaches the owner as (`transport/`) (2)
+
+| Test | What it proves |
+| --- | --- |
 | **`red_team_a_host_waiting_on_its_coordinator_is_not_reported_as_rejecting_the_segments`** | A host's `UNCONFIRMED`, `WITHDRAWN` and `CONTRADICTED` refusals reach the owner as their own `Refusal` and not as `Rejected`, whose line says "a segment that does not verify": on 2026-10-30 that line sent an investigation after segments and chains when the host was waiting for its coordinator (`tests/route.rs`). The three texts live once, in `itsanas-net`. Sabotaged (any one arm dropped): red. |
 | `a_host_that_has_no_room_for_this_account_is_not_reported_as_rejecting_it` | `Refusal::AccountFull` is distinct from rejection; a full peer is ineligible for both refusals and is not marked as rejecting the account. |
 
@@ -1058,16 +1088,27 @@ and is catalogued with that crate.
 
 ---
 
-## `session` — what a round establishes, and what one forged chain may not stop (8)
+## `session` — what a round establishes (5)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | See **Red-team tests** above. |
 | **`red_team_a_failed_round_earns_nothing`** | See **Red-team tests** above. |
-| **`red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`** | The refresh stage of §8 2c, which the honest test server cannot play: a tampered segment in the middle of one device's chain is refused by `put_segment`, the genuine prefix before it is kept, the rest of that chain dropped and the refusal reported -- not an error that ends the pull for every other device's chain. The strict `refresh` other callers use still errors. Sabotaged (the tolerated refusal turned off): red. |
-| `this_devices_own_chain_failing_to_open_is_an_error_not_a_refusal` | `apply_per_chain` on this device's own chain sealed under the wrong root: replayed (`Replay::IncludingOwn`, as `fetch_only` does) it is an error and nobody is refused; a pull that never replays it (`OthersOnly`) neither fails nor refuses on it. Refused like a stranger's, `itsanas get` succeeded, named this device as the refused one and told its owner to wait for an honest copy of their own work instead of saying their disk or key is failing -- the catalogue walk is strict on the own chain for the same reason. Sabotaged (the strict block dropped; its `OthersOnly` skip dropped): red both times. |
 | `a_peer_that_already_held_our_data_has_earned_it` | The steady state of a host that has been storing for weeks: nothing to send, nothing to fetch, and still the most valuable peer this node knows. Requiring fresh transfer would demote every long-standing host to stranger the moment it caught up. |
 | `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
+
+## `pulling` — what one forged chain may not stop (`session/`) (2)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`** | The refresh stage of §8 2c, which the honest test server cannot play: a tampered segment in the middle of one device's chain is refused by `put_segment`, the genuine prefix before it is kept, the rest of that chain dropped and the refusal reported -- not an error that ends the pull for every other device's chain. The strict `refresh` other callers use still errors. Sabotaged (the tolerated refusal turned off): red. |
+| `this_devices_own_chain_failing_to_open_is_an_error_not_a_refusal` | `apply_per_chain` on this device's own chain sealed under the wrong root: replayed (`Replay::IncludingOwn`, as `fetch_only` does) it is an error and nobody is refused; a pull that never replays it (`OthersOnly`) neither fails nor refuses on it. Refused like a stranger's, `itsanas get` succeeded, named this device as the refused one and told its owner to wait for an honest copy of their own work instead of saying their disk or key is failing -- the catalogue walk is strict on the own chain for the same reason. Sabotaged (the strict block dropped; its `OthersOnly` skip dropped): red both times. |
+
+## `sweep` — what a peer is asked about (`session/`) (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
 ## `relay` — parks and splices (8)
 
@@ -1083,12 +1124,11 @@ and is catalogued with that crate.
 | `prefixed_gives_back_what_was_read_ahead_first` | Bytes read while recognising a request are handed back before the rest of the stream. |
 
 ---
-| **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
 # `itsanas-net` — two-node tests (83)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
-`tests/two_nodes.rs`.
+`tests/two_nodes/`.
 
 | Test | What it proves |
 | --- | --- |
@@ -1220,7 +1260,7 @@ Real sockets. `tests/eviction.rs`.
 | **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
 | **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
 
-# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (17)
+# `itsanas-net` — availability-aware placement (`tests/placement/`) (17)
 
 Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
 
