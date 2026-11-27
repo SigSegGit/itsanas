@@ -151,6 +151,7 @@ pub struct CoordServer {
     handshake_deadline: Duration,
     expire_every: Duration,
     name_questions: u32,
+    outbox: Option<crate::mail::Outbox>,
 }
 
 impl CoordServer {
@@ -183,6 +184,7 @@ impl CoordServer {
             handshake_deadline: HANDSHAKE_DEADLINE,
             expire_every: EXPIRE_EVERY,
             name_questions: NAME_QUESTIONS,
+            outbox: None,
         })
     }
 
@@ -209,6 +211,15 @@ impl CoordServer {
     #[must_use]
     pub const fn with_name_questions(mut self, allowed: u32) -> Self {
         self.name_questions = allowed;
+        self
+    }
+
+    /// Mail through `outbox` ([`crate::mail`]): addresses can be bound, and a
+    /// verified one asks a mailed code of every recovery. Without it the
+    /// coordinator refuses to bind one.
+    #[must_use]
+    pub fn with_outbox(mut self, outbox: crate::mail::Outbox) -> Self {
+        self.outbox = Some(outbox);
         self
     }
 
@@ -261,6 +272,10 @@ impl CoordServer {
         let limits =
             ConnectionLimits::new(MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS, usize::MAX);
         let service = CoordService::admitting(directory, admission);
+        let service = match &self.outbox {
+            Some(outbox) => service.with_outbox(outbox),
+            None => service,
+        };
 
         // One limiter for the whole server, not one per connection. A
         // per-connection budget is no budget at all: an attacker reconnects and

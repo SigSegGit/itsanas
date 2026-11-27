@@ -288,6 +288,32 @@ per account per quarter-hour applies only to guesses sent through the coordinato
 It is off until you ask for it, and `itsanas register --withdraw-recovery`
 takes it back — after which only the 24 words work.
 
+**An email address closes the online half of that trade.** On a coordinator
+that sends mail:
+
+```bash
+itsanas email set you@example.org     # mails a code; type it when asked
+itsanas email                         # the address, and whether it is verified
+```
+
+Once the address is verified, a recovery from the passphrase also needs a code
+mailed there: `itsanas login --from` asks the coordinator to send it and then
+asks you for it (`ITSANAS_EMAIL_CODE` holds it where there is no terminal). The
+24 words never need one. Lose that mailbox and only the 24 words, or another
+machine of the account (`itsanas email remove`), get you back in. A forgotten
+account name is mailed to a verified address on request:
+
+```bash
+itsanas email remind you@example.org --coordinator coord.example.net:9898
+```
+
+The coordinator answers a stranger who asks for a code or a reminder the same
+way whether the name or address exists, mails at most 200 messages a day
+split by purpose, an account at most five a day and one a minute, an address
+at most three a day. A stolen database still holds the container: the mailed
+code stops guesses sent through the coordinator, not an offline attack on a
+copy. The setup page and the phones do not ask the code yet.
+
 The coordinator holds no keys, no chunks and no plaintext, and it can be
 switched off without stopping anything already known. That is deliberate;
 [DESIGN.md](DESIGN.md) §8 works through why it holds so little.

@@ -295,6 +295,7 @@ impl Directory {
                 .remove(owner.as_bytes().as_slice())?;
             txn.open_table(ESCROW_TRIES)?.remove(username)?;
             txn.open_table(USAGE)?.remove(owner.as_bytes().as_slice())?;
+            super::email::forget_rows(&txn, owner)?;
             txn.open_table(BY_ID)?.remove(owner.as_bytes().as_slice())?;
             accounts.remove(username)?;
             forgotten

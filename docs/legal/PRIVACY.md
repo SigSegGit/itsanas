@@ -4,7 +4,7 @@
 
 ## Ce que le service d'annuaire conserve
 
-Le service d'annuaire ne reçoit ni adresse e-mail ni contenu lisible de vos fichiers. Vos fichiers sont chiffrés sur votre appareil avant de le quitter.
+Le service d'annuaire ne reçoit aucun contenu lisible de vos fichiers. Vos fichiers sont chiffrés sur votre appareil avant de le quitter. Il ne reçoit une adresse e-mail que si vous en liez une à votre compte.
 
 | Donnée | Pourquoi | Durée |
 |---|---|---|
@@ -17,6 +17,8 @@ Le service d'annuaire ne reçoit ni adresse e-mail ni contenu lisible de vos fic
 | Suspension d'un compte | Traiter un abus | Jusqu'à sa levée |
 | Conteneur de récupération scellé, 4096 octets au plus, si vous l'activez | Restaurer votre compte avec votre phrase secrète | Supprimé avec le compte |
 | Nom et compteur d'essais de récupération | Limiter les essais | Effacés avec l'âge et avec le compte |
+| Adresse e-mail, si vous en liez une, et si elle est vérifiée | Vous envoyer le code qui la vérifie, le code qu'une récupération par phrase secrète demande ensuite, et votre nom de compte si vous le demandez | Jusqu'à son retrait ou la suppression du compte |
+| Empreinte du code envoyé, son échéance, ses essais | Vérifier le code que vous tapez | Quinze minutes au plus, ou jusqu'à son usage |
 
 ## Ce que voient les autres membres
 
@@ -24,6 +26,10 @@ Le service d'annuaire ne reçoit ni adresse e-mail ni contenu lisible de vos fic
 - **Un membre qui connaît votre nom de compte** peut demander au service d'annuaire les adresses de vos machines.
 - **Une machine qui garde vos copies** voit votre identifiant de compte et d'appareil, votre adresse IP, les tailles et les heures, jamais le contenu.
 - **Une machine qui relaie** voit des données chiffrées, les appareils, les adresses IP, les heures et les volumes.
+
+## Les e-mails
+
+Les messages partent par Mailjet, sous-traitant de l'envoi : Mailjet reçoit l'adresse, l'objet et le texte de chaque message, qui contient un code ou votre nom de compte. Aucun message ne contient de clé ni de contenu de fichier.
 
 ## Sur le téléphone
 

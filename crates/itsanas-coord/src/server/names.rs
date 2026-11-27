@@ -16,6 +16,9 @@ pub(super) const fn is_about_a_name(request: &Request) -> bool {
             | Request::GetEscrow { .. }
             | Request::Register(_)
             | Request::RegisterInvited { .. }
+            | Request::AskRecovery { .. }
+            | Request::RecoverEscrow { .. }
+            | Request::RemindUsername { .. }
     )
 }
 
@@ -86,7 +89,17 @@ fn block_key(from: IpAddr) -> Option<String> {
 /// The requests about a name that are only a question, counted whatever the
 /// answer: unlike a registration, nothing an honest machine does repeats them.
 pub(super) const fn is_a_question(request: &Request) -> bool {
-    matches!(request, Request::Lookup { .. } | Request::GetEscrow { .. })
+    // The three a stranger mails or recovers with are charged too: one
+    // address asking codes for every name on a list spends its own budget,
+    // not the day's mail (`crate::mail`).
+    matches!(
+        request,
+        Request::Lookup { .. }
+            | Request::GetEscrow { .. }
+            | Request::AskRecovery { .. }
+            | Request::RecoverEscrow { .. }
+            | Request::RemindUsername { .. }
+    )
 }
 
 /// The key [`NAME_QUESTIONS`](super::NAME_QUESTIONS) is counted under: an IPv4 address, or the /64
@@ -108,6 +121,41 @@ fn address_key(from: IpAddr) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE ATTACK: a stranger asks recovery codes, or reminders, for every
+    /// name or address on a list. Each one must spend the asker's own budget
+    /// and wait out the answer floor, or the day's mail goes to one script
+    /// and the answer's time tells which names have an address. Sabotage:
+    /// drop `AskRecovery` from either list.
+    #[test]
+    fn red_team_the_messages_a_stranger_mails_with_are_charged_and_slowed() {
+        for request in [
+            Request::AskRecovery {
+                username: "a".to_owned(),
+            },
+            Request::RecoverEscrow {
+                username: "a".to_owned(),
+                code: String::new(),
+            },
+            Request::RemindUsername {
+                address: "a@b.example".to_owned(),
+            },
+        ] {
+            assert!(is_a_question(&request), "{} is not charged", request.kind());
+            assert!(
+                is_about_a_name(&request),
+                "{} is not slowed",
+                request.kind()
+            );
+        }
+        for request in [Request::BindEmail { address: None }, Request::Email] {
+            assert!(
+                !is_a_question(&request),
+                "{} is a member's own",
+                request.kind()
+            );
+        }
+    }
 
     /// THE ATTACK: one question each from many /64s of one /48, which a
     /// provider hands out by the thousand. Each /64 stays inside its own

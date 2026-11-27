@@ -4,6 +4,7 @@ pub mod claim;
 pub mod directory;
 pub mod error;
 pub mod invitation;
+pub mod mail;
 pub mod protocol;
 pub mod server;
 pub mod service;

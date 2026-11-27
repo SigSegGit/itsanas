@@ -4,6 +4,7 @@
 use super::*;
 use crate::claim::{NodeClaim, Presence};
 
+mod email;
 mod peers;
 mod presence;
 mod probe;

@@ -25,7 +25,8 @@ done §8 items and steps and the resolved §9 and §10 entries are in
 [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md), "Moved from HANDOVER.md on 2026-11-27", verbatim:
 history, not instructions.
 
-- **Last done (2026-11-27):** the clean base (#470), then one PR with the 37 fixes of the
+- **Last done (2026-11-28):** an email address for the account (§8 21, coordinator protocol
+  2), mailed through Mailjet once the VM has its keys. Before, 2026-11-27: the clean base (#470), then one PR with the 37 fixes of the
   whole-repository red team (each with a test that fails without it, catalogued) and every
   source file under 1,000 lines (`scripts/check-file-size.py`, its ceiling list now empty: the
   old 37 files are modules of one concern each, pure moves, 1,780 tests passing before and
@@ -619,6 +620,23 @@ from HANDOVER.md on 2026-11-27", and so is the full text of every open item cond
    notes; the week counts from the first run that sets it, then the default changes in
    `config.rs`. (b), (c), (d) ✅ 2026-10-19; the coordinator's swarm-wide marking stays ⬜, and
    must never feed placement (§6).
+
+21. 🟨 **An email address for the account** (asked by Nicolas, 2026-11-28: sign-up and recovery
+    by mail, Mailjet). Built on coordinator protocol 2 (`EMAIL_VERSION`): `itsanas email set`,
+    `confirm`, `remove`, `remind`; a verified address makes a recovery from the passphrase need a
+    mailed code too (`RecoverEscrow`; `GetEscrow` then gets the decoy), the 24 words never do;
+    budgets by purpose, account, address (`itsanas_coord::mail`) and caller address
+    (`server::names`); Mailjet by `curl --config -` (`itsanas-coordinator/src/mailjet.rs`).
+    `red_team_the_passphrase_alone_no_longer_recovers_an_account_with_a_verified_address`, plan
+    `scripts/sabotage/email.json`. Rodin, on the plan: the shared mail allowance was a weapon
+    (hence the shares), sending must not show in the answer's time (hence the queue), a code held
+    by the budget must not replace one already mailed (found by its test). **Left:** (a) the keys
+    on the VM's coordinator service: `MAILJET_API_KEY`, `MAILJET_SECRET_KEY`, `ITSANAS_MAIL_FROM`
+    (a sender Mailjet validated), then a release; (b) the setup page and the phones ask no code
+    yet (`ITSANAS_EMAIL_CODE` stands in); (c) **Nicolas's decision**: does a verified address
+    *replace* the invitation (open sign-up, the door to throwaway accounts), and is a recovery
+    with no passphrase and no words wanted at all (only possible if the operator or Mailjet could
+    open the account, against the design)?
 
 20. ⬜ **Paying for a better ratio, a market and not a bank** (Nicolas, 2026-11-24: an idea for a
     business, not to build yet). A member may pay others to provide their share of storage, and

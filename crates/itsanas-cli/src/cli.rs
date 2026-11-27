@@ -65,6 +65,29 @@ pub(crate) enum BackupAction {
     Restore { dir: PathBuf },
 }
 
+/// What `itsanas email` does; with none, it shows the address bound.
+#[derive(Debug, Subcommand)]
+pub(crate) enum EmailAction {
+    /// Bind ADDRESS to the account: the coordinator mails a code, and once
+    /// it comes back a recovery from the passphrase also needs a mailed code.
+    Set { address: String },
+    /// Give back the code `set` had mailed.
+    Confirm { code: String },
+    /// Let the address go: a recovery from the passphrase needs no code.
+    Remove,
+    /// Have the coordinator mail the account name bound to ADDRESS, for a
+    /// machine with no account yet.
+    Remind {
+        address: String,
+        /// The coordinator, host:port.
+        #[arg(long)]
+        coordinator: String,
+        /// The device that coordinator must prove itself to be.
+        #[arg(long)]
+        device: Option<String>,
+    },
+}
+
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Create a new account on this machine and print its recovery phrase.
@@ -291,6 +314,13 @@ pub(crate) enum Command {
     Backup {
         #[command(subcommand)]
         action: BackupAction,
+    },
+    /// An email address for the account: a recovery from the passphrase then
+    /// also needs a code mailed there, and a forgotten name can be mailed to
+    /// it. The 24 words never need one.
+    Email {
+        #[command(subcommand)]
+        action: Option<EmailAction>,
     },
     /// Write a copy of ITSaNAS onto a drive, that runs where it is plugged in.
     ///

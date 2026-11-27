@@ -42,6 +42,8 @@ use itsanas_coord::{
 };
 use itsanas_crypto::{DeviceKeys, SecretBytes, SymmetricKey};
 
+mod mailjet;
+
 /// Filename of the coordinator's own device key, beside its directory.
 const DEVICE_KEY: &str = "device.key";
 
@@ -204,6 +206,31 @@ fn main() -> ExitCode {
     }
 }
 
+/// The server with a Mailjet sender behind it when the environment names
+/// one ([`mailjet::Mailjet::from_env`]), and that configuration.
+fn with_mail(server: CoordServer) -> Result<(CoordServer, Option<mailjet::Mailjet>), String> {
+    let Some(mailjet) = mailjet::Mailjet::from_env() else {
+        return Ok((server, None));
+    };
+    let (outbox, queue) = itsanas_coord::mail::Outbox::new();
+    let sender = mailjet.clone();
+    std::thread::Builder::new()
+        .name("mail".to_owned())
+        .spawn(move || sender.run(&queue))
+        .map_err(|error| format!("could not start the mail sender: {error}"))?;
+    Ok((server.with_outbox(outbox), Some(mailjet)))
+}
+
+/// The start-up line saying whether this coordinator mails.
+fn print_mail(mailjet: Option<&mailjet::Mailjet>) {
+    match mailjet {
+        Some(mailjet) => println!("  mail      from {} through Mailjet", mailjet.from()),
+        None => println!(
+            "  mail      off (MAILJET_API_KEY, MAILJET_SECRET_KEY, ITSANAS_MAIL_FROM): no address can be bound"
+        ),
+    }
+}
+
 /// The server this run listens with, and the address it got.
 fn listen(cli: &Cli) -> Result<(CoordServer, std::net::SocketAddr), String> {
     let server = CoordServer::bind(&cli.listen)
@@ -265,6 +292,7 @@ fn run() -> Result<(), String> {
     }
 
     let (server, bound) = listen(&cli)?;
+    let (server, mailjet) = with_mail(server)?;
 
     ctrlc::set_handler(|| {
         SHUTDOWN.store(true, Ordering::Relaxed);
@@ -294,6 +322,7 @@ fn run() -> Result<(), String> {
         }
         Err(error) => println!("  devices   could not be counted: {error}"),
     }
+    print_mail(mailjet.as_ref());
     println!(
         "  admits    {}",
         if cli.invite_only {

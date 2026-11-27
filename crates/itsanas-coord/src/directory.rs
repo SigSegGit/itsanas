@@ -16,6 +16,8 @@
 //! | `deleted_accounts` | an account's own signed deletion | for good: hosts ask, and free what they keep for it |
 //! | `deleted_devices` | the device ids a deleted account had claimed | for good: no other account may claim them |
 //! | `suspended_accounts` | when the operator suspended an account | the suspension is lifted |
+//! | `emails`, `email_owners` | the address an account bound, whether it is verified, the hash of the code waiting | unbound, or the account goes |
+//! | `recovery_codes` | the hash of the code a recovery needs, its end, its wrong guesses | used, ended, or the account goes |
 //!
 //! [`crate::service::CoordService::expire`] is what ends the ones with a date,
 //! as the serving process starts and once a day after that.
@@ -49,10 +51,13 @@ use crate::{
 mod accounts;
 mod availability;
 mod claims;
+mod email;
 mod escrow;
 mod expiry;
 mod invitations;
 mod presence;
+
+pub use email::{CODE_LIFETIME_SECS, CODE_TRIES, CodeCheck};
 
 /// Signature domain for claiming a username.
 pub const REGISTRATION_DOMAIN: &str = "itsanas v1 account registration";
@@ -170,7 +175,7 @@ const SUSPENDED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("suspend
 /// On disk because a restart that cleared them handed out a fresh budget to
 /// anyone who could provoke one (HANDOVER §9).
 const ESCROW_TRIES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("escrow_tries");
-/// Secrets of this coordinator's own, by name. Only [`DECOY_KEY`] so far.
+/// Secrets of this coordinator's own, by name: [`DECOY_KEY`] and the key mailed codes are hashed under.
 const SECRETS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("coordinator_secrets");
 /// The key a recovery decoy is made from ([`Directory::recovery_answer`]).
 /// Written once, on the first open, and kept: a decoy that changed across a
@@ -412,10 +417,15 @@ impl Directory {
             let _ = txn.open_table(RETIRED)?;
             let _ = txn.open_table(DELETED)?;
             let _ = txn.open_table(SUSPENDED)?;
+            let _ = txn.open_table(email::EMAILS)?;
+            let _ = txn.open_table(email::EMAIL_OWNERS)?;
+            let _ = txn.open_table(email::RECOVERY_CODES)?;
             let mut secrets = txn.open_table(SECRETS)?;
-            if secrets.get(DECOY_KEY)?.is_none() {
-                let key = itsanas_crypto::SymmetricKey::random()?;
-                secrets.insert(DECOY_KEY, key.expose().as_slice())?;
+            for name in [DECOY_KEY, email::CODE_KEY] {
+                if secrets.get(name)?.is_none() {
+                    let key = itsanas_crypto::SymmetricKey::random()?;
+                    secrets.insert(name, key.expose().as_slice())?;
+                }
             }
         }
         txn.commit()?;
