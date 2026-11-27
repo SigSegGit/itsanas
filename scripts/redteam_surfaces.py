@@ -69,6 +69,7 @@ SURFACES = [
         'itsanas-node/src/pledges.rs',
         'itsanas-net/src/service.rs',
         'itsanas-store/src/vault.rs',
+        'itsanas-store/src/vault/',
         'itsanas-net/tests/eviction.rs',
         'itsanas-net/src/transport.rs',
         'itsanas-cli/tests/route.rs',
@@ -79,6 +80,7 @@ SURFACES = [
         'itsanas-net/src/session.rs',
         'itsanas-net/tests/placement.rs',
         'itsanas-store/src/index/placement.rs',
+        'itsanas-store/src/index/placement/',
         'itsanas-store/src/reliability.rs',
         'itsanas-cli/src/placing.rs',
         'itsanas-cli/src/host_run.rs',
@@ -102,11 +104,22 @@ SURFACES = [
     ]),
     ('local-store', 'the index, packs, folders, the virtual drive, crash', [
         'itsanas-store/src/index.rs',
+        'itsanas-store/src/index/audits.rs',
+        'itsanas-store/src/index/chain.rs',
+        'itsanas-store/src/index/chunks.rs',
+        'itsanas-store/src/index/coverage.rs',
+        'itsanas-store/src/index/files.rs',
+        'itsanas-store/src/index/ledger.rs',
+        'itsanas-store/src/index/losses.rs',
+        'itsanas-store/src/index/peer_notes.rs',
+        'itsanas-store/src/index/roster.rs',
+        'itsanas-store/src/index/upgrade.rs',
         'itsanas-store/src/traces.rs',
         'itsanas-folder/src/lib.rs',
         'itsanas-store/src/disk_bytes.rs',
         'itsanas-store/src/pack.rs',
-        'itsanas-store/tests/store.rs',
+        'itsanas-store/src/pack/',
+        'itsanas-store/tests/store/',
         'itsanas-store/tests/packs.rs',
         'itsanas-store/tests/keyed_chunking.rs',
         'itsanas-folder/tests/',
@@ -201,7 +214,8 @@ def filter_for(key):
             continue
         crate, rest = path.split('/', 1)
         if rest.startswith('tests/'):
-            parts.append(f'binary_id({crate}::{rest[6:-3]})')
+            # tests/x.rs, or tests/x/main.rs and its modules: binary x.
+            parts.append(f'binary_id({crate}::{rest[6:-3].split("/")[0]})')
             continue
         module = rest[4:-3]
         if module.endswith('/mod'):

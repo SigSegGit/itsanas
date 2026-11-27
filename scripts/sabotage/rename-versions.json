@@ -22,7 +22,7 @@
       "dead": "        if false {"
     },
     "versions: brought back beside the newest, not over it": {
-      "file": "crates/itsanas-store/src/store.rs",
+      "file": "crates/itsanas-store/src/store/write.rs",
       "live": "        base.merge(seen);\n        let entry = FileEntry {",
       "dead": "        let entry = FileEntry {"
     },

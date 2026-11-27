@@ -11,12 +11,12 @@
   ],
   "defences": {
     "audit: a member's failure is forgiven": {
-      "file": "crates/itsanas-store/src/index.rs",
+      "file": "crates/itsanas-store/src/index/audits.rs",
       "live": "        } else if self.is_member(device)? {\n            record.forgive();",
       "dead": "        } else if false {\n            record.forgive();"
     },
     "audit: a member's old sanction is not shown": {
-      "file": "crates/itsanas-store/src/index.rs",
+      "file": "crates/itsanas-store/src/index/audits.rs",
       "live": "            if record.failed > 0 && !self.is_member(&device)? {",
       "dead": "            if record.failed > 0 {"
     },

@@ -160,7 +160,7 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 236 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 52 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store/main.rs`) | 52 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 27 |
@@ -698,7 +698,7 @@ moment the sync engine starts materialising files.
 | `the_word_hash_is_standard_siphash_2_4` | The word hash equals the standard library's SipHash-2-4 on several keys and words, so the PRF is the standard one and not a look-alike. |
 | `the_field_agrees_with_plain_integer_arithmetic` | Addition and multiplication in GF(2^61-1) agree with plain 128-bit integer arithmetic modulo 2^61-1. The universal-hash bound (collisions at most 63/2^61) rests on this being a field. |
 
-## `pack` — sealed chunks appended into pack files (8)
+## `pack` — sealed chunks appended into pack files (4)
 
 `crates/itsanas-store/src/pack.rs` (M10). A chunk is a record
 `[address][length][sealed bytes]` appended to the current pack, found through a
@@ -708,13 +708,27 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | Test | What it proves |
 | --- | --- |
 | `chunks_round_trip_deduplicate_and_survive_a_reopen` | A chunk reads back, a second put of the same address appends nothing, a removed chunk stays removed, and all of it survives a reopen. |
-| **`red_team_a_torn_append_is_dead_space_not_a_shifted_pack`** | A crash (or a full disk) mid-append leaves bytes no row names; the next record must land after them at the offset its row records, not at the store's idea of the length. Sabotaged (ignore the file's real end): red. |
-| **`red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed`** | Rows are committed without waiting for the disk between marks; at open, the records after the last durable mark are replayed, so none is lost, a removed chunk never returns, and a cut-short tail invents nothing. Sabotaged (no replay; removal not moving the mark; mark before the torn tail): red each. |
 | **`red_team_a_damaged_record_reads_as_missing_so_repair_can_replace_it`** | A damaged pack record (`BlobStore::damage` overwrites its header), or a row pointing where another record now is, reads as missing rather than serving one chunk's bytes as another's; its row is dropped, and a `put` stores the chunk again. Sabotaged (no header check): red. |
 | **`red_team_a_damaged_row_never_allocates_what_it_claims`** | An index row claiming a 4 GiB record, or an offset before any header, is damage: it reads as no record and is never allocated or seeked (it used to take the node down, and the offset underflowed the seek). Sabotaged (no filter in `place`): red. |
+| `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
+
+## `replay` — the rows a crash took, rebuilt at open (2)
+
+`crates/itsanas-store/src/pack/replay.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_torn_append_is_dead_space_not_a_shifted_pack`** | A crash (or a full disk) mid-append leaves bytes no row names; the next record must land after them at the offset its row records, not at the store's idea of the length. Sabotaged (ignore the file's real end): red. |
+| **`red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed`** | Rows are committed without waiting for the disk between marks; at open, the records after the last durable mark are replayed, so none is lost, a removed chunk never returns, and a cut-short tail invents nothing. Sabotaged (no replay; removal not moving the mark; mark before the torn tail): red each. |
+
+## `compaction` — a mostly dead pack rewritten (2)
+
+`crates/itsanas-store/src/pack/compaction.rs`.
+
+| Test | What it proves |
+| --- | --- |
 | **`red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk`** | A closed pack eight tenths dead is rewritten and deleted, every live chunk still reads, and the byte total is exact. Sabotaged (drop the copy): red. |
 | **`red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names`** | Compaction used to remove a chunk's row before writing its copy, so a crash between the two lost the chunk. Now the copy is appended and the row moved in one durable commit. The test simulates a crash after the copy is appended but before its commit, reopens, and the chunk still reads; a full compaction then keeps it and frees the dead pack. Rodin's finding. |
-| `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
 
 ---
 
@@ -760,7 +774,7 @@ holds a copy of.
 
 # `itsanas-store` — integration tests (52)
 
-Full path from plaintext to disk and back. `tests/store.rs`.
+Full path from plaintext to disk and back. `tests/store/`.
 
 | Test | What it proves |
 | --- | --- |
