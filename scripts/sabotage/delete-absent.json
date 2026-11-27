@@ -13,7 +13,7 @@
   ],
   "defences": {
     "delete: the tombstone ignores what was seen": {
-      "file": "crates/itsanas-store/src/store.rs",
+      "file": "crates/itsanas-store/src/store/write.rs",
       "live": "        base.merge(seen);\n        let tombstone = Tombstone {",
       "dead": "        let tombstone = Tombstone {"
     },
