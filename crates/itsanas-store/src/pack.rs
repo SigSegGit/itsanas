@@ -217,27 +217,36 @@ impl Packs {
         let Ok(Some(place)) = self.place(address) else {
             return false;
         };
+        match self.header_at(address, place) {
+            Some(true) => true,
+            // An I/O failure is not evidence of loss: say no, keep the row.
+            None => false,
+            // Dropped only if the row still names what was read: a compaction
+            // may have moved it meanwhile, and then the record is where it is now.
+            Some(false) => {
+                matches!(self.remove_row(address, Some(place)), Ok(false))
+                    && matches!(self.place(address), Ok(Some(now))
+                        if now != place && self.header_at(address, now) == Some(true))
+            }
+        }
+    }
+
+    /// Whether `address`'s record header is at `place`: `None` for an I/O
+    /// failure that says nothing of the record.
+    fn header_at(&self, address: &ChunkId, place: Place) -> Option<bool> {
         let mut header = [0u8; HEADER_LEN];
         let read = File::open(self.pack_path(place.pack)).and_then(|mut file| {
             file.seek(SeekFrom::Start(place.offset - HEADER))?;
             file.read_exact(&mut header)
         });
-        let whole = read.is_ok()
-            && header[..32] == address.as_bytes()[..]
-            && header[32..] == place.len.to_le_bytes();
-        if !whole
-            && read.as_ref().is_err_and(|e| {
-                e.kind() != std::io::ErrorKind::UnexpectedEof
-                    && e.kind() != std::io::ErrorKind::NotFound
-            })
-        {
-            // An I/O failure is not evidence of loss: say no, keep the row.
-            return false;
+        match read {
+            Ok(()) => Some(
+                header[..32] == address.as_bytes()[..] && header[32..] == place.len.to_le_bytes(),
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Some(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
         }
-        if !whole {
-            let _ = self.remove(address);
-        }
-        whole
     }
 
     /// Damage `address`'s record the way a disk does, behind the index: a
@@ -459,6 +468,28 @@ impl Packs {
         let Some(place) = self.place(address)? else {
             return Ok(None);
         };
+        self.get_at(address, place)
+    }
+
+    /// [`Self::get`] from `place`, read a moment before. A record not there
+    /// drops the row only if it still names `place`: a compaction may have
+    /// moved it to a good copy meanwhile, which is then read where it is.
+    fn get_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
+        if let Some(bytes) = self.read_at(address, place)? {
+            return Ok(Some(bytes));
+        }
+        if self.remove_row(address, Some(place))? {
+            return Ok(None);
+        }
+        match self.place(address)? {
+            Some(now) if now != place => self.read_at(address, now),
+            _ => Ok(None),
+        }
+    }
+
+    /// `address`'s record at `place`, or `None` when it is cut short, gone or
+    /// names another address. Other I/O errors stay errors.
+    fn read_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
         let path = self.pack_path(place.pack);
         let mut header = [0u8; HEADER_LEN];
         let mut bytes = vec![0u8; place.len as usize];
@@ -475,7 +506,6 @@ impl Packs {
                     std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::NotFound
                 ) =>
             {
-                self.remove(address)?;
                 return Ok(None);
             }
             Err(error) => return Err(StoreError::io(path, error)),
@@ -484,7 +514,6 @@ impl Packs {
         // (a damaged pack, a pack rewritten under it) is caught here rather
         // than handed on as somebody else's chunk.
         if header[..32] != address.as_bytes()[..] || header[32..] != place.len.to_le_bytes() {
-            self.remove(address)?;
             return Ok(None);
         }
         Ok(Some(bytes))
@@ -497,6 +526,13 @@ impl Packs {
     /// (A durable commit in redb also makes every earlier one durable, so
     /// every record before the new mark has its row on the disk.)
     pub fn remove(&self, address: &ChunkId) -> Result<bool> {
+        self.remove_row(address, None)
+    }
+
+    /// [`Self::remove`], or, given `seen`, only while the row still names
+    /// that place: a reader that found its record gone must not drop the row
+    /// a compaction has moved since to a good copy.
+    fn remove_row(&self, address: &ChunkId, seen: Option<Place>) -> Result<bool> {
         let writer = self
             .current
             .lock()
@@ -509,10 +545,17 @@ impl Packs {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, 0);
         let removed = {
             let mut chunks = txn.open_table(CHUNKS)?;
-            let place = chunks
-                .remove(address.as_bytes().as_slice())?
+            let now = chunks
+                .get(address.as_bytes().as_slice())?
                 .map(|row| Place::decode(row.value()))
                 .transpose()?;
+            // Still committed when the row moved: the mark is written.
+            let place = if seen.is_none_or(|seen| now == Some(seen)) {
+                chunks.remove(address.as_bytes().as_slice())?;
+                now
+            } else {
+                None
+            };
             if let Some(place) = place {
                 txn.open_table(BY_PACK)?
                     .remove(member_key(place.pack, address).as_slice())?;
@@ -597,10 +640,13 @@ impl Packs {
                 // A record that no longer reads stays where it is (its pack
                 // with it): one damaged chunk must not stop every later
                 // compaction, and moving it would only copy the damage.
-                let Ok(Some(bytes)) = self.get(&address) else {
+                let Ok(Some(place)) = self.place(&address) else {
                     continue;
                 };
-                self.relocate(&address, pack, &bytes)?;
+                let Ok(Some(bytes)) = self.get_at(&address, place) else {
+                    continue;
+                };
+                self.relocate(&address, place, &bytes)?;
             }
             if self.members(pack)?.is_empty() {
                 fs::remove_file(&path).map_err(|error| StoreError::io(path.clone(), error))?;
@@ -616,7 +662,9 @@ impl Packs {
     /// Append a copy of `address`'s record and point its row at the copy, in
     /// one durable commit. A crash before the commit leaves the old row and
     /// an unnamed copy, which the replay skips (the address has a row).
-    fn relocate(&self, address: &ChunkId, from: u32, sealed: &[u8]) -> Result<()> {
+    /// A row no longer at `from` (removed, or moved, since it was read) is
+    /// left as it is, and the copy is dead bytes before the mark.
+    fn relocate(&self, address: &ChunkId, from: Place, sealed: &[u8]) -> Result<()> {
         let len = u32::try_from(sealed.len())
             .map_err(|_| StoreError::Corrupt("a chunk too large for a pack record".to_owned()))?;
         let mut current = self
@@ -646,7 +694,14 @@ impl Packs {
             .map_err(|error| StoreError::io(path.clone(), error))?;
         current.1 = start + record.len() as u64;
         let txn = self.db.begin_write()?;
-        {
+        let still = txn
+            .open_table(CHUNKS)?
+            .get(address.as_bytes().as_slice())?
+            .map(|row| Place::decode(row.value()))
+            .transpose()?
+            == Some(from);
+        if still {
+            let from = from.pack;
             let mut members = txn.open_table(BY_PACK)?;
             members.remove(member_key(from, address).as_slice())?;
             drop(members);
@@ -663,8 +718,8 @@ impl Packs {
                     len,
                 },
             )?;
-            Self::write_mark(&txn, pack, current.1)?;
         }
+        Self::write_mark(&txn, pack, current.1)?;
         txn.commit()?;
         *self
             .pending
@@ -699,6 +754,50 @@ mod tests {
 
     fn address(byte: u8) -> ChunkId {
         ChunkId::from_bytes([byte; 32])
+    }
+
+    /// A reader that found a chunk's record gone after a compaction moved it
+    /// (its place read before the move, its pack opened after the old file
+    /// went) reads the good copy and drops nothing. Sabotage: `remove_row`
+    /// ignores `seen`.
+    #[test]
+    fn a_read_from_a_place_compaction_moved_does_not_drop_the_moved_row() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packs = Packs::open(dir.path()).expect("open");
+        assert!(packs.put(&address(1), b"moved by compaction").unwrap());
+        *packs.current.lock().unwrap() = (2, 0);
+        let stale = packs.place(&address(1)).unwrap().expect("a row");
+        packs
+            .relocate(&address(1), stale, b"moved by compaction")
+            .unwrap();
+        fs::remove_file(packs.pack_path(stale.pack)).unwrap();
+
+        assert_eq!(
+            packs.get_at(&address(1), stale).unwrap().as_deref(),
+            Some(&b"moved by compaction"[..]),
+            "a read from the old place lost the chunk compaction had moved"
+        );
+        assert_eq!(packs.count().unwrap(), 1, "the moved row was dropped");
+        assert!(packs.contains(&address(1)));
+    }
+
+    /// A compaction that read a chunk before it was removed brings nothing
+    /// back when it moves it. Sabotage: drop the `still` check in `relocate`.
+    #[test]
+    fn a_relocation_after_a_remove_brings_nothing_back() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packs = Packs::open(dir.path()).expect("open");
+        assert!(packs.put(&address(1), b"deleted meanwhile").unwrap());
+        *packs.current.lock().unwrap() = (2, 0);
+        let seen = packs.place(&address(1)).unwrap().expect("a row");
+        assert!(packs.remove(&address(1)).unwrap());
+        packs
+            .relocate(&address(1), seen, b"deleted meanwhile")
+            .unwrap();
+
+        assert_eq!(packs.count().unwrap(), 0, "a removed chunk came back");
+        assert_eq!(packs.total_bytes().unwrap(), 0);
+        assert_eq!(packs.get(&address(1)).unwrap(), None);
     }
 
     #[test]
