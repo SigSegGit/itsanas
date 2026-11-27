@@ -1759,7 +1759,7 @@ impl Index {
             // Never let the counter go backwards: entries may already be
             // pending beyond this segment's range, and reusing a sequence
             // number would fork the log.
-            let next = Self::read_u64(&meta, META_NEXT_SEQUENCE)?.max(envelope.last_sequence + 1);
+            let next = Self::read_u64(&meta, META_NEXT_SEQUENCE)?.max(envelope.last_sequence.saturating_add(1));
             meta.insert(META_NEXT_SEQUENCE, next.to_le_bytes().as_slice())?;
         }
 
