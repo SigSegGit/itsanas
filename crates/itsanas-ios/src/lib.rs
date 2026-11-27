@@ -211,11 +211,7 @@ pub extern "C" fn itsanas_close() -> *mut c_char {
 
 /// Empty `slot`, unless the account was asked open again since `asked` (what
 /// `opens` counted when the close was asked).
-fn close_unless_reopened(
-    slot: &Mutex<Option<Arc<Node>>>,
-    opens: &AtomicU64,
-    asked: u64,
-) -> Answer {
+fn close_unless_reopened(slot: &Mutex<Option<Arc<Node>>>, opens: &AtomicU64, asked: u64) -> Answer {
     if opens.load(Ordering::SeqCst) != asked {
         return Ok("{}".to_owned());
     }
