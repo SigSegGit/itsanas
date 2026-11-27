@@ -17,6 +17,7 @@
 //! coordinator survived the decentralisation audit in `docs/DESIGN.md` §8.
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use itsanas_crypto::{DeviceId, UserId};
@@ -81,9 +82,18 @@ pub const PROBE_WINDOW: Duration = Duration::from_secs(3600);
 ///
 /// Same reasoning as [`ESCROW_TRACKED`], and full means refuse: evicting an
 /// entry to make room is how a caller would clear their own counter. Only
-/// enrolled devices reach this, so the table is bounded by the fleet rather
-/// than by the internet.
+/// enrolled devices reach this, and each of them at most
+/// [`PROBES_PER_DEVICE`] addresses an hour, so the table is bounded by the
+/// fleet rather than by the internet.
 pub const PROBE_TRACKED: usize = 8192;
+
+/// How many different addresses one device may have probed per
+/// [`PROBE_WINDOW`].
+///
+/// One probe per address lets a machine that moved ask again; this caps how
+/// many times it moves. Without it a device announcing a new address before
+/// each probe made the coordinator dial one chosen host after another.
+pub const PROBES_PER_DEVICE: u32 = 3;
 
 /// What a probe request resolves to, before anything touches the network.
 ///
@@ -157,6 +167,19 @@ impl EscrowLimiter {
         }
         self.attempts.insert(username.to_owned(), (1, now));
         true
+    }
+
+    /// Whether [`Self::allow`] would allow `username` at `now`, counting
+    /// nothing: what lets two budgets be checked before either is charged, so
+    /// a request one of them refuses takes no room in the other.
+    pub fn would_allow(&mut self, username: &str, now: Instant) -> bool {
+        self.forget_expired(now);
+        match self.attempts.get(username) {
+            Some((count, since)) => {
+                now.duration_since(*since) >= self.window || *count < self.allowed
+            }
+            None => self.attempts.len() < self.capacity,
+        }
     }
 
     /// Drop windows that have elapsed.
@@ -323,14 +346,24 @@ impl<'a> CoordService<'a> {
 
     /// One more escrow fetch of `username`: memory first (cheap, and what
     /// bounds a flood), then the disk, which a restart does not clear.
+    ///
+    /// The limiter is locked for the memory count alone, never across the
+    /// disk write, and it is shared by every connection: only an escrow fetch
+    /// waits on another. A poisoned lock is taken as it is, since a count left
+    /// half-way is still a count, and refusing every fetch until a restart is
+    /// what a panic elsewhere would otherwise buy.
     fn escrow_allowed(
         &self,
-        limiter: &mut EscrowLimiter,
+        limiter: &Mutex<EscrowLimiter>,
         username: &str,
         now: Instant,
         now_unix: u64,
     ) -> Result<bool> {
-        Ok(limiter.allow(username, now)
+        let allowed = limiter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .allow(username, now);
+        Ok(allowed
             && self.directory.count_escrow_attempt(
                 username,
                 now_unix,
@@ -345,7 +378,7 @@ impl<'a> CoordService<'a> {
         request: &Request,
         caller: DeviceId,
         now_unix: u64,
-        limiter: &mut EscrowLimiter,
+        limiter: &Mutex<EscrowLimiter>,
         now: Instant,
     ) -> Result<Response> {
         match request {
@@ -605,11 +638,18 @@ impl<'a> CoordService<'a> {
     }
 
     /// What [`Request::Hosts`] tells `caller`: machines of other accounts that
-    /// offer space and were heard lately. Nothing to a device with no claim.
+    /// offer space and were heard lately. Nothing to a device with no live
+    /// claim, or of a suspended account.
     fn hosts_for(&self, caller: DeviceId, now: u64) -> Result<Vec<ClaimedPresence>> {
         let Some(mine) = self.directory.claim_for(caller)? else {
             return Ok(Vec::new());
         };
+        if mine.claim.revoked
+            || mine.verify(now).is_err()
+            || self.directory.is_suspended(mine.claim.owner)?
+        {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         for presence in self.directory.presences_after(caller, HOSTS_SCANNED)? {
             let device = presence.presence.device;
@@ -652,9 +692,10 @@ impl<'a> CoordService<'a> {
     ///   accepted.
     ///
     /// What remains is: a member, who published a public address, may have that
-    /// address dialled once an hour. The residual is written down rather than
-    /// argued away -- an enrolled member can make the coordinator open one
-    /// connection an hour to a public address of their choosing, which is a
+    /// address dialled once an hour, and at most [`PROBES_PER_DEVICE`]
+    /// addresses an hour per device. The residual is written down rather than
+    /// argued away -- an enrolled member can make the coordinator open a few
+    /// connections an hour per device to public addresses of their choosing, which is a
     /// slow and attributable port scanner, and the answer to that is that they
     /// are enrolled and can be un-enrolled.
     pub fn probe_target(&self, caller: DeviceId, now_unix: u64) -> Result<Probe> {
@@ -1118,6 +1159,126 @@ mod tests {
         );
     }
 
+    /// THE ATTACK: a stolen laptop is withdrawn by its owner, or its account is
+    /// suspended, and it keeps its device key: it connects and asks for hosts,
+    /// and is handed other accounts' addresses and claims for as long as it
+    /// runs. Sabotage: drop the revoked check; drop the suspended check.
+    #[test]
+    fn red_team_a_withdrawn_device_is_introduced_to_nobody() {
+        let directory = directory();
+        let me = user(40);
+        let (laptop, other) = (device(40), device(41));
+        enrol(&directory, &me, &laptop);
+        directory
+            .claim(
+                &NodeClaim {
+                    owner: me.user_id(),
+                    device: other.device_id(),
+                    pledged_bytes: 0,
+                    issued_unix: NOW,
+                    revoked: false,
+                }
+                .sign(&me),
+                NOW,
+            )
+            .expect("claim");
+        let host_owner = user(42);
+        let host = device(42);
+        enrol(&directory, &host_owner, &host);
+        announce_address(&directory, &host_owner, &host, "203.0.113.7:9797");
+
+        let service = CoordService::new(&directory);
+        let told = |caller: &itsanas_crypto::DeviceKeys| match ask(
+            &service,
+            &Request::Hosts,
+            caller.device_id(),
+        ) {
+            Response::Hosts(list) => list.len(),
+            other => panic!("not a list of hosts: {other:?}"),
+        };
+        assert_eq!(told(&laptop), 1, "a member is introduced to the host");
+
+        directory
+            .claim(
+                &NodeClaim {
+                    owner: me.user_id(),
+                    device: laptop.device_id(),
+                    pledged_bytes: 0,
+                    issued_unix: NOW + 1,
+                    revoked: true,
+                }
+                .sign(&me),
+                NOW + 1,
+            )
+            .expect("withdraw");
+        assert_eq!(
+            told(&laptop),
+            0,
+            "a withdrawn device was introduced to hosts"
+        );
+        assert_eq!(told(&other), 1, "the account's other machine still is");
+
+        directory.suspend(me.user_id(), NOW).expect("suspend");
+        assert_eq!(
+            told(&other),
+            0,
+            "a suspended account's device was introduced to hosts"
+        );
+    }
+
+    /// One escrow limiter is shared by every connection. Locked around every
+    /// request, one slow write held up every other connection's lookups, and
+    /// a panic while it was held dropped every request until a restart.
+    /// Sabotage: lock the limiter at the top of `handle`; refuse on a
+    /// poisoned lock.
+    #[test]
+    fn a_held_or_poisoned_escrow_limiter_holds_up_no_other_request() {
+        let directory = directory();
+        let service = CoordService::new(&directory);
+        let caller = device(50).device_id();
+        let limiter = Mutex::new(EscrowLimiter::new());
+        let (service, limiter) = (&service, &limiter);
+
+        std::thread::scope(|scope| {
+            let held = limiter.lock().expect("lock");
+            let (tx, rx) = std::sync::mpsc::channel();
+            scope.spawn(move || {
+                let peers = Request::Peers {
+                    user: user(50).user_id(),
+                };
+                let answer = service.handle(&peers, caller, NOW, limiter, Instant::now());
+                let _ = tx.send(answer.is_ok());
+            });
+            let answered = rx.recv_timeout(Duration::from_secs(5));
+            drop(held);
+            assert_eq!(
+                answered,
+                Ok(true),
+                "a lookup waited for another connection's escrow fetch"
+            );
+        });
+
+        let poisoned = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = limiter.lock();
+                    panic!("a request panicked while it held the limiter");
+                })
+                .join()
+        });
+        assert!(poisoned.is_err() && limiter.is_poisoned());
+        let fetch = Request::GetEscrow {
+            username: "anyone".to_owned(),
+        };
+        let answer = service
+            .handle(&fetch, caller, NOW, limiter, Instant::now())
+            .expect("answer");
+        assert!(
+            matches!(answer, Response::Escrow(_)),
+            "a panic elsewhere left recovery refused until a restart: {answer:?}"
+        );
+    }
+
     fn ask(service: &CoordService<'_>, request: &Request, caller: DeviceId) -> Response {
         ask_at(service, request, caller, NOW)
     }
@@ -1128,9 +1289,9 @@ mod tests {
         caller: DeviceId,
         now: u64,
     ) -> Response {
-        let mut limiter = EscrowLimiter::new();
+        let limiter = Mutex::new(EscrowLimiter::new());
         service
-            .handle(request, caller, now, &mut limiter, Instant::now())
+            .handle(request, caller, now, &limiter, Instant::now())
             .unwrap()
     }
 
@@ -1434,10 +1595,10 @@ mod tests {
                 NOW,
             )
             .expect("delete");
-        let mut limiter = EscrowLimiter::new();
+        let limiter = Mutex::new(EscrowLimiter::new());
         let service = CoordService::new(&directory);
         service
-            .escrow_allowed(&mut limiter, "invented", Instant::now(), NOW)
+            .escrow_allowed(&limiter, "invented", Instant::now(), NOW)
             .expect("count");
 
         let later = NOW + crate::directory::NAME_RETIRED_FOR;

@@ -14,6 +14,7 @@
 //! | `departures` | a device's last signed notice that it is leaving | for good |
 //! | `retired_names` | a deleted account's name | it is free again |
 //! | `deleted_accounts` | an account's own signed deletion | for good: hosts ask, and free what they keep for it |
+//! | `deleted_devices` | the device ids a deleted account had claimed | for good: no other account may claim them |
 //! | `suspended_accounts` | when the operator suspended an account | the suspension is lifted |
 //!
 //! [`crate::service::CoordService::expire`] is what ends the ones with a date,
@@ -148,6 +149,10 @@ const RETIRED: TableDefinition<'_, &str, u64> = TableDefinition::new("retired_na
 /// about at their rounds, so a host that was offline when it happened still
 /// frees what it kept, and checks the account's signature before it does.
 const DELETED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("deleted_accounts");
+/// The device ids a deleted account had claimed, kept for good: they were
+/// public while it lived, and another account claiming one would be listed as
+/// that machine's owner while it still announced.
+const DELETED_DEVICES: TableDefinition<'_, &[u8], ()> = TableDefinition::new("deleted_devices");
 /// A suspended account's key -> the unix time the operator suspended it.
 ///
 /// Set and lifted by the operator only ([`Directory::suspend`]), never by a
@@ -544,7 +549,7 @@ impl Directory {
                 let secret = secret.ok_or(CoordError::Rejected(
                     "this coordinator admits new members by invitation only",
                 ))?;
-                redeem_in(&txn, secret, joiner, now)?;
+                redeem_in(&txn, &by_id, secret, joiner, now)?;
             }
             // After the code, not before: a retired name told a stranger with
             // none that an account of that name once existed, and until when
@@ -602,6 +607,9 @@ impl Directory {
             return Err(CoordError::Rejected(
                 "the inviter is not a member of this coordinator",
             ));
+        }
+        if self.is_suspended(signed.invitation.inviter)? {
+            return Err(CoordError::Suspended);
         }
 
         let key = signed.invitation.code;
@@ -828,6 +836,14 @@ impl Directory {
             )?;
             txn.open_table(RETIRED)?
                 .insert(name, now.saturating_add(NAME_RETIRED_FOR))?;
+            let index = txn.open_table(CLAIMS_BY_OWNER)?;
+            let mut gone = txn.open_table(DELETED_DEVICES)?;
+            let first = owner_device_key(user, DeviceId::from_bytes([0x00; 32]));
+            let last = owner_device_key(user, DeviceId::from_bytes([0xff; 32]));
+            for row in index.range(first.as_slice()..=last.as_slice())? {
+                let (key, _) = row?;
+                gone.insert(&key.value()[32..], ())?;
+            }
         }
         txn.commit()?;
         self.forget_account(name)?;
@@ -960,6 +976,16 @@ impl Directory {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
                 None => None,
             };
+            if existing.is_none()
+                && txn
+                    .open_table(DELETED_DEVICES)?
+                    .get(key.as_slice())?
+                    .is_some()
+            {
+                return Err(CoordError::Rejected(
+                    "that device belonged to a deleted account",
+                ));
+            }
 
             // Only a live claim for a device with no claim here takes a slot.
             // A device already live is re-signing (a new pledge, `register`
@@ -1896,6 +1922,7 @@ fn fold(current: u16, seen: bool) -> u16 {
 /// enumerate which codes exist, and the codes are what keeps strangers out.
 fn redeem_in(
     txn: &redb::WriteTransaction,
+    by_id: &redb::Table<'_, &[u8], &str>,
     secret: &Secret,
     joiner: UserId,
     now: u64,
@@ -1917,6 +1944,18 @@ fn redeem_in(
     if !lodged.signed.opens_with(secret)
         || lodged.remaining == 0
         || lodged.signed.invitation.expires_unix <= now
+    {
+        return Err(refused());
+    }
+
+    // The inviter's standing now, not at lodging: a member suspended or
+    // deleted since admits nobody with the codes it handed out.
+    let inviter = lodged.signed.invitation.inviter.as_bytes();
+    if by_id.get(inviter.as_slice())?.is_none()
+        || txn
+            .open_table(SUSPENDED)?
+            .get(inviter.as_slice())?
+            .is_some()
     {
         return Err(refused());
     }
@@ -4158,5 +4197,81 @@ mod tests {
             vec!["invented".to_owned()],
             "a name that left the directory stayed in its table of escrow counts"
         );
+    }
+
+    /// THE ATTACK: the operator suspends a member after an abuse report, and
+    /// the member's keys go on bringing people in: a code lodged before the
+    /// suspension, or a fresh one lodged after it, admits a sock puppet as a
+    /// new member nobody suspended. A deleted inviter's codes, left on disk,
+    /// do the same. Sabotage: drop the suspension check at lodging; drop the
+    /// inviter's standing check at redemption.
+    #[test]
+    fn red_team_a_suspended_member_admits_nobody() {
+        let (_dir, directory) = directory();
+        let (mallory, gone) = (user(91), user(92));
+        for (who, name) in [(&mallory, "mallory"), (&gone, "gone")] {
+            directory
+                .register(&open_registration(who, name, NOW), NOW)
+                .expect("member");
+        }
+        let code = |n: u8| [n; SECRET_LEN];
+        directory
+            .lodge_invitation(&invite(&mallory, &code(1), 2, NOW), NOW)
+            .expect("lodged before the suspension");
+        directory
+            .lodge_invitation(&invite(&gone, &code(3), 1, NOW), NOW)
+            .expect("lodged before the deletion");
+
+        directory.suspend(mallory.user_id(), NOW).expect("suspend");
+        assert!(
+            directory
+                .lodge_invitation(&invite(&mallory, &code(2), 1, NOW + 1), NOW + 1)
+                .is_err(),
+            "a suspended member lodged a new invitation"
+        );
+        assert!(
+            join(&directory, &user(93), "puppet", Some(&code(1)), NOW + 2).is_err(),
+            "a code from a suspended member admitted a new account"
+        );
+
+        directory
+            .delete_account(&deletion(&gone, "gone", NOW + 3), NOW + 3)
+            .expect("delete");
+        assert!(
+            join(&directory, &user(94), "orphan", Some(&code(3)), NOW + 4).is_err(),
+            "a code from a deleted account admitted a new account"
+        );
+
+        directory.unsuspend(mallory.user_id()).expect("lift");
+        join(&directory, &user(93), "puppet", Some(&code(1)), NOW + 5)
+            .expect("once the suspension is lifted the code works again");
+    }
+
+    /// THE ATTACK: a device id is public while its account lives (claimed
+    /// peers, hosts). Once the account deletes itself, another member claims
+    /// that id under their own account, and the machine, still announcing,
+    /// is listed as theirs. Sabotage: drop the deleted-devices check in
+    /// `claim`.
+    #[test]
+    fn red_team_a_deleted_accounts_device_cannot_be_claimed_by_another() {
+        let (_dir, directory) = directory();
+        let (alice, mallory) = (user(95), user(96));
+        register(&directory, "alice", &alice);
+        register(&directory, "mallory", &mallory);
+        directory
+            .claim(&signed(&alice, 7, NOW, false), NOW)
+            .expect("alice enrols the machine");
+        directory
+            .delete_account(&deletion(&alice, "alice", NOW + 1), NOW + 1)
+            .expect("delete");
+
+        let taken = directory.claim(&signed(&mallory, 7, NOW + 2, false), NOW + 2);
+        assert!(
+            taken.is_err(),
+            "another member claimed a deleted account's device: {taken:?}"
+        );
+        directory
+            .claim(&signed(&mallory, 8, NOW + 2, false), NOW + 2)
+            .expect("a device of her own still enrols");
     }
 }
