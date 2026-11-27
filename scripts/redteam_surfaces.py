@@ -96,14 +96,14 @@ SURFACES = [
     ('peers-sync', 'two nodes over sockets, logs and convergence', [
         'itsanas-net/tests/two_nodes.rs',
         'itsanas-node/src/keeping.rs',
-        'itsanas-sync/tests/convergence.rs',
+        'itsanas-sync/tests/convergence/',
         'itsanas-sync/tests/deletion.rs',
         'itsanas-store/src/oplog.rs',
     ]),
     ('local-store', 'the index, packs, folders, the virtual drive, crash', [
         'itsanas-store/src/index.rs',
         'itsanas-store/src/traces.rs',
-        'itsanas-folder/src/lib.rs',
+        'itsanas-folder/src/steady.rs',
         'itsanas-store/src/disk_bytes.rs',
         'itsanas-store/src/pack.rs',
         'itsanas-store/tests/store.rs',
@@ -135,8 +135,7 @@ SURFACES = [
         'itsanas-cli/src/update/',
         'itsanas-cli/tests/steering.rs',
         'itsanas-release/tests/release.rs',
-        'itsanas-android/src/lib.rs',
-        'itsanas-android/src/host.rs',
+        'itsanas-android/src/',
         'itsanas-ios/src/host.rs',
         'itsanas-ios/src/tests.rs',
     ]),
@@ -201,7 +200,11 @@ def filter_for(key):
             continue
         crate, rest = path.split('/', 1)
         if rest.startswith('tests/'):
-            parts.append(f'binary_id({crate}::{rest[6:-3]})')
+            # `tests/x.rs`, or a module of `tests/x/main.rs`: one binary, `x`.
+            binary = rest[6:].split('/')[0].removesuffix('.rs')
+            part = f'binary_id({crate}::{binary})'
+            if part not in parts:
+                parts.append(part)
             continue
         module = rest[4:-3]
         if module.endswith('/mod'):

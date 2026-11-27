@@ -862,7 +862,7 @@ new phone, a replacement disk. `tests/replay.rs`.
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
-failure reproduces exactly. `tests/convergence.rs`.
+failure reproduces exactly. `tests/convergence/`, one module per family of scenarios.
 
 | Test | What it proves |
 | --- | --- |
@@ -2241,7 +2241,8 @@ not read, the pledge kept whatever the free space.
 
 # `itsanas-android` — the JNI boundary (26)
 
-`src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
+`src/lib.rs` (the entry points), `src/folder.rs`, `src/update.rs`, `src/tests.rs` and
+`src/tests/`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
 devices, the limits, the machines to dial) moved to the `itsanas-cli` unit tests
 below, which run against a real coordinator in-process (`itsanas-cli`'s `testing`
@@ -2509,7 +2510,7 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 
 # `itsanas-folder` — unit tests (34)
 
-## `lib` — a file taken while it is still being written (1)
+## `steady` — a file taken while it is still being written (1)
 
 | Test | What it proves |
 | --- | --- |

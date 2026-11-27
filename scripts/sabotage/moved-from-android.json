@@ -133,7 +133,7 @@
       "dead": ""
     },
     "folder: recorded before the store has it": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-android/src/folder.rs",
       "live": "            Err(error) => refused.push(format!(\"{}: {}\", file.path, error.message())),",
       "dead": "            Err(error) => {\n                refused.push(format!(\"{}: {}\", file.path, error.message()));\n                taken.push(file);\n            }"
     },
@@ -148,7 +148,7 @@
       "dead": "    Ok(entry)"
     },
     "folder: a bad row is skipped": {
-      "file": "crates/itsanas-android/src/lib.rs",
+      "file": "crates/itsanas-android/src/folder.rs",
       "live": ".map(folder_file)\n        .collect::<Result<Vec<_>, _>>()?;",
       "dead": ".filter_map(|row| folder_file(row).ok())\n        .collect::<Vec<_>>();"
     },

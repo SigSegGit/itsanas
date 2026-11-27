@@ -193,6 +193,10 @@ def collect(root):
             crate = parts[0]
             if parts[1] == 'src':
                 kind = 'unit'
+            elif parts[1] == 'tests' and len(parts) > 3:
+                # `tests/x/main.rs` and its modules are one binary, the one
+                # `tests/x.rs` was before it was split: its row keeps its name.
+                kind = 'tests/%s.rs' % parts[2]
             else:
                 kind = '/'.join(parts[1:])
             text = io.open(path, encoding='utf-8', errors='replace').read()
