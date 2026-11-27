@@ -91,9 +91,8 @@ time -- he does not want to remember them). The Pi and the VM run their
 accounts in **Docker** (`scripts/fleet-docker.sh`): their version is the
 image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
 (`install/docker/README.md`). That is why V says 0.1.12; an earlier version
-of this list said "release, then `itsanas update`", which was wrong. Access:
-`~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
-22011 (VM), from his private notes, checked 2026-09-17.
+of this list said "release, then `itsanas update`", which was wrong. Access (key,
+user, host and the two SSH ports): the owner's private notes, outside this repository (an agent session finds them through its memory).
 
 0a. **Release 0.1.20, everywhere, then the hand test with a partner's Mac** (§8 0c). 0.1.20
    carries what 0.1.19 lacks: the trash on every machine and its rules (§8 13), files freed
@@ -147,10 +146,10 @@ daemon; its passphrase file is under `%LOCALAPPDATA%\itsanas`), a Raspberry Pi
 (Nicolas, 2026-09-17; `docs/MVP.md` §2 row 4). The Pi and the VM run their
 accounts in Docker (`scripts/fleet-docker.sh`).
 
-**Reaching the fleet from an agent session:** `ssh -i ~/.ssh/itsanas_session -p
-22010 itsomeone@ngas.fr` is the Pi and `-p 22011` the VM (the LAN addresses
-refuse SSH from the laptop; the public name works from inside, so the Freebox
-does hairpin NAT for SSH). Since 2026-09-17 both machines carry
+**Reaching the fleet from an agent session:** by SSH to the house's public name,
+one forwarded port for the Pi and one for the VM; the key, the user and the ports
+are in the owner's private notes, outside this repository (an agent session finds them through its memory), never here (the LAN addresses refuse SSH from the laptop; the public
+name works from inside, so the router does hairpin NAT for SSH). Since 2026-09-17 both machines carry
 `install/sudoers-itsanas` in `/etc/sudoers.d/itsanas`: the coordinator can be
 stopped, upgraded, started and read **without a password**, in exactly the
 forms that file lists (`install/README.md`, "Operating the coordinator without a

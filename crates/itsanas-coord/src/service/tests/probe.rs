@@ -26,8 +26,8 @@ fn red_team_a_probe_cannot_be_aimed_at_the_coordinators_own_network() {
         "169.254.169.254:80",
         "172.16.0.1:443",
         // A list with a private entry behind a public one (HANDOVER 0u).
-        "82.67.35.234:9801,10.0.0.5:22",
-        "82.67.35.234:9801,a,b,c,d",
+        "203.0.113.7:9801,10.0.0.5:22",
+        "203.0.113.7:9801,a,b,c,d",
     ] {
         announce_address(&directory, &owner, &laptop, address);
         let decided = service.probe_target(laptop.device_id(), NOW).unwrap();
@@ -40,10 +40,10 @@ fn red_team_a_probe_cannot_be_aimed_at_the_coordinators_own_network() {
 
     // And the addresses the feature exists for.
     for address in [
-        "ngas.fr:9801",
-        "82.67.35.234:9801",
+        "nas.example.org:9801",
+        "203.0.113.7:9801",
         "[2001:db8::1]:9797",
-        "82.67.35.234:9801,[2001:db8::1]:9797",
+        "203.0.113.7:9801,[2001:db8::1]:9797",
     ] {
         announce_address(&directory, &owner, &laptop, address);
         assert_eq!(
@@ -90,7 +90,7 @@ fn a_withdrawn_device_stops_being_probed_for() {
     let owner = user(8);
     let laptop = device(8);
     enrol(&directory, &owner, &laptop);
-    announce_address(&directory, &owner, &laptop, "ngas.fr:9801");
+    announce_address(&directory, &owner, &laptop, "nas.example.org:9801");
 
     let service = CoordService::new(&directory);
     assert!(matches!(

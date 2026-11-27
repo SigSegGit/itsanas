@@ -68,7 +68,7 @@ pub fn parse_announce(text: &str) -> Result<String> {
         NodeError::Config(format!(
             concat!(
                 "announce must be the host:port that reaches this machine from ",
-                "another network, such as ngas.fr:9801 or [2001:db8::1]:9797; ",
+                "another network, such as nas.example.org:9801 or [2001:db8::1]:9797; ",
                 "{}, found {:?}"
             ),
             why, text

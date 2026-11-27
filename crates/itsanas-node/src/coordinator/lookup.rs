@@ -578,7 +578,7 @@ mod tests {
         let mut peers = vec![
             (ids[0], "192.168.1.10:9797".to_owned()),
             (ids[1], "192.168.1.11:9797".to_owned()),
-            (ids[2], "ngas.fr:9801".to_owned()),
+            (ids[2], "nas.example.org:9801".to_owned()),
             (ids[3], "[2001:db8::1]:9797".to_owned()),
         ];
         reachable_first(&mut peers);
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(
             order,
             vec![
-                "ngas.fr:9801",
+                "nas.example.org:9801",
                 "[2001:db8::1]:9797",
                 "192.168.1.10:9797",
                 "192.168.1.11:9797"
@@ -619,7 +619,7 @@ mod tests {
                 "{address} can only be dialled from its own network and must sort last"
             );
         }
-        for address in ["ngas.fr:9801", "82.67.35.234:9801", "[2001:db8::1]:9797"] {
+        for address in ["nas.example.org:9801", "203.0.113.7:9801", "[2001:db8::1]:9797"] {
             assert!(
                 !is_private_address(address),
                 "{address} is how somebody in another house reaches this one"

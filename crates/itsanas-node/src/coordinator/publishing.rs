@@ -504,25 +504,25 @@ mod tests {
         // publishes its address on the LAN it is on, which is what every
         // machine in another house cannot use.
         let config = crate::config::Config {
-            announce: Some("ngas.fr:9801".to_owned()),
+            announce: Some("nas.example.org:9801".to_owned()),
             ..crate::config::Config::default()
         };
         let local = "192.168.1.11:41999".parse().unwrap();
         assert_eq!(
             published_address(&config, "0.0.0.0:9797", local),
-            "ngas.fr:9801"
+            "nas.example.org:9801"
         );
     }
 
     #[test]
     fn the_announced_port_is_not_replaced_by_the_listening_one() {
         // THE BUG THIS PREVENTS: a port forward exists to map an outside port
-        // to a different inside one. `ngas.fr:9801 -> 192.168.1.11:9797` is the
+        // to a different inside one. `nas.example.org:9801 -> 192.168.1.11:9797` is the
         // normal shape of one. Substituting the listening port here would
         // publish ngas.fr:9797, where the router forwards nothing, and the
         // failure would look like the peer being offline.
         let config = crate::config::Config {
-            announce: Some("ngas.fr:9801".to_owned()),
+            announce: Some("nas.example.org:9801".to_owned()),
             ..crate::config::Config::default()
         };
         let local = "192.168.1.11:41999".parse().unwrap();

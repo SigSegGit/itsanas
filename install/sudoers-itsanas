@@ -14,5 +14,5 @@ Cmnd_Alias ITSANAS_COORD = \
     /usr/bin/systemctl daemon-reload, \
     /usr/bin/systemctl --no-pager status itsanas-coordinator, \
     /usr/bin/journalctl --no-pager -u itsanas-coordinator -n 200, \
-    /usr/bin/cp --no-dereference --remove-destination /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
-itsomeone ALL=(root) NOPASSWD: ITSANAS_COORD
+    /usr/bin/cp --no-dereference --remove-destination /home/itsanas/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
+itsanas ALL=(root) NOPASSWD: ITSANAS_COORD

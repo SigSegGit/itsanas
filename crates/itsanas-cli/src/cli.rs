@@ -423,7 +423,7 @@ pub(crate) enum Command {
     /// no address another network can dial, it takes part by dialling out, and
     /// one reachable side per pair is enough.
     Announce {
-        /// e.g. `ngas.fr:9801`. Omit to print the current setting.
+        /// e.g. `nas.example.org:9801`. Omit to print the current setting.
         address: Option<String>,
         /// Go back to publishing the address this node reaches from.
         #[arg(long, conflicts_with = "address")]

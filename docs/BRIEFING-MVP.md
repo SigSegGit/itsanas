@@ -100,7 +100,7 @@ une vieille version pendant une semaine).
   target/release/itsanas-coordinator ~/itsanas-coordinator.new`, puis
   `sudo -n /usr/bin/systemctl stop itsanas-coordinator`,
   `sudo -n /usr/bin/cp --no-dereference --remove-destination
-  /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator`,
+  /home/itsanas/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator`,
   `sudo -n /usr/bin/systemctl start itsanas-coordinator`. Les commandes doivent
   être tapées **exactement** ainsi, chemins complets compris, sinon sudo demande
   le mot de passe (`install/README.md`, « Operating the coordinator without a
@@ -171,8 +171,8 @@ Trois choses, dans cet ordre. Les deux premières sont sur ta Freebox, pas dans
 le dépôt, et rien dans le code ne peut les vérifier à ta place.
 
 1. **Ouvrir un port vers le coordinateur.** Aujourd'hui il n'y en a pas :
-   mesuré le 2026-09-18 depuis le LAN, via le nom public, `ngas.fr:22010` et
-   `:22011` répondent (donc **la Freebox fait bien du hairpin** : un seul nom
+   mesuré le 2026-09-18 depuis le LAN, via le nom public, les deux ports SSH
+   répondent (donc **la Freebox fait bien du hairpin** : un seul nom
    marche de l'intérieur comme de l'extérieur), et `9898` ne répond rien. Une
    redirection TCP vers le 9898 de la VM, ou une ouverture IPv6 vers elle.
 2. **Basculer chaque nœud sur ce nom.** Tous ont encore
@@ -187,7 +187,7 @@ le dépôt, et rien dans le code ne peut les vérifier à ta place.
    la nouveauté du 2026-09-18 :
 
    ```sh
-   itsanas announce ngas.fr:9801   # le port VU DE DEHORS, pas celui d'écoute
+   itsanas announce nas.example.org:9801   # le port VU DE DEHORS, pas celui d'écoute
    itsanas register                # republie l'adresse
    ```
 
@@ -213,7 +213,7 @@ itsanas doctor
 network
   out    the coordinator at ngas.fr:9898 answered
   peers  2 other machine(s) of this account have published an address
-  in     ngas.fr:9801 answered, and it is this device
+  in     nas.example.org:9801 answered, and it is this device
 ```
 
 `out` en échec, c'est le point 1 ou 2 ci-dessus, et la ligne dit lequel : un nom

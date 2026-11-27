@@ -314,8 +314,8 @@ Upgrading and restarting a coordinator needs root, and an agent working on the
 fleet over SSH must never be given a password to type. `install/sudoers-itsanas`
 is the rule that removes the need: it lets the fleet's user run **nine fixed
 commands** as root and nothing else. Installed on the Pi and the VM on
-2026-09-17. On a new machine, once, with a password (change `itsomeone` in the
-file first if the user differs):
+2026-09-17. On a new machine, once, with a password (change `itsanas` in the
+file first to the user that runs the coordinator):
 
 ```sh
 sudo install -m 0440 -o root -g root install/sudoers-itsanas /etc/sudoers.d/itsanas
@@ -331,7 +331,7 @@ Upgrading a coordinator is then, without a password:
 ```sh
 cp target/release/itsanas-coordinator ~/itsanas-coordinator.new
 sudo -n /usr/bin/systemctl stop itsanas-coordinator
-sudo -n /usr/bin/cp --no-dereference --remove-destination /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
+sudo -n /usr/bin/cp --no-dereference --remove-destination /home/itsanas/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
 sudo -n /usr/bin/systemctl start itsanas-coordinator
 sudo -n /usr/bin/journalctl --no-pager -u itsanas-coordinator -n 200
 ```
