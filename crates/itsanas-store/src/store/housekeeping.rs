@@ -6,7 +6,11 @@ use std::time::Duration;
 use itsanas_crypto::ChunkId;
 
 use super::{GcReport, IntegrityReport, Store};
-use crate::{error::Result, index::now_unix, oplog::validate_chain};
+use crate::{
+    error::{Result, StoreError},
+    index::now_unix,
+    oplog::validate_chain,
+};
 
 impl Store {
     // --------------------------------------------------------- housekeeping
@@ -21,8 +25,10 @@ impl Store {
         let cutoff = now_unix().saturating_sub(grace.as_secs());
         let mut report = GcReport::default();
         // A file another machine deleted and this one protects is not in the
-        // index, and its chunks are all that can bring it back.
-        let protected = crate::deletion::protected_chunks(&self.root);
+        // index, and its chunks are all that can bring it back. A record that
+        // cannot be read stops the collection rather than keeping nothing.
+        let protected = crate::deletion::protected_chunks(&self.root)
+            .map_err(|error| StoreError::io(self.root.clone(), error))?;
 
         for (address, unreferenced_since) in self.index.unreferenced_chunks()? {
             if unreferenced_since > cutoff || protected.contains(&address) {

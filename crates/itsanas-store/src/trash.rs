@@ -50,12 +50,22 @@ pub fn list(dir: &Path) -> BTreeMap<String, u64> {
         .collect()
 }
 
-pub(crate) fn write_all(dir: &Path, name: &str, text: &str) -> std::io::Result<()> {
-    // Renamed into place: a torn file would hide or show the wrong files.
+pub(crate) fn write_all(dir: &Path, name: &str, text: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write as _;
+    // Renamed into place: a torn file would hide or show the wrong files. The
+    // bytes reach the disk before the rename publishes them, or a power cut
+    // can leave the new name on an empty file.
     std::fs::create_dir_all(dir)?;
     let temporary = dir.join(format!("{name}.new"));
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, dir.join(name))
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(text.as_ref())?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&temporary, dir.join(name))?;
+    // The rename itself is in the directory, which Unix syncs apart.
+    #[cfg(unix)]
+    std::fs::File::open(dir)?.sync_all()?;
+    Ok(())
 }
 
 fn save(dir: &Path, trashed: &BTreeMap<String, u64>) -> std::io::Result<()> {
@@ -129,7 +139,7 @@ pub fn days(dir: &Path) -> u64 {
 ///
 /// When the setting cannot be written; the previous one then stands.
 pub fn set_days(dir: &Path, days: u64) -> std::io::Result<()> {
-    write_all(dir, DAYS, &days.min(MAX_DAYS).to_string())
+    write_all(dir, DAYS, days.min(MAX_DAYS).to_string())
 }
 
 /// What a delete made on this machine became.
