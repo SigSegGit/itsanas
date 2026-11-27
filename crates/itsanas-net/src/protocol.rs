@@ -67,13 +67,6 @@ pub const PROTOCOL_VERSION: u16 = 13;
 /// `red_team_every_variant_keeps_its_number_on_the_wire`: append, never insert.
 pub const MIN_PROTOCOL_VERSION: u16 = 4;
 
-/// The version before `WantHosted` and `Hosted` existed.
-///
-/// Kept named rather than as a literal because the difference between 1 and 2
-/// is exactly "can this peer be asked to host for the side that dialled it",
-/// and that is worth being able to find.
-pub const PROTOCOL_WITHOUT_RECIPROCAL_HOSTING: u16 = 1;
-
 /// The first version in which a device can say what it has let go of.
 ///
 /// Named because gating on it is what keeps [`MIN_PROTOCOL_VERSION`] a real

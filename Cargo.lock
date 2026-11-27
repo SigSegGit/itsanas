@@ -766,10 +766,8 @@ dependencies = [
  "postcard",
  "rpassword",
  "security-framework",
- "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
  "windows",
  "zeroize",
 ]
@@ -993,7 +991,6 @@ dependencies = [
  "itsanas-wire",
  "rcgen",
  "rustls",
- "rustls-pki-types",
  "serde",
  "socket2",
  "thiserror 2.0.21",

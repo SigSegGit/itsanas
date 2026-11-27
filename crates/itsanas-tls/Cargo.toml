@@ -18,15 +18,18 @@ rcgen = { version = "0.14.5", default-features = false, features = ["crypto", "r
 # markedly harder. ring is the lighter of the two and the one that already
 # cross-compiles everywhere.
 rustls = { version = "0.23.35", default-features = false, features = ["ring", "std", "logging"] }
-rustls-pki-types = "1.14.0"
-# For one socket that answers both IP versions: std cannot clear
-# IPV6_V6ONLY, which Windows sets by default, so binding `[::]` there would
-# refuse every IPv4 caller. Already in the tree for `itsanas-discover`.
-socket2 = { version = "0.6.5", features = ["all"] }
 thiserror = "2.0.20"
+
+# One socket that answers both IP versions, off Windows (`reach.rs`,
+# `bind_dual_stack`): std cannot clear IPV6_V6ONLY. Windows binds two sockets
+# instead and never asks for it. Already in the tree for `itsanas-discover`.
+[target.'cfg(not(windows))'.dependencies]
+socket2 = { version = "0.6.5", features = ["all"] }
 
 [dev-dependencies]
 itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
+# The tests hold a port with a socket of their own on every system.
+socket2 = { version = "0.6.5", features = ["all"] }
 
 [lints]
 workspace = true

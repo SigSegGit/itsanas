@@ -25,9 +25,12 @@ done §8 items and steps and the resolved §9 and §10 entries are in
 [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md), "Moved from HANDOVER.md on 2026-11-27", verbatim:
 history, not instructions.
 
-- **Last done:** the iPhone renames a file and brings an earlier version back (§8 15, #468,
-  `FileEditsTest`); application mode (§8 00 (i), #464), run on the live `itsaresume` client and
-  its three hosts (§8 00 (iii), #466).
+- **Last done (2026-11-27):** the clean base (#470), then one PR with the 37 fixes of the
+  whole-repository red team (each with a test that fails without it, catalogued) and every
+  source file under 1,000 lines (`scripts/check-file-size.py`, its ceiling list now empty: the
+  old 37 files are modules of one concern each, pure moves, 1,780 tests passing before and
+  after). Dead code removed: one protocol constant below the accepted window, three unused
+  dependencies. Before: the iPhone's rename and versions (§8 15, #468).
 - **Last passes:** a whole-repository red team (eight lenses, each finding checked by a
   skeptic: 43 confirmed) and a Rodin consultation, 2026-11-27; their fixes are the PRs after #468.
   The `itsanas` skill (`.claude/skills/itsanas/SKILL.md` §3) says when the next ones run.
@@ -62,6 +65,11 @@ history, not instructions.
   - Merging one of a batch of PRs puts the next in conflict on the counts: keep main's side, run
     `check-counts.py` and `check-wiki.py --write`.
   - Flaky: `the_space_question_is_answered_by_the_one_rule_every_platform_shares` (real free space).
+  - Worktrees building at once into the one target dir overwrite each other's crate artefacts
+    (same hash, different source): a false "no method" or a stale test binary. `touch` the edited
+    crate's `lib.rs` before trusting a result.
+  - A worktree made by the agent tooling starts from `main`, not from the current branch:
+    `git checkout -B <branch> <base>` first, or the work is cut from the wrong commit.
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
 permanently?"): every step that touches a machine, the fleet, a release or
@@ -729,6 +737,13 @@ from HANDOVER.md on 2026-11-27", and so is the full text of every open item cond
 The gaps fixed since are in [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md), "Moved from HANDOVER.md
 on 2026-11-27".
 
+- **Left open by the 2026-11-27 red team**, each with its reason: the device proof is not bound
+  to a role in its signed domain (a listener echoing the caller's own proof is refused by
+  checking the device id instead; binding the role changes the wire and needs a version step);
+  the virtual drive checks that a file is not a link, then copies it, so a file swapped for a
+  link between the two is still followed; `Store::flush_segment` does not split a very large
+  batch, it is refused above `MAX_SEGMENT_BYTES` instead; the Unix-only tests of owner-only
+  modes (node home and keystore, recovery words) run in CI only.
 - **A name Windows cannot hold** is refused on a Windows folder since 2026-11-23, with the file
   kept in the account. Left: the virtual drive (ProjFS) presents such names unchecked.
 - **Tail truncation** is caught since 2026-11-18 (`Presence::head`). Not covered: a machine that

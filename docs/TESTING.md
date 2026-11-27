@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-25 — 1784 test functions across 48 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 711 are red-team tests.**
+**Last updated: 2026-11-27 — 1814 test functions across 48 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 734 are red-team tests.**
 
-**1668 of the 1784 tests have an entry of their own on this page** — an *entry*,
+**1698 of the 1814 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,40 +153,40 @@ guarantee and is not one.
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-crypto` unit | 67 (1 `#[ignore]`d) |
+| `itsanas-crypto` unit | 68 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 26 |
+| `itsanas-tls` unit | 27 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 236 |
+| `itsanas-store` unit | 240 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store/main.rs`) | 52 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store/main.rs`) | 53 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
-| `itsanas-sync` convergence (`tests/convergence/main.rs`) | 27 |
-| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 9 |
+| `itsanas-sync` convergence (`tests/convergence/main.rs`) | 29 |
+| `itsanas-sync` deletion rules (`tests/deletion.rs`) | 10 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
-| `itsanas-net` unit | 74 |
-| `itsanas-net` two-node (`tests/two_nodes/main.rs`) | 83 |
+| `itsanas-net` unit | 79 |
+| `itsanas-net` two-node (`tests/two_nodes/main.rs`) | 84 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement/main.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 143 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 150 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator/main.rs`) | 25 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
 | `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 34 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 28 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 29 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 8 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 401 |
+| `itsanas-cli` unit | 402 |
 | `itsanas-android` unit | 26 |
-| `itsanas-ios` unit | 22 |
-| `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 188 |
+| `itsanas-ios` unit | 23 |
+| `itsanas-drive` unit | 23 |
+| `itsanas-node` unit | 190 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -219,15 +219,15 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
-| `tls` | handshakes, session limits | 5 |
-| `identity` | keys, accounts, devices, claims, invitations | 86 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 81 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 79 |
+| `tls` | handshakes, session limits | 6 |
+| `identity` | keys, accounts, devices, claims, invitations | 87 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 86 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 83 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 53 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 74 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 244 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 59 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 77 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 247 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -331,7 +331,7 @@ surfaces even when nobody has pushed for a month.
 
 ---
 
-# `itsanas-crypto` — unit tests (67)
+# `itsanas-crypto` — unit tests (68)
 
 ## `secret` — secret hygiene (4)
 
@@ -384,7 +384,7 @@ surfaces even when nobody has pushed for a month.
 | `device_keys_are_independent_of_the_user_master` | Device keys are independently random and restorable from their seed, so revoking a stolen laptop never requires rotating the user's identity. |
 | `secrets_are_redacted_in_debug_output` | `MasterSecret` and `UserKeys` never print key material even when logged wholesale. |
 
-## `seal` — authenticated encryption (16)
+## `seal` — authenticated encryption (17)
 
 The security core. Most of these assert that an **attack fails**.
 
@@ -403,6 +403,7 @@ The security core. Most of these assert that an **attack fails**.
 | `empty_and_undersized_inputs_do_not_panic` | Empty and short inputs at every length below the minimum return errors instead of panicking. A panic here is a remote denial of service, since these bytes come from an untrusted peer. |
 | `empty_plaintext_is_a_valid_object` | A zero-byte file is a legitimate object, not an edge case that errors. |
 | `associated_data_encoding_is_unambiguous` | Length-prefixing makes `("ab","c")` and `("a","bc")` distinct contexts, so binding cannot be bypassed by shifting a field boundary. |
+| **`red_team_the_cipher_and_argon2_wipe_their_copies_of_a_key`** | `XChaCha20Poly1305` implements `ZeroizeOnDrop` and `argon2::Block` implements `Zeroize`, so the cipher and Argon2 wipe their own copies of a key; the test is a compile-time check that fails to build if either crate's `zeroize` feature is turned off. |
 
 ## `keystore` — passphrase-protected storage (14)
 
@@ -475,7 +476,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (194, plus the 42 vault tests below)
+# `itsanas-store` — unit tests (198, plus the 42 vault tests below)
 
 | **`red_team_what_the_store_writes_to_disk_keeps_its_bytes`** | One sample of each type the store writes to its index, its segments and its protected list (`FileEntry`, `Tombstone`, `LogEntry`, `SegmentEnvelope`, `SegmentBody`, `LocalState`, `Reliability`, `Uptime`, the protected map), folded and pinned one row per type and format (`disk_bytes.rs`, §8 17): a format that moves without a reader for the old one is a node that cannot open what it wrote. Sabotaged (two fields of `Reliability` swapped): red. |
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
@@ -649,7 +650,7 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | **`removing_an_absent_file_still_records_the_tombstone`** | A device deleting a file it never downloaded must still record the deletion, or a machine that was away when a file arrived cannot take part in removing it — and the file comes back on the next sync. |
 | `forgetting_a_chunk_clears_both_tables` | Post-GC cleanup leaves no half-state. |
 
-## `oplog` — the operation log (16)
+## `oplog` — the operation log (18)
 
 | Test | What it proves |
 | --- | --- |
@@ -669,6 +670,8 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_segment_is_refused` | No wasting a sequence number and an object id on nothing. |
 | `a_segment_round_trips_for_its_owner` | The happy path works. |
 | `encoding_round_trips_through_the_wire_format` | Serialisation preserves everything, including verifiability. |
+| **`red_team_a_chain_ending_at_the_last_sequence_is_refused_not_panicking`** | `validate_chain` returns an error, without panicking, for a validly signed segment whose last sequence is `u64::MAX`: the next-sequence check no longer overflows. |
+| **`red_team_a_signed_segment_ending_before_it_starts_is_refused`** | `verify_signature`, which `put_segment` runs before storing, rejects a validly signed envelope whose last sequence is lower than its first, so a host does not store such a segment. |
 
 ## `path` — logical path validation (10)
 
@@ -721,7 +724,7 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | **`red_team_a_torn_append_is_dead_space_not_a_shifted_pack`** | A crash (or a full disk) mid-append leaves bytes no row names; the next record must land after them at the offset its row records, not at the store's idea of the length. Sabotaged (ignore the file's real end): red. |
 | **`red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed`** | Rows are committed without waiting for the disk between marks; at open, the records after the last durable mark are replayed, so none is lost, a removed chunk never returns, and a cut-short tail invents nothing. Sabotaged (no replay; removal not moving the mark; mark before the torn tail): red each. |
 
-## `compaction` — a mostly dead pack rewritten (2)
+## `compaction` — a mostly dead pack rewritten (4)
 
 `crates/itsanas-store/src/pack/compaction.rs`.
 
@@ -729,6 +732,8 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | --- | --- |
 | **`red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk`** | A closed pack eight tenths dead is rewritten and deleted, every live chunk still reads, and the byte total is exact. Sabotaged (drop the copy): red. |
 | **`red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names`** | Compaction used to remove a chunk's row before writing its copy, so a crash between the two lost the chunk. Now the copy is appended and the row moved in one durable commit. The test simulates a crash after the copy is appended but before its commit, reopens, and the chunk still reads; a full compaction then keeps it and frees the dead pack. Rodin's finding. |
+| `a_read_from_a_place_compaction_moved_does_not_drop_the_moved_row` | A read from a place taken before a chunk was relocated, with the old pack file deleted, returns the relocated bytes and leaves the chunk count at one: a read that finds its record gone drops the row only if it still names the place read. |
+| `a_relocation_after_a_remove_brings_nothing_back` | Compaction relocating a chunk that was removed after it read the chunk leaves the chunk count and total bytes at zero, and `get` returns nothing: a row that was removed is not moved back. |
 
 ---
 
@@ -772,7 +777,7 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (52)
+# `itsanas-store` — integration tests (53)
 
 Full path from plaintext to disk and back. `tests/store/`.
 
@@ -809,6 +814,7 @@ Full path from plaintext to disk and back. `tests/store/`.
 | `a_file_larger_than_one_chunk_uses_several_and_still_verifies` | Multi-chunk files reassemble and hash correctly. |
 | `an_empty_file_is_stored_and_distinguishable_from_a_missing_one` | Zero chunks is a valid file, distinct from absence. |
 | `a_non_default_chunker_still_round_trips` | The tuning knob does not produce unreadable data. |
+| `a_refused_write_does_not_remove_a_chunk_repair_brought_back_meanwhile` | After a `write_stream` refused by its budget that shares a lost chunk with another file, and an `accept_chunk` of that chunk while the stream is paused, the chunk is still stored or still queued as lost and the other file reads back intact: `accept_chunk` takes the store's write lock. |
 
 ---
 | **`red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost`** | Found by Rodin on the 4c plan: a machine answers its own account's summary from its index, so a Pi whose disk lost a blob kept agreeing with the laptop, which re-stamped it as a copy. `Store::check_disk` records the loss and `held_summary` leaves it out, while `chunk_summary` -- the set this node wants held -- keeps it. Sabotaged by counting losses in `held_summary`. |
@@ -840,7 +846,7 @@ Full path from plaintext to disk and back. `tests/store/`.
 
 ---
 
-# `itsanas-sync` — deletes between machines with different rules (9)
+# `itsanas-sync` — deletes between machines with different rules (10)
 
 Two machines of one account, each with its own rules (HANDOVER §8 13): the
 account's trash, Protect, and rules every machine reads alike.
@@ -856,6 +862,7 @@ account's trash, Protect, and rules every machine reads alike.
 | **`red_team_how_long_traces_are_kept_is_one_choice_for_the_whole_account`** | One machine forgetting traces earlier is enough for a machine that was off to bring a deleted file back through it, so the choice is the account's: set on the phone, the computer reads it; two set apart read as the one that keeps more on both. Sabotaged (the least protective read): red. |
 | **`red_team_traces_go_after_their_days_once_a_day_and_never_when_kept_for_ever`** | `traces::sweep`: nothing goes while the account keeps traces for ever; once the choice is shorter, the old traces go; a second sweep the same day walks nothing. Sabotaged (sweeping whatever the last sweep; sweeping under `never`): red each. |
 | **`red_team_rules_are_read_alike_everywhere_and_a_tie_keeps_more`** | A machine's own rules reach the other machine without changing its rules; two account defaults written apart settle, on both machines, on the one that keeps more. Sabotaged (the looser one taken): red. |
+| **`red_team_an_unreadable_protected_record_stops_gc_and_is_not_overwritten`** | When the protected record exists but cannot be decoded, `collect_garbage` returns an error and the protected file's chunks stay, and `deletion::protect` returns an error and leaves the record's bytes as they were. |
 
 ---
 
@@ -872,7 +879,7 @@ new phone, a replacement disk. `tests/replay.rs`.
 
 ---
 
-# `itsanas-sync` — convergence tests (27)
+# `itsanas-sync` — convergence tests (29)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -917,6 +924,8 @@ failure reproduces exactly. `tests/convergence/`, one module per family of scena
 | **`a_file_can_be_released_fetched_back_and_released_again`** | A limit has to work more than once. Releasing erased the holder ledger along with the local copy, reusing the rule garbage collection needs — where a chunk goes because its *file* went. A release is the opposite case: the file is still in the account and the copies elsewhere are what made letting go safe. Observed on a Raspberry Pi before it was fixed: a device stuck at 380 KiB against a 300 KiB limit, refusing round after round because it had forgotten the second holder while fetching the file back. Fails when `release_chunk` is put back to `forget_chunk`. |
 | **`a_reachable_machine_with_stale_records_does_not_authorise_a_release`** | The case a per-machine liveness rule cannot see, and the one that costs data: a peer that stays online and empties its disk. the count of live holders asked only whether the *device* had been heard from, so such a peer counted as a copy for ever — and after a release there is no audit left to contradict it. Two bars now, and the per-`(chunk, device)` timestamp that tells them apart was already being written and read by nothing. Fails when the second bar is removed. |
 | **`the_chunks_a_device_holds_can_be_paged_without_walking_the_directories`** | The push sweep built its list with `BlobStore::addresses`, which walks the fan-out directories and says in its own documentation that it is never on a hot path. It was on the hottest one: every round, per peer — at a terabyte, a recursive `readdir` over sixteen million files every five minutes and 537 MB allocated in one go, against a measured peak of 17 MiB. The replacement pages from the index in chunk order; the test checks the paging is exact, and that chunks awaiting collection stay in it, because a replay needs the chunks of the operation it is applying and not only of the current state. |
+| **`red_team_a_replayed_conflict_keeps_an_edit_made_to_the_conflict_copy`** | After a settled two-device conflict, an edit made to the conflict copy on the device that kept the original path survives the next sync, which counts no new conflict: a host re-serving the loser's segment does not put the old version back. |
+| **`red_team_a_replayed_conflict_does_not_bring_back_a_deleted_conflict_copy`** | After a settled two-device conflict, a conflict copy deleted on the device that kept the original path stays deleted after the next sync, which counts no new conflict. |
 
 ---
 
@@ -973,7 +982,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (74)
+# `itsanas-net` — unit tests (79)
 
 ## `protocol` — storage challenges and the version gates (4)
 
@@ -1028,7 +1037,7 @@ about reading.
 | **`red_team_presences_are_answered_to_the_device_tls_proved_and_no_other`** | `Request::Presences` carries nothing: who may ask is the device the connection proved, handed to the book as `caller`. The member gets its rows; any other device gets `NOT_YOURS`. Sabotaged by asking the book about a fixed device instead of the caller. |
 | `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
 
-## `storing` — storing for a stranger (`service/tests/`) (9)
+## `storing` — storing for a stranger (`service/tests/`) (11)
 
 | Test | What it proves |
 | --- | --- |
@@ -1041,6 +1050,8 @@ about reading.
 | `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
 | `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
 | **`a_segment_already_held_is_answered_not_stored`** | `accepted` has to be what happened, not what the call returned. Mapping `Ok(_)` to accepted made every idle round look like a round that had moved something, so the daemon printed a line every five minutes on a quiet fleet — which is how an operator learns to stop reading the log. |
+| **`red_team_a_page_of_large_segments_still_fits_one_frame`** | A `Segments` request with the largest limit over three 3 MiB segments is answered with pages that each encode within one frame and hold at most two segments, and paging by `after` still fetches all three. |
+| **`red_team_an_oversized_segment_is_refused_before_storing`** | A `StoreSegment` whose sealed body is `MAX_SEGMENT_BYTES` is answered `Refused("malformed request")` and the vault holds no chain for that owner afterwards. |
 
 ## `notices` — notices a peer sends about itself (`service/tests/`) (4)
 
@@ -1076,6 +1087,14 @@ about reading.
 | --- | --- |
 | **`red_team_a_host_waiting_on_its_coordinator_is_not_reported_as_rejecting_the_segments`** | A host's `UNCONFIRMED`, `WITHDRAWN` and `CONTRADICTED` refusals reach the owner as their own `Refusal` and not as `Rejected`, whose line says "a segment that does not verify": on 2026-10-30 that line sent an investigation after segments and chains when the host was waiting for its coordinator (`tests/route.rs`). The three texts live once, in `itsanas-net`. Sabotaged (any one arm dropped): red. |
 | `a_host_that_has_no_room_for_this_account_is_not_reported_as_rejecting_it` | `Refusal::AccountFull` is distinct from rejection; a full peer is ineligible for both refusals and is not marked as rejecting the account. |
+
+## `asking` — what a peer's answer to the owner's question may be (`transport/`) (3)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_missing_answer_naming_chunks_not_asked_for_is_refused`** | `PeerClient::missing_chunks` returns `UnexpectedResponse` when the host's `Missing` answer names chunks outside the batch asked about or repeats one, so the owner does not upload or credit them. |
+| `a_missing_answer_comes_back_without_repeats` | A `Missing` answer that names an asked chunk twice, to a batch that names it twice, comes back from `missing_chunks` with that chunk once. |
+| **`red_team_a_want_hosted_answer_longer_than_asked_is_refused`** | `PeerClient::want_hosted(32)` returns `UnexpectedResponse` when the peer answers with 33 chunk ids. |
 
 ## `placed` — which records a session reads (1)
 
@@ -1125,7 +1144,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (83)
+# `itsanas-net` — two-node tests (84)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes/`.
@@ -1228,6 +1247,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
 | **`a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one`** | A `PeerServer` bound to `0.0.0.0:0` serves a caller dialling `[::1]` and one dialling `127.0.0.1` on the same port (skipped with no IPv6). On Windows those are two sockets; red there before the fix (refused), and sabotaged by accepting from the first socket only: red. |
 | `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger_in_measured_mode` | The restore test again with `placement = measured`: a stranger the restored account never measured is outside the roster and still takes every chunk that had no proven copy anywhere. |
+| **`red_team_a_version_brought_back_after_a_newer_edit_arrived_is_the_one_shown`** | When the laptop makes a newer edit between the phone listing an essay's versions and bringing one back, the version that reaches the laptop is the one the phone was shown (brought back by its id, not its list position), and an id that names no version brings nothing back. |
 
 ---
 
@@ -1378,7 +1398,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (401)
+# `itsanas-cli` — unit tests (402)
 
 ## `bench` — measuring this machine (4)
 
@@ -1538,7 +1558,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | `an_answers_file_says_everything_but_the_secrets` | Every non-secret key of an answers file is parsed into Answers, and none of them is a secret. |
 | `a_mistyped_answer_is_refused_not_ignored` | An unknown or mistyped key in the answers file is refused, never silently ignored (a typo must not leave a machine offering nothing). |
 
-## `secrets` — the 24 words and the passphrase, never in argv, env or a web page, copied and saved on a Mac and under zenity (9)
+## `secrets` — the 24 words and the passphrase, never in argv, env or a web page, copied and saved on a Mac and under zenity (10)
 
 The native window per platform (WinForms through PowerShell on stdin, osascript,
 zenity, kdialog) or the terminal. Only the built command and the parsing are
@@ -1555,6 +1575,7 @@ tested: no window was opened by a test.
 | `positions_are_three_distinct_words_of_the_twenty_four` | The confirm step asks 3 distinct positions within 1..=24, in order. |
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
+| **`red_team_words_saved_over_an_open_file_are_the_owners_alone`** | On Unix, `save_words` writing the 24 words over an existing 0644 file leaves it with no group or other permission bits and holding exactly the phrase. |
 
 ## `service` — the background service under the installers' names, brought up to date by `update` (2)
 
@@ -2187,7 +2208,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (212)
+# `itsanas-node` — a node on disk (214)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2374,7 +2395,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_the_24_words_come_back_from_the_keystore_and_its_passphrase_only`** | Hand test, 2026-10-22: the sheet with the test account's 24 words was lost while the laptop still had the account and its passphrase. The keystore holds the master secret, and the words are that secret in another encoding, so `itsanas words` gives them back: the same words, while the daemon holds the store, and nothing for a wrong passphrase. Fails when the words are derived from the device seed instead of the master secret. |
 | `the_encoded_secrets_restore_the_account_and_never_print` | `Identity::secrets`, what `copy-to-key` reads while the daemon runs: refused for a wrong passphrase, `EncodedSecrets(redacted)` when printed, and restored elsewhere under another passphrase it is the same account on a new device. |
 
-## `lifecycle` — creating, restoring, opening, a new passphrase (15)
+## `lifecycle` — creating, restoring, opening, a new passphrase (16)
 
 `src/node/lifecycle.rs`.
 
@@ -2395,6 +2416,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
+| **`red_team_a_new_home_and_its_keystore_are_the_owners_alone`** | On Unix, a home `Node::create` makes or reuses at 0755, the `keystore.bin` it writes, the one a passphrase change renames over a stale 0644 `keystore.bin.new`, and a 0755 home reopened by `Node::open` all end with no group or other permission bits. |
 
 ## `roster` — which devices are this account's (1)
 
@@ -2536,7 +2558,7 @@ not read, the pledge kept whatever the free space.
 | --- | --- |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 
-## `file` — the `key = value` form, and where a portable home keeps its folder (20)
+## `file` — the `key = value` form, and where a portable home keeps its folder (21)
 
 `src/config/file.rs`.
 
@@ -2556,6 +2578,7 @@ not read, the pledge kept whatever the free space.
 | `reserve_is_off_unless_the_file_says_on` | `reserve` is off by default and not written; `reserve = on` reads and writes back; any other value is refused. |
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
+| **`red_team_a_save_never_rewrites_the_old_config_in_place`** | Saving a config replaces the file by name and never writes into the old one: a hard link to the old config still reads the old username, the new config loads, and a stale partial `config.new` beside it is replaced and gone. |
 
 ## `homes` — where a node's home is (4)
 
@@ -2626,7 +2649,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-ios` — the C boundary (22)
+# `itsanas-ios` — the C boundary (23)
 
 `src/lib.rs`, `src/host.rs`, `src/c.rs`. The iPhone's twin of `itsanas-android`:
 what both phones ask the core is `itsanas_cli::phone`, and the `itsanas-android`
@@ -2683,8 +2706,9 @@ below, and the app's side is read in the Mac job's log.
 | `a_question_reaches_the_app_and_its_answer_reaches_the_engine` | A passphrase asked by the page's engine reaches the app through the mailbox, and what the app answers is what the engine gets. |
 | **`red_team_a_stray_reply_cannot_answer_the_next_question`** | A reply to a question nobody asked, or a second reply to one already answered, is dropped and left nowhere: the next passphrase asked cannot be a secret its owner never typed. Sabotaged (a second reply taken; a reply to nobody kept): red. |
 | **`red_team_an_iphone_engine_whose_page_was_left_asks_nothing`** | Once its page is left, an engine is told the screen was closed instead of waiting, and its question is taken off the app's screen. Sabotaged (the question left in the mailbox): red. |
+| `a_close_asked_before_the_account_was_opened_again_leaves_it_open` | A close asked before the account was opened again leaves the node open, and a close asked after the last opening closes it. |
 
-# `itsanas-drive` — the account as a folder (21)
+# `itsanas-drive` — the account as a folder (23)
 
 Two files, and they are tested for two different reasons.
 
@@ -2731,6 +2755,8 @@ an account several machines hold.
 | **`every_string_handed_to_windows_ends_in_a_nul`** | Every call in the binding takes a `PCWSTR` and walks it until it finds a zero. A `Vec<u16>` without one is a read past the end of an allocation, and it would work by accident most of the time. |
 | **`red_team_a_file_shorter_than_windows_believes_is_refused_not_padded`** | The one a red-team sweep found, and the one the manual test could not. The placeholder's size is written once from the catalogue and nothing calls `PrjUpdateFileIfNeeded`, while the sync loop in the same process keeps adopting newer versions from peers — so a file that shrinks on another machine leaves Windows asking for the old length. `Source::read` returned `()`, so a short fill was invisible, and the whole buffer went to `PrjWriteFileData` regardless. The tail was **uninitialised heap**: most likely the plaintext of a file hydrated a moment earlier through the same allocator, arriving inside a different file. The buffer is zeroed now, `read` returns a count, and a short answer stops. **The `SAFETY:` comment above it said the tail was padding Windows discards** — the gate checks that a reason is written, not that it is true. |
 | **`red_team_a_read_past_the_end_serves_nothing_rather_than_zeros`** | The same fault at its extreme: an offset past the content fills nothing at all. Padding would hand back a block of zeros that reads as a legitimate hole in a sparse file. |
+| **`red_team_a_rename_to_a_scratch_name_deletes_nothing`** | Renaming `report.docx` to `~WRL0002.tmp` removes and copies nothing in the account, and the following rename of `~WRL0001.tmp` to `report.docx` only keeps `report.docx`. |
+| **`red_team_a_link_moved_into_the_drive_is_not_followed`** | `files_to_keep` returns no file for a directory junction (Windows, `mklink /J`) or symlink (Unix) pointing at a folder holding `secret.txt`, while a real folder under the root still yields its file. |
 
 # `itsanas-placement` — unit tests (71)
 
@@ -2897,7 +2923,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-folder` — integration tests (28)
+# `itsanas-folder` — integration tests (29)
 
 | Test | What it proves |
 | --- | --- |
@@ -2920,6 +2946,7 @@ destructive if wrong.
 | `a_second_device_reproduces_the_folder_exactly` | Two machines, one folder content, byte for byte. |
 | `a_full_corpus_round_trips_through_a_folder_byte_for_byte` | A real data set, unchanged. |
 | Others | New files, edits, remote changes, remote deletes, nested directories, delete/edit races, identical concurrent edits, empty folders. |
+| **`red_team_a_case_only_pair_from_another_machine_is_not_rewritten_by_one_that_joins`** | On Windows or macOS (the test is compiled on no other system), two reconcile passes of an account holding `Camera/IMG.JPG` and `Camera/img.jpg` leave both contents unchanged in the store, add no `.local-` copy, and report `Camera/img.jpg` in `report.failed`. |
 
 ---
 
@@ -3174,9 +3201,9 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (34)
+# `itsanas-coord` — the coordinator server (39)
 
-Sixteen integration tests in `tests/coordinator/` and nine unit tests beside
+Twenty-five integration tests in `tests/coordinator/` and fourteen unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
 device authentication, real signatures, real framing.
 
@@ -3212,6 +3239,9 @@ two numbers made `itsanas-coord` look eight short.
 | `the_peer_list_is_bounded_however_many_devices_a_user_enrols` | A member with a thousand devices is not a way to make the coordinator send a thousand records to anybody who asks. |
 | `a_version_below_the_window_is_refused_rather_than_guessed_at` / `asking_about_an_unknown_name_says_so_rather_than_inventing_one` | No optimistic guessing, no invented answers. |
 | **`red_team_a_newer_client_is_answered_at_the_coordinators_version`** | A client ahead of the coordinator is welcomed at the coordinator's version, and a client accepts a Welcome at an older version in the window: both sides speak `min(theirs, ours)` (`MIN_COORD_VERSION`, `agreed`), where any difference used to cut a member off until both sides updated (§8 18). Sabotaged (welcome only an equal version): red. |
+| **`red_team_one_device_cannot_probe_a_new_address_every_time`** | One device asking for ten different public addresses at one instant has exactly `PROBES_PER_DEVICE` probed, another device is still allowed, a repeated address is refused without spending the device's budget, and the window reopens after `PROBE_WINDOW`. |
+| **`red_team_one_ipv6_site_cannot_fill_the_address_table`** | With a 64-entry table, one question from each of 64 /64s of one /48 leaves room, and an unseen IPv4 address is still allowed its question. |
+| `a_full_escrow_table_is_a_documented_ceiling` | `docs/ROADMAP.md` states `ESCROW_TRACKED`'s value and the IPv4 address and IPv6 /48 counts computed from `ESCROW_TRACKED`, `ESCROW_WINDOW`, `NAME_WINDOW`, `NAME_QUESTIONS` and `NAME_BLOCK_SHARES`. |
 
 Unit tests in `service.rs` and `protocol.rs` cover the limiter's arithmetic and
 the open-request list:
@@ -3225,6 +3255,8 @@ the open-request list:
 | `the_budget_comes_back_after_the_window` | Somebody who mistypes five times is not locked out of their own account for good. |
 | `expired_windows_are_forgotten_so_the_table_does_not_fill_with_history` / `a_name_that_was_never_asked_about_is_allowed_once_the_table_has_room` | The bound holds without leaking history. |
 | `a_request_round_trips_through_postcard` | The encoding. |
+| **`red_team_a_withdrawn_device_is_introduced_to_nobody`** | A device whose claim was withdrawn gets an empty host list while its account's other machine still gets the host, and once the account is suspended that machine gets an empty list too. |
+| `a_held_or_poisoned_escrow_limiter_holds_up_no_other_request` | A `Peers` request is answered while another thread holds the escrow limiter, and after a thread panics holding it a `GetEscrow` still gets an `Escrow` answer. |
 
 ---
 
@@ -3257,9 +3289,9 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (31)
+# `itsanas-tls` — device authentication and listener limits (32)
 
-Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
+Six unit tests in `auth.rs`, four in `session.rs`, six in `limits.rs`, eleven in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
 
 | Test | What it proves |
@@ -3292,6 +3324,7 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 | **`a_failure_on_every_address_says_what_each_one_answered`** | Fleet run 40478381966: 31 dials from a runner with no IPv6 to a `v4,[v6]` pair printed only "Network is unreachable", the IPv6 attempt's excuse, and never what the IPv4 attempt answered. The error now names every address and its answer, and takes the kind of the first failure that is about the peer, not about this machine's routes. Sabotaged (the kind of a route failure kept): red. |
 | `a_failure_on_one_address_is_that_address_s_own_error` | One address: its own error, kind and text, so a log that names the address does not name it twice. Sabotaged (every failure rewrapped): red. |
 | `a_dial_to_two_closed_ports_names_both` | The same through the real dialler: two closed ports on this machine, both named in the error. Red before the fix, with the platform's "refused" for the second port alone. |
+| **`red_team_a_listener_that_echoes_the_callers_proof_is_refused`** | `connect` with no expected device returns `TlsError::ReflectedProof` when the listener answers with the dialler's own `AuthHello`. |
 
 ---
 
@@ -3462,7 +3495,7 @@ What a coordinator says, and how fast, must not depend on whether a name exists:
 | **`red_team_every_address_of_one_ipv6_block_shares_one_name_budget`** | The name budget counts an IPv6 address by its /64, the block one subscriber holds, and an IPv4-mapped address as the IPv4 one. Sabotaged (the whole address as the key): red. |
 | **`red_team_many_ipv6_blocks_of_one_site_share_its_budget`** | A provider hands out /64s by the thousand, so a /64 budget alone cost a script one more /64 per thirty names. A /48 asks at most `NAME_BLOCK_SHARES` (4) times the /64 budget, all its /64s together; another site and an IPv4 address are counted apart. Sabotaged (the /48 always allows): red. |
 
-# `itsanas-coord` — claims, directory, accounting (66)
+# `itsanas-coord` — claims, directory, accounting (68)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -3528,6 +3561,8 @@ file holds the per-name counts the escrow budget spends.
 | --- | --- |
 | **`red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget`** | The counters were in memory, so anybody who could provoke or wait for a restart ground a passphrase with a fresh budget each time. Three attempts are spent, the directory is reopened, and the fourth is refused; a window later the name is allowed again, so a person who mistyped is not locked out for good. Sabotaged (never insert into `escrow_tries`): red. |
 | **`red_team_invented_names_cannot_evict_a_live_escrow_count`** | The table is bounded, and the bound must not be a lever: a flood of invented names must not clear the count of the name being ground, and a table full of expired counts must not refuse everyone for good. Full table refuses new names, expired counts are pruned. Sabotaged (prune everything): red. |
+| **`red_team_a_suspended_member_admits_nobody`** | A suspended member cannot lodge a new invitation, a code it lodged before the suspension admits nobody, a deleted account's code admits nobody, and the code works again once the suspension is lifted. |
+| **`red_team_a_deleted_accounts_device_cannot_be_claimed_by_another`** | After an account deletes itself, another member's claim of its device id is refused while that member's own new device still enrols. |
 
 ---
 
