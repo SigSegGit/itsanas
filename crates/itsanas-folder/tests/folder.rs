@@ -750,3 +750,44 @@ fn an_empty_folder_and_an_empty_store_do_nothing() {
         "0 in, 0 out, 0 deleted locally, 0 deleted remotely, 0 conflicts"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Case-insensitive disks
+// ---------------------------------------------------------------------------
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn red_team_a_case_only_pair_from_another_machine_is_not_rewritten_by_one_that_joins() {
+    // Two files a Linux machine holds as two, `IMG.JPG` and `img.jpg`, are one
+    // file on NTFS or APFS. The machine that joins must not read the second
+    // spelling on disk as the first one edited, and rewrite it for everyone.
+    let node = node(1);
+    node.store.write_file("Camera/IMG.JPG", b"X").unwrap();
+    node.store.write_file("Camera/img.jpg", b"YYYY").unwrap();
+
+    node.folder.reconcile(&node.store, false).unwrap();
+    let report = node.folder.reconcile(&node.store, false).unwrap();
+
+    assert_eq!(
+        node.store.read_file("Camera/IMG.JPG").unwrap().as_deref(),
+        Some(&b"X"[..]),
+        "a machine that only joined rewrote a file for the whole account"
+    );
+    assert_eq!(
+        node.store.read_file("Camera/img.jpg").unwrap().as_deref(),
+        Some(&b"YYYY"[..])
+    );
+    let listed = node.store.list().unwrap();
+    assert!(
+        !listed.iter().any(|path| path.contains(".local-")),
+        "a copy nobody made entered the account: {listed:?}"
+    );
+    assert!(
+        report
+            .failed
+            .iter()
+            .any(|(path, _)| path == "Camera/img.jpg"),
+        "the spelling this disk cannot hold was not reported: {:?}",
+        report.failed
+    );
+}
