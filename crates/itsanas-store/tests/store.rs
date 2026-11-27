@@ -598,6 +598,82 @@ fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
     );
 }
 
+/// A reader that hands over `data`, stopping once at `pause_at` until told to
+/// go on: a write held part-way, for something else to run meanwhile.
+struct PausedReader {
+    data: Vec<u8>,
+    at: usize,
+    pause_at: usize,
+    paused: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+}
+
+impl std::io::Read for PausedReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.at == self.pause_at
+            && let Some((reached, go)) = self.paused.take()
+        {
+            let _ = reached.send(());
+            let _ = go.recv();
+        }
+        let end = if self.at < self.pause_at { self.pause_at } else { self.data.len() };
+        let n = buf.len().min(end - self.at);
+        buf[..n].copy_from_slice(&self.data[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
+}
+
+/// A chunk repair brings back while a refused write that shares it is under
+/// way is still there afterwards: the write's cleanup does not take it with
+/// the chunks it created, now that repair has stopped looking for it.
+/// Sabotage: drop the `write_lock` in `accept_chunk`.
+#[test]
+fn a_refused_write_does_not_remove_a_chunk_repair_brought_back_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([0x5A; 32]), dir.path());
+    let shared = testkit::filler("shared", 512 * 1024);
+    let entry = store.write_file("f.bin", &shared).unwrap();
+    let lost = entry.chunks[0];
+    let genuine = store.blobs().get(&lost).unwrap().expect("the chunk just written");
+    store.blobs().damage(&lost).unwrap();
+    store.verify_integrity(false).unwrap();
+    assert_eq!(store.loss_count().unwrap(), 1, "fixture: the loss is queued");
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: 1200 * KIB,
+            elsewhere: 0,
+            local_ceiling: None,
+            folder_copy: itsanas_store::FolderCopy::None,
+        }))
+        .unwrap();
+
+    let (reached, paused) = std::sync::mpsc::channel();
+    let (go, wait) = std::sync::mpsc::channel();
+    let mut data = shared.clone();
+    data.extend(testkit::filler("more", 1024 * 1024));
+    let reader = PausedReader {
+        data,
+        at: 0,
+        pause_at: shared.len(),
+        paused: Some((reached, wait)),
+    };
+    std::thread::scope(|scope| {
+        let write = scope.spawn(|| store.write_stream("g.bin", reader));
+        paused.recv().unwrap();
+        let repair = scope.spawn(|| store.accept_chunk(&lost, &genuine));
+        std::thread::sleep(Duration::from_millis(300));
+        go.send(()).unwrap();
+        assert!(write.join().unwrap().is_err(), "fixture: the write is refused");
+        assert!(repair.join().unwrap().unwrap(), "the genuine chunk was refused");
+    });
+
+    assert!(
+        store.has_chunk(&lost) || store.loss_count().unwrap() == 1,
+        "a refused write removed a chunk repair had brought back, and repair no longer looks for it"
+    );
+    assert_eq!(store.read_file("f.bin").unwrap().unwrap(), shared);
+}
+
 /// The bound charges what a write adds, not what it weighs.
 ///
 /// Kept beside the red-team test so that one cannot pass on a store that

@@ -1264,6 +1264,12 @@ impl Store {
         if self.user.chunk_id(&plaintext) != *address {
             return Ok(false);
         }
+        // Under the write lock: a refused `write_stream` removes the chunks it
+        // created, and one it created that repair restores meanwhile would go
+        // with them after its loss had been cleared.
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
         self.blobs.put(address, sealed)?;
         // It is here, so it is not lost. The queue must shrink on success or
         // repair would keep asking about chunks it has already recovered.
