@@ -233,6 +233,25 @@ mod tests {
                           action actor actress actual";
     const PASSPHRASE: &str = "correct horse battery staple";
 
+    /// The person saves the words over an existing 0644 file from an earlier
+    /// attempt: the 24 words, which restore the whole account, end up in a
+    /// file only they can read.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_words_saved_over_an_open_file_are_the_owners_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ITSaNAS recovery words.txt");
+        std::fs::write(&path, b"an earlier attempt").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        save_words(&path, PHRASE).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "other accounts can read the words");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), PHRASE);
+    }
+
     fn every_ask() -> Vec<Ask<'static>> {
         vec![
             Ask::ShowAndConfirm {

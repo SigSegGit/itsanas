@@ -124,13 +124,14 @@ fn red_team_the_page_brings_a_version_back_and_renames() {
     );
     let earlier = versions
         .iter()
-        .position(|version| version["current"] == false)
-        .expect("an earlier version");
+        .find(|version| version["current"] == false)
+        .and_then(|version| version["id"].as_str())
+        .expect("an earlier version, with its id");
 
     let back = page.api(
         "POST",
         "/api/files",
-        &format!("action=restore&path=essay.txt&at={earlier}"),
+        &format!("action=restore&path=essay.txt&id={earlier}"),
     );
     assert_eq!(back.status, 200, "{}", back.body);
     assert_ne!(

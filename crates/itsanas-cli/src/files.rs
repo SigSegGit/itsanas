@@ -268,13 +268,13 @@ pub(crate) fn host_targets(node: &Node) -> Vec<(String, Option<DeviceId>)> {
         .collect()
 }
 
-pub(crate) fn fetch_version_here(node: &Node, path: &str, at: usize) -> bool {
+pub(crate) fn fetch_version_here(node: &Node, path: &str, id: &str) -> bool {
     let from = |targets: &[(String, Option<DeviceId>)]| {
         targets.iter().any(|(target, pinned)| {
             connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned).is_ok_and(
                 |mut client| {
                     let _ = node.introduce(&mut client, itsanas_discover::now_unix());
-                    session::fetch_version(&node.store, &node.vault, &mut client, path, at)
+                    session::fetch_version(&node.store, &node.vault, &mut client, path, id)
                         .unwrap_or(false)
                 },
             )
@@ -423,12 +423,13 @@ pub(crate) fn versions_in(node: &Node, path: &str, restore: Option<usize>) -> Re
                 "version {n} of {path} is the one the account has now"
             ));
         }
-        if !chosen.here && !fetch_version_here(node, path, n - 1) {
+        let id = chosen.id();
+        if !chosen.here && !fetch_version_here(node, path, &id) {
             return Ok(format!(
                 "version {n} of {path} is on no machine of this account that answered; ask again when the one that wrote it is up"
             ));
         }
-        if !itsanas_store::bring_back_version(&node.store, &node.vault, path, n - 1)? {
+        if !itsanas_store::bring_back_version(&node.store, &node.vault, path, &id)? {
             return Ok(format!("version {n} of {path} could not be brought back"));
         }
         return Ok(format!("{path} is version {n} again, on every machine"));

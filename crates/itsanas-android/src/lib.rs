@@ -563,20 +563,20 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_versions(
     })
 }
 
-/// Make one version of a file (0 is the newest) the file again, everywhere.
+/// Make the version of a file named `id` (its `id` in the versions list) the
+/// file again, everywhere.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_bringBack(
     mut env: JNIEnv,
     _class: JClass,
     path: JString,
-    at: jni::sys::jint,
+    id: JString,
 ) -> jstring {
     let path = text(&mut env, &path, "the path");
+    let id = text(&mut env, &id, "the version");
     answer(&mut env, move || {
-        let path = path?;
-        let at = usize::try_from(at)
-            .map_err(|_| Failure::Usage("a version is counted from 0".to_owned()))?;
-        with_node(|node| bring_back(node, &path, at))
+        let (path, id) = (path?, id?);
+        with_node(|node| bring_back(node, &path, &id))
     })
 }
 

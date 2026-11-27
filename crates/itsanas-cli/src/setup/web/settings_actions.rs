@@ -59,10 +59,12 @@ pub(super) fn files_change(ctx: &Context, request: &Request) -> Response {
     let (Some(action), Some(path)) = (field(&form, "action"), field(&form, "path")) else {
         return Response::refuse(400, &format!("{ACTIONS}, with a path"));
     };
-    let at = field(&form, "at").and_then(|at| at.parse::<usize>().ok());
+    let id = field(&form, "id").map(str::to_owned);
     let to = field(&form, "to").map(str::to_owned);
     match action {
-        "restore" if at.is_none() => return Response::refuse(400, "restore needs at"),
+        "restore" if id.as_deref().is_none_or(str::is_empty) => {
+            return Response::refuse(400, "restore needs id");
+        }
         "rename" if to.as_deref().is_none_or(str::is_empty) => {
             return Response::refuse(400, "rename needs to");
         }
@@ -86,9 +88,8 @@ pub(super) fn files_change(ctx: &Context, request: &Request) -> Response {
                 String::new()
             }
             "restore" => {
-                let at = at.unwrap_or_default();
-                crate::phone::bring_back(node, path, at)?;
-                format!("{path} is version {} again, on every machine", at + 1)
+                crate::phone::bring_back(node, path, id.as_deref().unwrap_or_default())?;
+                format!("{path} is that version again, on every machine")
             }
             "rename" => {
                 let to = to.clone().unwrap_or_default();

@@ -164,23 +164,31 @@ pub fn versions_of(node: &Node, path: &str) -> Answer {
                 "current": version.current,
                 "here": version.here,
                 "mine": version.author == mine,
+                "id": version.id(),
             })
         })
         .collect();
     Ok(serde_json::json!({ "versions": listed }).to_string())
 }
 
-/// Make version `at` (0 is the newest) of `path` the file again, on every
-/// machine. One not on this phone is fetched first from a machine of the
-/// account that holds it; none answering is a sentence.
-pub fn bring_back(node: &Node, path: &str, at: usize) -> Answer {
-    let here = itsanas_store::versions(&node.store, &node.vault, path)?
-        .get(at)
-        .is_some_and(|version| version.here);
+/// Make the version of `path` named `id` (its `id` in [`versions_of`]) the
+/// file again, on every machine. One not on this phone is fetched first from a
+/// machine of the account that holds it; none answering, or no version of that
+/// name any more, is a sentence.
+pub fn bring_back(node: &Node, path: &str, id: &str) -> Answer {
+    let Some(here) = itsanas_store::versions(&node.store, &node.vault, path)?
+        .iter()
+        .find(|version| version.id() == id)
+        .map(|version| version.here)
+    else {
+        return Err(Failure::Usage(
+            "that version is no longer listed; look at the versions again".to_owned(),
+        ));
+    };
     if !here {
-        crate::fetch_version_here(node, path, at);
+        crate::fetch_version_here(node, path, id);
     }
-    if itsanas_store::bring_back_version(&node.store, &node.vault, path, at)? {
+    if itsanas_store::bring_back_version(&node.store, &node.vault, path, id)? {
         Ok("{}".to_owned())
     } else {
         Err(Failure::Usage(

@@ -3,7 +3,7 @@
 
 use std::{
     io::Write as _,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -110,19 +110,28 @@ pub(super) fn linux_save(phrase: &str) {
     ) else {
         return;
     };
-    let path = PathBuf::from(path.trim());
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let saved = options
-        .open(&path)
-        .and_then(|mut file| file.write_all(phrase.as_bytes()));
+    let saved = save_words(&PathBuf::from(path.trim()), phrase);
     zenity_says(if saved.is_ok() {
         "Saved. Move it to a USB stick or a password manager: on this disk, anyone who takes the machine has your files."
     } else {
         "The file could not be written; choose another place."
     });
+}
+
+/// The words written to `path`, readable by their owner alone, even when
+/// `path` is an existing file (zenity confirms an overwrite): opening keeps an
+/// existing file's mode, so it is narrowed before a word is written.
+pub(super) fn save_words(path: &Path, phrase: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )?;
+    file.write_all(phrase.as_bytes())
 }
 
 /// Once the check ends: the clipboard emptied if it still holds the words;
