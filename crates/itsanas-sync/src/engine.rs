@@ -519,11 +519,7 @@ fn apply_conflict(
 
 /// Whether the conflict copy at `sibling` already holds the losing version,
 /// or something that saw it: a later edit, or a delete.
-fn sibling_settled(
-    store: &Store,
-    sibling: &str,
-    loser: &VersionVector,
-) -> Result<Option<Applied>> {
+fn sibling_settled(store: &Store, sibling: &str, loser: &VersionVector) -> Result<Option<Applied>> {
     let seen = match store.stat(sibling)? {
         Some(existing) => existing.version.compare(loser),
         None => match store.tombstone(sibling)? {

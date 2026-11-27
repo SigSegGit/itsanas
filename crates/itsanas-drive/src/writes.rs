@@ -24,6 +24,7 @@
 
 use itsanas_folder::DELETIONS_ALWAYS_ALLOWED;
 use std::io;
+use std::path::Path;
 
 /// How long a path stays quiet before its change is read.
 pub const SETTLE_SECS: u64 = 2;
@@ -83,6 +84,37 @@ pub fn may_keep(path: &str) -> bool {
             .is_some_and(|(_, last)| matches!(last, "tmp" | "crdownload" | "partial"))
         || name == "desktop.ini"
         || name == "thumbs.db")
+}
+
+/// The files a written `path` under `root` stands for: itself, or every file
+/// under it when it is a directory, scratch files left out.
+///
+/// A link is never followed, as `itsanas-folder`'s scan never follows one: a
+/// junction to the profile moved into the drive would upload `.ssh`. On
+/// Windows `is_symlink` covers junctions too, and not the reparse points
+/// `ProjFS` puts on its own placeholders.
+///
+/// # Errors
+///
+/// Whatever the disk answered.
+pub fn files_to_keep(root: &Path, path: &str) -> io::Result<Vec<String>> {
+    let real = root.join(path);
+    let metadata = std::fs::symlink_metadata(&real)?;
+    if metadata.is_symlink() {
+        return Ok(Vec::new());
+    }
+    if !metadata.is_dir() {
+        return Ok(vec![path.to_owned()]);
+    }
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&real)? {
+        let name = entry?.file_name();
+        let child = format!("{path}/{}", name.to_string_lossy());
+        if may_keep(&child) {
+            files.extend(files_to_keep(root, &child)?);
+        }
+    }
+    Ok(files)
 }
 
 /// Changes waiting for their path to go quiet, in the order they happened.
@@ -246,7 +278,7 @@ pub fn apply(change: &Change, known: &[String], target: &impl Target) -> io::Res
 mod tests {
     use super::{
         Change, Deletions, Event, SETTLE_SECS, Settling, Target, apply, change_of, deleted_by,
-        may_keep,
+        files_to_keep, may_keep,
     };
     use std::{cell::RefCell, io};
 
@@ -508,6 +540,39 @@ mod tests {
         };
         apply(&back, &known(&["report.docx"]), &account).unwrap();
         assert_eq!(account.log.borrow().as_slice(), ["keep report.docx"]);
+    }
+
+    /// A junction or symlink moved into the drive (`mklink /J home C:\Users\me`
+    /// needs no administrator) is reported as a written path. Sabotage: decide
+    /// on followed metadata, as `Path::is_dir` does.
+    #[test]
+    fn red_team_a_link_moved_into_the_drive_is_not_followed() {
+        let base = std::env::temp_dir().join(format!("itsanas-drive-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (root, private) = (base.join("root"), base.join("private"));
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::create_dir_all(&private).unwrap();
+        std::fs::write(private.join("secret.txt"), b"key").unwrap();
+        std::fs::write(root.join("docs/a.txt"), b"a").unwrap();
+        #[cfg(windows)]
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(root.join("link"))
+            .arg(&private)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&private, root.join("link")).is_ok();
+        assert!(made, "the fixture could not make a link");
+
+        let followed = files_to_keep(&root, "link").unwrap();
+        let docs = files_to_keep(&root, "docs").unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(
+            followed.is_empty(),
+            "a link moved into the drive uploaded what it points at: {followed:?}"
+        );
+        assert_eq!(docs, ["docs/a.txt"], "a real folder must still be kept");
     }
 
     #[test]
