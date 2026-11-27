@@ -40,7 +40,6 @@ CEILING = {
     'crates/itsanas-node/src/coordinator.rs': 2790,
     'crates/itsanas-net/src/service.rs': 2577,
     'crates/itsanas-net/src/session.rs': 2424,
-    'crates/itsanas-node/src/node.rs': 2317,
     'crates/itsanas-store/tests/store.rs': 2199,
     'crates/itsanas-store/src/store.rs': 2078,
     'crates/itsanas-android/src/lib.rs': 1924,

@@ -9,7 +9,7 @@
   ],
   "defences": {
     "hosts: nothing private": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/lookup.rs",
       "live": "                && dialable_from_anywhere(&row.presence.presence.address)\n",
       "dead": ""
     },

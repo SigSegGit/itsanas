@@ -9,7 +9,7 @@
   ],
   "defences": {
     "introduced hosts: the wait after a miss is ignored": {
-      "file": "crates/itsanas-node/src/contact.rs",
+      "file": "crates/itsanas-node/src/contact/relay.rs",
       "live": "                    .is_none_or(|(_, until)| now >= *until)\n",
       "dead": "                    .is_none_or(|_| true)\n"
     },
