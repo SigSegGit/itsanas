@@ -61,6 +61,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try Core.backgroundPass(metadataOnly: true)["ran"] as? Bool, false)
     }
 
+    /// Creating an account on the iPhone asked for words 3, 11 and 19 and
+    /// showed the 24 words nowhere.
+    func testAccountCreationShowsTheWordsBeforeAskingForThemBack() {
+        let phrase = "abandon ability able about above absent absorb abstract"
+        let steps = PageViewController.confirming([phrase, "3", "11", "19"])
+        XCTAssertEqual(steps.words, phrase, "the words to write down are not shown")
+        XCTAssertTrue(steps.question.contains("3, 11, 19"), "the question names other words: \(steps.question)")
+    }
+
     func testNothingIsListedWithNoAccountOpen() {
         Core.close()
         XCTAssertThrowsError(try Core.listAt(""), "a closed account answered a listing")
