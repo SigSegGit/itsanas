@@ -557,6 +557,12 @@ pub fn challenge_holds(nonce: &[u8; 32], sealed: &[u8], proof: &[u8; 32]) -> boo
 /// Largest number of segments a single request may ask for.
 pub const MAX_SEGMENTS_PER_REQUEST: u16 = 256;
 
+/// Most bytes of segments one [`Response::Segments`] carries, and so the
+/// largest sealed body a [`Request::StoreSegment`] may hold: one frame, less
+/// room for the envelope around it. A page stops before passing it and holds
+/// at least one segment, so every stored segment can be served.
+pub const MAX_SEGMENT_BYTES: usize = crate::wire::MAX_FRAME_LEN - 64 * 1024;
+
 /// Largest number of addresses in one [`Request::HaveChunks`] batch.
 ///
 /// Bounded because the response is proportional to it, and an unbounded batch
@@ -593,6 +599,7 @@ impl Request {
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
             }
+            Self::StoreSegment { envelope } => envelope.sealed_body.len() <= MAX_SEGMENT_BYTES,
             _ => true,
         }
     }

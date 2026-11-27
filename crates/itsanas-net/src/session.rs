@@ -1516,7 +1516,9 @@ fn forked_segment(
             }
             index += 1;
         }
-        if page.len() < usize::from(MAX_SEGMENTS_PER_REQUEST) {
+        // A short page is not the end: a host stops a page at a frame's worth
+        // of bytes. Only an empty page, or a peer past this chain, is.
+        if index >= chain.len() {
             return Ok(None);
         }
         after = Some(last);
