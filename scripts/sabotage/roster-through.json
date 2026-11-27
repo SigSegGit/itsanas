@@ -9,7 +9,7 @@
   ],
   "defences": {
     "roster-through: a host hands the account its claims": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/claims.rs",
       "live": "        if owners.presented_for(caller) != Some(owner) {\n            return Ok(Response::Claims(Vec::new()));\n        }\n",
       "dead": "        if owners.presented_for(caller) != Some(owner) || caller == caller {\n            return Ok(Response::Claims(Vec::new()));\n        }\n"
     }

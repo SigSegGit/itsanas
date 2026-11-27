@@ -9,7 +9,7 @@
   ],
   "defences": {
     "isolated: a sibling dialling in is no contact": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/claims.rs",
       "live": "                                seen.fetch_max(\n",
       "dead": "                                seen.fetch_min(\n"
     }

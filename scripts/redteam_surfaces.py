@@ -31,6 +31,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 SURFACES = [
     ('wire', 'peer and coordinator framing, versions, verb numbering', [
         'itsanas-net/src/protocol.rs',
+        'itsanas-net/src/protocol/',
         'itsanas-coord/src/protocol.rs',
     ]),
     ('tls', 'handshakes, session limits', [
@@ -68,16 +69,19 @@ SURFACES = [
         'itsanas-node/src/owners.rs',
         'itsanas-node/src/pledges.rs',
         'itsanas-net/src/service.rs',
+        'itsanas-net/src/service/',
         'itsanas-store/src/vault.rs',
         'itsanas-net/tests/eviction.rs',
         'itsanas-net/src/transport.rs',
+        'itsanas-net/src/transport/',
         'itsanas-cli/tests/route.rs',
     ]),
     ('placement-audit', 'where copies go, audits, reliability, release', [
         'itsanas-placement/src/',
         'itsanas-net/src/placed.rs',
         'itsanas-net/src/session.rs',
-        'itsanas-net/tests/placement.rs',
+        'itsanas-net/src/session/',
+        'itsanas-net/tests/placement/',
         'itsanas-store/src/index/placement.rs',
         'itsanas-store/src/reliability.rs',
         'itsanas-cli/src/placing.rs',
@@ -94,7 +98,7 @@ SURFACES = [
         'itsanas-net/tests/relay.rs',
     ]),
     ('peers-sync', 'two nodes over sockets, logs and convergence', [
-        'itsanas-net/tests/two_nodes.rs',
+        'itsanas-net/tests/two_nodes/',
         'itsanas-node/src/keeping.rs',
         'itsanas-sync/tests/convergence.rs',
         'itsanas-sync/tests/deletion.rs',
@@ -201,7 +205,14 @@ def filter_for(key):
             continue
         crate, rest = path.split('/', 1)
         if rest.startswith('tests/'):
-            parts.append(f'binary_id({crate}::{rest[6:-3]})')
+            # `tests/x.rs` is the binary `x`; so is `tests/x/main.rs`, whose
+            # other files are its modules.
+            binary, _, module = rest[6:-3].partition('/')
+            if module in ('', 'main'):
+                parts.append(f'binary_id({crate}::{binary})')
+            else:
+                prefix = module.replace('/', '::') + '::'
+                parts.append(f'(binary_id({crate}::{binary}) & test(/^{re.escape(prefix)}/))')
             continue
         module = rest[4:-3]
         if module.endswith('/mod'):
