@@ -24,12 +24,20 @@ final class VersionsViewController: UITableViewController {
         reload()
     }
 
+    /// Off the main thread: the list waits for a round another screen started.
     private func reload() {
-        do {
-            versions = try Core.versions(path)
-            tableView.reloadData()
-        } catch {
-            show(error.localizedDescription)
+        let path = self.path
+        DispatchQueue.global(qos: .userInitiated).async {
+            let listed = Result { try Core.versions(path) }
+            DispatchQueue.main.async {
+                switch listed {
+                case .success(let versions):
+                    self.versions = versions
+                    self.tableView.reloadData()
+                case .failure(let error):
+                    self.show(error.localizedDescription)
+                }
+            }
         }
     }
 
