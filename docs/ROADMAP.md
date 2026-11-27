@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1784 test functions, 21 of them `#[ignore]`d into the slow job, and 711 of
+**1814 test functions, 21 of them `#[ignore]`d into the slow job, and 734 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1847,15 +1847,22 @@ running them on the laptop is what showed it** — they had been inferred from
 the absence of code, which turned out to be the wrong evidence. Kept here in
 corrected form, because the correction is more useful than the claim was.
 
-* **Case-only pairs: handled, and handled well.** `Camera/IMG.JPG` and
-  `Camera/img.jpg` are two distinct logical paths. Written out to NTFS, which
-  folds case, the second collides with the first and the conflict machinery
-  keeps **both**, naming the copy in the output
-  (`Camera/img.local-<id>.jpg`). Nothing was lost; three further scans
-  reported `0 in, 0 out, 0 conflicts`, so it settles rather than oscillating,
-  and the conflict copy is not re-ingested. The mechanism written for two
-  machines editing one file turns out to cover two names one filesystem cannot
-  hold apart, which is a better outcome than the design aimed at.
+* **Case-only pairs: one spelling kept on a disk that folds case, the other
+  left alone in the account and reported.** `Camera/IMG.JPG` and
+  `Camera/img.jpg` are two distinct logical paths, and on Linux they are two
+  files. On NTFS or APFS, which fold case, they are one. The first run of
+  this entry (2026-09-16) saw the conflict machinery keep **both**, naming a
+  copy `Camera/img.local-<id>.jpg`; that is no longer what happens, because it
+  rewrote the second spelling for the whole account as an edit of the first.
+  Since the red-team sweep (2026-11-27), a pass on Windows or macOS keeps one
+  spelling here (the one on the disk, else one this folder already synced,
+  else the first), leaves the others in the account untouched, makes no
+  `.local-` copy, reads no delete from their absence, and lists each in
+  `report.failed` with the reason. The test is
+  `red_team_a_case_only_pair_from_another_machine_is_not_rewritten_by_one_that_joins`
+  (`crates/itsanas-folder/tests/folder.rs`, compiled on Windows and macOS only).
+  Still open: the skipped spelling is not visible as a file on that machine, so
+  its content cannot be reached from there.
 * **Long paths: fine.** A 305-character logical path — over 400 absolute — was
   stored and written to NTFS without complaint, well past the traditional 260.
 * **Unicode normalisation: the third prediction, and it was wrong too.** This
@@ -1873,7 +1880,8 @@ corrected form, because the correction is more useful than the claim was.
 
   Nothing here still normalises, so the store can hold both spellings as two
   logical paths, and on a Mac those collide into one file. That is the **case
-  collision above**, not a new failure, and the conflict machinery keeps both.
+  collision above**, not a new failure: one spelling is kept on the Mac and the
+  other stays in the account, reported.
   Canonicalising to NFC on ingest is still the tidier design; it is no longer
   urgent, and it was never the emergency this entry claimed.
 

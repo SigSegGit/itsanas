@@ -1156,10 +1156,6 @@ impl Contents {
     }
 }
 
-/// The blake3 hash of no bytes at all.
-///
-/// Every empty file has it, so an empty file deleted and an unrelated empty
-/// file created would otherwise read as a rename.
 /// On a disk that folds case, `IMG.JPG` and `img.jpg` from a machine that
 /// keeps them apart are one file here. Reconciled both, the second spelling
 /// reads as the first one edited, and this machine rewrites it for the whole
@@ -1197,6 +1193,10 @@ fn skip_case_twins(
     }
 }
 
+/// Whether `hash` is the blake3 hash of no bytes at all.
+///
+/// Every empty file has it, so an empty file deleted and an unrelated empty
+/// file created would otherwise read as a rename.
 fn is_empty_content(hash: &[u8; 32]) -> bool {
     hash == blake3::hash(b"").as_bytes()
 }

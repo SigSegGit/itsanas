@@ -193,6 +193,11 @@ def collect(root):
             crate = parts[0]
             if parts[1] == 'src':
                 kind = 'unit'
+            elif parts[1] == 'tests' and len(parts) > 3:
+                # `tests/two_nodes/main.rs` and its modules are the one binary
+                # `two_nodes`, catalogued as `tests/two_nodes.rs`: a test file
+                # split to stay under a thousand lines keeps its row.
+                kind = 'tests/%s.rs' % parts[2]
             else:
                 kind = '/'.join(parts[1:])
             text = io.open(path, encoding='utf-8', errors='replace').read()
