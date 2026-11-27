@@ -163,7 +163,7 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store/main.rs`) | 52 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 3 |
 | `itsanas-sync` unit | 13 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 27 |
+| `itsanas-sync` convergence (`tests/convergence/main.rs`) | 27 |
 | `itsanas-sync` deletion rules (`tests/deletion.rs`) | 9 |
 | `itsanas-sync` replay from nothing (`tests/replay.rs`) | 3 |
 | `itsanas-net` unit | 74 |
