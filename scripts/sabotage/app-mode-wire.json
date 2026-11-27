@@ -15,7 +15,7 @@
       "dead": "                    .is_some(),"
     },
     "AppMode is not asked of an older peer": {
-      "file": "crates/itsanas-net/src/transport.rs",
+      "file": "crates/itsanas-net/src/transport/asking.rs",
       "live": "        if self.spoken < PROTOCOL_WITH_APP_MODE {",
       "dead": "        if self.spoken < 1 {"
     }

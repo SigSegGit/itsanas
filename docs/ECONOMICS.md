@@ -521,7 +521,7 @@ number is decided here and nothing consumes it.
 
 | Identifier in the code | Value | Kind | Status |
 | --- | --- | --- | --- |
-| `accounting::Split::DEFAULT` | 30/70 (`C = 7/3`) | Judgement: break-even is 33/67; this leaves about a sixth in slack | live: `keep`/`space` read it on the owner's side, and every host bounds what each other account stores here to its `room_earned` (`node/src/owners.rs`) |
+| `accounting::Split::DEFAULT` | 30/70 (`C = 7/3`) | Judgement: break-even is 33/67; this leaves about a sixth in slack | live: `keep`/`space` read it on the owner's side, and every host bounds what each other account stores here to its `room_earned` (`node/src/owners/admission.rs`) |
 | `repair::DEFAULT_REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency | live |
 | `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it (`measured` placement uses this device's own rings, DESIGN §5) |
 | `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | **read only by tests** — see §1 |

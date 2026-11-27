@@ -14,12 +14,12 @@
       "dead": "        complete,\n"
     },
     "heads: what siblings signed is not kept": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/lookup.rs",
       "live": "    if user == node.store.owner() {\n        note_heads(node, &read.presences);\n    }\n",
       "dead": "    let _ = &read.presences;\n"
     },
     "heads: a presence says nothing of its log": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/publishing.rs",
       "live": "        at_unix: presence_time(node, now),\n        head: node.store.chain_length().unwrap_or(0),\n",
       "dead": "        at_unix: presence_time(node, now),\n        head: 0,\n"
     }

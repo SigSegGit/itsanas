@@ -52,7 +52,7 @@ def commands(source):
     """The subcommands of the clap `Command` enum, as typed after `itsanas`."""
     start = re.search(r'^(?:pub(?:\(crate\))? )?enum Command \{\n', source, re.M)
     if not start:
-        sys.exit('check-parity: the Command enum is not where this script looks (lib.rs)')
+        sys.exit('check-parity: the Command enum is not where this script looks (cli.rs)')
     body = source[start.end():]
     body = body[:body.index('\n}\n')]
     found, pending = [], None
@@ -134,7 +134,7 @@ def main():
     def named(token):
         return any(token in first for first, _, _ in rows)
 
-    for name in commands(read(CLI, 'lib.rs')):
+    for name in commands(read(CLI, 'cli.rs')):
         if not named('`itsanas %s`' % name):
             problems.append('add a row to docs/PARITY.md for the command: | `itsanas %s` | ✅ | ✅ | ✅ | '
                             '✅ or ⬜ and why |' % name)

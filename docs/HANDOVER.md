@@ -25,9 +25,12 @@ done §8 items and steps and the resolved §9 and §10 entries are in
 [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md), "Moved from HANDOVER.md on 2026-11-27", verbatim:
 history, not instructions.
 
-- **Last done:** the iPhone renames a file and brings an earlier version back (§8 15, #468,
-  `FileEditsTest`); application mode (§8 00 (i), #464), run on the live `itsaresume` client and
-  its three hosts (§8 00 (iii), #466).
+- **Last done (2026-11-27):** the clean base (#470), then one PR with the 37 fixes of the
+  whole-repository red team (each with a test that fails without it, catalogued) and every
+  source file under 1,000 lines (`scripts/check-file-size.py`, its ceiling list now empty: the
+  old 37 files are modules of one concern each, pure moves, 1,780 tests passing before and
+  after). Dead code removed: one protocol constant below the accepted window, three unused
+  dependencies. Before: the iPhone's rename and versions (§8 15, #468).
 - **Last passes:** a whole-repository red team (eight lenses, each finding checked by a
   skeptic: 43 confirmed) and a Rodin consultation, 2026-11-27; their fixes are the PRs after #468.
   The `itsanas` skill (`.claude/skills/itsanas/SKILL.md` §3) says when the next ones run.
@@ -62,6 +65,11 @@ history, not instructions.
   - Merging one of a batch of PRs puts the next in conflict on the counts: keep main's side, run
     `check-counts.py` and `check-wiki.py --write`.
   - Flaky: `the_space_question_is_answered_by_the_one_rule_every_platform_shares` (real free space).
+  - Worktrees building at once into the one target dir overwrite each other's crate artefacts
+    (same hash, different source): a false "no method" or a stale test binary. `touch` the edited
+    crate's `lib.rs` before trusting a result.
+  - A worktree made by the agent tooling starts from `main`, not from the current branch:
+    `git checkout -B <branch> <base>` first, or the work is cut from the wrong commit.
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
 permanently?"): every step that touches a machine, the fleet, a release or
@@ -342,7 +350,7 @@ Each of these has a test that fails if it is:
 | A `MayEvict` mark never deletes; it is honoured only for the same account, and an owner marks at most 4096 chunks a day | A mark is permission, used only when that account's own next store hits `ACCOUNT_FULL`; a stranger or another account must not be able to empty a host, and a clock set back must not buy a fresh day | `red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`; `red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`; `red_team_eviction_never_takes_another_owners_chunks`; `red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back`; `red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict` |
 | A release (the owner letting a host go) needs an audit passed within `LIVE_FOR`, a margin of one account and a quarter of the miss goal beyond the target, and a margin that already counts the account's own devices | Releasing on a stale record, or letting two own devices each release "the" spare copy, ends below the target. The owner stops counting the copy at once, conservatively, and releases a (chunk, host) once per `CONFIRMED_FOR` | `red_team_release_needs_an_audit_passed_within_live_for`; `release_picks_the_lowest_ranked_holder_and_only_with_margin`; `red_team_concurrent_own_devices_never_release_below_the_goal`; `red_team_release_needs_a_local_copy_and_margin_and_happens_once_per_confirmed_window` |
 | `placement = everyone` is exactly today's behaviour, and the default | Turning placement on trusts inputs nobody had seen; measurement and `status` run in both so a member reads the figures first | `placement_is_everyone_unless_the_file_says_measured`; `red_team_everyone_mode_never_grows_the_short_queue`; `red_team_an_inbound_session_does_not_change_everyones_count`; the existing `two_nodes.rs` suite unchanged |
-| The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
+| The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` and `vault/` have no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
 | Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
 | The user id is never broadcast; the beacon's tag is a fresh nonce and a hash keyed on the account's secret, over nonce and device, with no clock in it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is. A tag derived from it alone (version 1) let anyone group an account's machines and anyone holding the id recognise them; a tag rotated on a clock strands a Pi booted in 1970 | `red_team_the_user_id_never_appears_on_the_wire`; `red_team_two_beacons_of_one_account_carry_unlinkable_tags`; `red_team_a_stranger_holding_the_user_id_cannot_recognise_the_tag` |
@@ -379,7 +387,7 @@ Each of these has a test that fails if it is:
 | A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
 | The discovery table is bounded and confirmed peers are protected | Device ids are free keypairs, so a flood is cheap; without this it evicts the machines that matter | `a_flood_of_strangers_cannot_evict_a_known_peer`, `the_table_never_grows_past_its_capacity` |
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
-| The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` on the owner side and the per-account check on every host (`owners.rs`, refusal `ACCOUNT_FULL`) both read `Split::DEFAULT` | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
+| The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` on the owner side and the per-account check on every host (`owners/admission.rs`, refusal `ACCOUNT_FULL`) both read `Split::DEFAULT` | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
 | A withdrawal is final for its device id and wins whatever the signing clocks say | Every keystore holds the master secret, so a claim signed after a withdrawal proves nothing about who signed it; and a signer's clock is an opinion. Timestamp ordering let a stolen machine re-enrol and let a slow clock cancel a withdrawal. A reused machine logs in afresh and gets a new device id | `red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`; `red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`; `a_later_enrolment_does_not_supersede_a_withdrawal` |
 | A host stores for another account's device only once its coordinator has confirmed the device live, within `STANDING_FOR`; no answer means no storing. Decided by Nicolas on 2026-10-05 ("Refuse") | Every node holds its account key, so a withdrawn device signs itself a fresh live claim; the coordinator's withdrawal is the only word against it. Letting devices through while the coordinator is silent would make every outage, and every coordinator that hangs up on the question, a window for withdrawn devices. The cost, accepted: newcomers wait for an answer, other accounts stop storing on a host whose coordinator is down past `STANDING_FOR`, a host with no coordinator stores for its own account only. Consistent with the coordinator's place: it can refuse a member, never admit one | `red_team_no_word_from_the_coordinator_means_no_storing`; `red_team_a_host_whose_coordinator_does_not_answer_stores_for_no_other_account`; `red_team_a_withdrawn_device_that_re_signs_stores_nothing_on_a_host` |
 | An account has at most `MAX_DEVICES_PER_ACCOUNT` live devices -- 20 since 2026-11-20, 10 from 2026-10-22 until then, and 5 from 2026-09-30 until 2026-10-22 | Enforced on the coordinator, the bound a rebuilt client cannot remove, and on the enrolling client so the refusal names the devices. A withdrawal frees its slot; re-signing a live device takes none; an account above the bound is never cut down, it only cannot add one. A running coordinator applies 20 only once it runs a build with 20; an older build can still refuse a new claim at its own lower bound. It does not update from a signed release (releases carry the member binary only): with `install/coordinator.sh --auto-update` its nightly timer fast-forwards its checkout to `origin/main` and rebuilds; without the timer, update it by hand (RELEASING "The coordinator: open, and updating itself"). The tests derive their counts from the constant | `red_team_one_device_too_many_is_refused_and_nothing_is_written`; `red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`; `red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`; `red_team_one_machine_too_many_refuses_to_enrol_itself_even_where_the_coordinator_would_not` |
@@ -402,7 +410,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
   escrow of a sealed recovery container. Every host bounds what each other
   account stores to `Split::DEFAULT.room_earned` of its claimed pledge, or of
   what is proved once its audit contradicts the claim (`itsanas-node`
-  `owners.rs`, refusal `ACCOUNT_FULL`; §8 1c).
+  `owners/admission.rs`, refusal `ACCOUNT_FULL`; §8 1c).
 - **Machines that hold less than the account**: `itsanas keep` budgets with an
   ordering, selective fetch, `itsanas space` bounded by disk and pledge.
 - **Front ends**: folder daemon with watcher; Android app (Compose over JNI);
@@ -729,6 +737,13 @@ from HANDOVER.md on 2026-11-27", and so is the full text of every open item cond
 The gaps fixed since are in [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md), "Moved from HANDOVER.md
 on 2026-11-27".
 
+- **Left open by the 2026-11-27 red team**, each with its reason: the device proof is not bound
+  to a role in its signed domain (a listener echoing the caller's own proof is refused by
+  checking the device id instead; binding the role changes the wire and needs a version step);
+  the virtual drive checks that a file is not a link, then copies it, so a file swapped for a
+  link between the two is still followed; `Store::flush_segment` does not split a very large
+  batch, it is refused above `MAX_SEGMENT_BYTES` instead; the Unix-only tests of owner-only
+  modes (node home and keystore, recovery words) run in CI only.
 - **A name Windows cannot hold** is refused on a Windows folder since 2026-11-23, with the file
   kept in the account. Left: the virtual drive (ProjFS) presents such names unchecked.
 - **Tail truncation** is caught since 2026-11-18 (`Presence::head`). Not covered: a machine that

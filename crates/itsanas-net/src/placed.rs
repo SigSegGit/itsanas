@@ -127,9 +127,10 @@ fn ask_only(
     report.chunks_asked_about += batch.len();
     let missing = client.missing_chunks(store.owner(), batch.to_vec())?;
     store.forget_holders(&missing, peer)?;
+    let lacking: std::collections::BTreeSet<&ChunkId> = missing.iter().collect();
     let held: Vec<ChunkId> = batch
         .iter()
-        .filter(|chunk| !missing.contains(chunk))
+        .filter(|chunk| !lacking.contains(chunk))
         .copied()
         .collect();
     report.holders_recorded += held.len();

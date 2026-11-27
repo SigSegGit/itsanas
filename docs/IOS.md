@@ -10,7 +10,7 @@ for Settings. It runs on iOS 14 and later, which includes the first iPhone SE
 | Piece | Where |
 | --- | --- |
 | The core | unchanged, built as a static library for `aarch64-apple-ios` |
-| What both phones ask the core (open, list, fetch, add, free up, round, status) | `crates/itsanas-cli/src/phone.rs`, called by Android through JNI and by the iPhone through C |
+| What both phones ask the core (open, list, fetch, add, free up, round, status) | `crates/itsanas-cli/src/phone.rs` and `phone/`, called by Android through JNI and by the iPhone through C |
 | The C boundary | `crates/itsanas-ios`, its header in `crates/itsanas-ios/include/itsanas.h` |
 | The setup engine and Settings, as a page | `crates/itsanas-cli`, served on 127.0.0.1 and shown in a `WKWebView`, as on Android |
 | The application | `ios/`, Swift and UIKit, described by `ios/project.yml` (XcodeGen) |

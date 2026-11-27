@@ -9,7 +9,7 @@
   ],
   "defences": {
     "account pledge: the smallest": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/account.rs",
       "live": ".map(|row| row.claim.claim.pledged_bytes)\n                .max())",
       "dead": ".map(|row| row.claim.claim.pledged_bytes)\n                .min())"
     }

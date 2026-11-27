@@ -6,7 +6,7 @@
 //! friend's house is handed, and the question is whether any of them can be
 //! dialled from where it now stands.
 //!
-//! The unit tests in `coordinator.rs` prove the ordering function orders. This
+//! The unit tests in `coordinator/lookup.rs` prove the ordering function orders. This
 //! proves the lookup *applies* it — deleting the call leaves every one of those
 //! green, which is the shape of a defence that is tested and not wired.
 

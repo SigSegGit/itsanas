@@ -10,12 +10,12 @@
   ],
   "defences": {
     "folder: freeing clears the ledger, so no pass reads a delete": {
-      "file": "crates/itsanas-folder/src/lib.rs",
+      "file": "crates/itsanas-folder/src/absent.rs",
       "live": "        store.clear_local_state(path)?;\n        std::fs::remove_file(&real)",
       "dead": "        std::fs::remove_file(&real)"
     },
     "folder: only a synced file is freed": {
-      "file": "crates/itsanas-folder/src/lib.rs",
+      "file": "crates/itsanas-folder/src/absent.rs",
       "live": "if disk.is_none() || disk != held || disk != ledger {",
       "dead": "if disk.is_none() {"
     }

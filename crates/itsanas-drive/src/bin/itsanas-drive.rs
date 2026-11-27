@@ -95,31 +95,10 @@ mod windows {
                 .map_err(io::Error::other)
                 .map(|_| ())
         }
-    }
 
-    impl Target for Folder {
-        fn known(&self) -> io::Result<Vec<String>> {
-            Ok(self
-                .account
-                .files()
-                .into_iter()
-                .map(|file| file.0)
-                .collect())
-        }
-
-        fn keep(&self, path: &str) -> io::Result<()> {
+        /// One file, never a directory or a link ([`writes::files_to_keep`]).
+        fn keep_file(&self, path: &str) -> io::Result<()> {
             let real = self.root.join(path.replace('/', "\\"));
-            if real.is_dir() {
-                for entry in std::fs::read_dir(&real)? {
-                    let name = entry?.file_name();
-                    let name = name.to_string_lossy();
-                    let child = format!("{path}/{name}");
-                    if writes::may_keep(&child) {
-                        self.keep(&child)?;
-                    }
-                }
-                return Ok(());
-            }
             // Copied with no lock held: a read that reaches back into the
             // projection needs the node.
             let staged = {
@@ -135,6 +114,24 @@ mod windows {
             })();
             let _ = std::fs::remove_file(&staged);
             kept
+        }
+    }
+
+    impl Target for Folder {
+        fn known(&self) -> io::Result<Vec<String>> {
+            Ok(self
+                .account
+                .files()
+                .into_iter()
+                .map(|file| file.0)
+                .collect())
+        }
+
+        fn keep(&self, path: &str) -> io::Result<()> {
+            for file in writes::files_to_keep(&self.root, path)? {
+                self.keep_file(&file)?;
+            }
+            Ok(())
         }
 
         fn remove(&self, path: &str) -> io::Result<()> {

@@ -266,6 +266,18 @@ mod tests {
         }
     }
 
+    /// The cipher wipes its copy of a key when it is dropped, and Argon2 its
+    /// working blocks: a core dump or a swap page holds neither the keystore's
+    /// wrapping key nor a chunk's. Sabotage: drop the `zeroize` feature of
+    /// `chacha20poly1305` or `argon2`, and this no longer compiles.
+    #[test]
+    fn red_team_the_cipher_and_argon2_wipe_their_copies_of_a_key() {
+        fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        fn wipeable<T: zeroize::Zeroize>() {}
+        wiped_on_drop::<XChaCha20Poly1305>();
+        wipeable::<argon2::Block>();
+    }
+
     #[test]
     fn deterministic_seal_round_trips() {
         let keys = user(1);

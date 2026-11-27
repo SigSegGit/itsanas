@@ -76,14 +76,22 @@ final class FilesViewController: UITableViewController, UIDocumentPickerDelegate
         return item
     }
 
+    /// Off the main thread: the listing waits for a round another screen
+    /// started, and the screen froze for as long as the round took.
     private func reload() {
-        do {
-            let level = try Core.listAt(folder)
-            folders = level["folders"] as? [[String: Any]] ?? []
-            files = level["files"] as? [[String: Any]] ?? []
-            tableView.reloadData()
-        } catch {
-            show(error.localizedDescription)
+        let folder = self.folder
+        DispatchQueue.global(qos: .userInitiated).async {
+            let listed = Result { try Core.listAt(folder) }
+            DispatchQueue.main.async {
+                switch listed {
+                case .success(let level):
+                    self.folders = level["folders"] as? [[String: Any]] ?? []
+                    self.files = level["files"] as? [[String: Any]] ?? []
+                    self.tableView.reloadData()
+                case .failure(let error):
+                    self.show(error.localizedDescription)
+                }
+            }
         }
     }
 

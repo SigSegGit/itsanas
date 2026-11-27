@@ -72,6 +72,7 @@ dependencies = [
  "blake2",
  "cpufeatures",
  "password-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -276,6 +277,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -288,6 +290,7 @@ dependencies = [
  "chacha20",
  "cipher",
  "poly1305",
+ "zeroize",
 ]
 
 [[package]]
@@ -763,10 +766,8 @@ dependencies = [
  "postcard",
  "rpassword",
  "security-framework",
- "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
  "windows",
  "zeroize",
 ]
@@ -990,7 +991,6 @@ dependencies = [
  "itsanas-wire",
  "rcgen",
  "rustls",
- "rustls-pki-types",
  "serde",
  "socket2",
  "thiserror 2.0.21",

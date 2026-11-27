@@ -680,7 +680,7 @@ peer. The figure that had been sitting in `MVP.md` -- **129 MB/day** -- is a
 unit, and for a week it read as though the budget were met.
 
 **Now, within a named bucket, only the chunks with no fresh record for that
-peer are asked about** (`sweep` in `itsanas-net/src/session.rs`): the new ones,
+peer are asked about** (`sweep` in `itsanas-net/src/session/sweep.rs`): the new ones,
 and the ones the peer last confirmed more than `REFRESH_AFTER` ago. A change of
 *D* chunks lists those *D*, 32 bytes each, plus whatever in the same buckets the
 peer confirmed between two full walks and has not been asked about since --
@@ -1052,14 +1052,16 @@ cost:
 
 **Why this does not become the load.** A probe is asked for when the answer can
 have *changed* — the published address is new, or a person ran `itsanas
-doctor` — never on a timer; one per device per hour is enforced on the
-coordinator; at most four run at once; each is given three seconds. A fleet of
+doctor` — never on a timer; one per address and three addresses per device per
+hour are enforced on the coordinator; at most four run at once; each is given
+three seconds. A fleet of
 three thousand machines all changing address at once costs under one probe a
 second, and a fleet that is sitting still costs none.
 
 **What it can be abused for, stated rather than argued away.** An enrolled
-member can make the coordinator open one connection an hour to a public address
-they published. That is a slow, attributable port scanner. It is bounded by
+member can make the coordinator open three connections an hour per device, each
+to a public address that device published. That is a slow, attributable port
+scanner. It is bounded by
 enrolment — the thing that can be withdrawn — and by the refusal to dial any
 private, loopback, link-local or carrier-grade-NAT address, which is what keeps
 it from being pointed at the coordinator's own network.

@@ -1,10 +1,11 @@
 //! Deletes between machines with different rules (HANDOVER §8 13): the
 //! account's trash, Protect, and rules that every machine reads alike.
 //!
-//! Deterministic, like `convergence.rs`: the same swarm, no clock but the
+//! Deterministic, like `convergence/`: the same swarm, no clock but the
 //! store's.
 
 use itsanas_store::deletion::{self, Mode, Receive, Rules};
+use itsanas_store::{Operation, VersionVector};
 use itsanas_sync::sim::Swarm;
 
 const PHONE: usize = 0;
@@ -133,6 +134,56 @@ fn red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects() {
             .as_deref(),
         Some(&b"kept by the pc"[..]),
         "a protected file published again did not come back on the phone"
+    );
+}
+
+/// A protected record that exists but cannot be read stops garbage collection
+/// and is not replaced by the next protect: the files it keeps stay
+/// recoverable. Sabotage: `deletion::read_protected` answers an empty record
+/// for any error.
+#[test]
+fn red_team_an_unreadable_protected_record_stops_gc_and_is_not_overwritten() {
+    let swarm = swarm();
+    let phone = swarm.device(PHONE);
+    phone
+        .write("report.pdf", b"kept for days by the pc")
+        .unwrap();
+    phone
+        .write("later.txt", b"deleted after the record broke")
+        .unwrap();
+    swarm.settle_and_check().unwrap();
+    phone.remove("report.pdf").unwrap();
+    swarm.settle_and_check().unwrap();
+
+    let pc = swarm.device(PC).store();
+    let record = deletion::protected(pc.root());
+    let chunks = record["report.pdf"].1.chunks.clone();
+    assert!(
+        !chunks.is_empty(),
+        "the protected file holds no chunk to keep"
+    );
+    std::fs::write(pc.root().join("protected"), [0xFF; 7]).unwrap();
+
+    assert!(
+        pc.collect_garbage(std::time::Duration::ZERO).is_err(),
+        "garbage collection ran on a protected record it could not read"
+    );
+    assert!(
+        chunks.iter().all(|chunk| pc.has_chunk(chunk)),
+        "garbage collection removed the chunks of a protected file"
+    );
+    let remove = Operation::Remove {
+        path: "later.txt".to_owned(),
+        version: VersionVector::default(),
+    };
+    assert!(
+        deletion::protect(pc, &phone.store().device_id(), &remove, now()).is_err(),
+        "protect replaced a record it could not read, losing what it kept"
+    );
+    assert_eq!(
+        std::fs::read(pc.root().join("protected")).unwrap(),
+        [0xFF; 7],
+        "the unreadable record was overwritten"
     );
 }
 

@@ -36,7 +36,7 @@ char *itsanas_trash_restore(const char *home, const char *path);
 char *itsanas_trash_delete(const char *path);
 char *itsanas_rename(const char *from, const char *to);
 char *itsanas_versions(const char *path);
-char *itsanas_bring_back(const char *path, uint32_t at);
+char *itsanas_bring_back(const char *path, const char *id);
 char *itsanas_sync(bool metadata_only);
 char *itsanas_status(void);
 bool itsanas_finger_needed(void);

@@ -89,12 +89,12 @@
       "dead": "            if false && coordinator::invitation_needed(&refused) {\n"
     },
     "register: everything reads as an invitation": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/account.rs",
       "live": "text.contains(\"by invitation only\") || text.contains(\"that invitation cannot be used\")",
       "dead": "!text.is_empty()"
     },
     "sign out: the app is not told": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/account_actions.rs",
       "live": "            ctx.backends.host.event(\"signedOut\", \"\");\n",
       "dead": ""
     },

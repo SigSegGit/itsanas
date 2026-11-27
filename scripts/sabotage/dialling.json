@@ -9,12 +9,12 @@
   ],
   "defences": {
     "dialling: the round is pinned on the device expected": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/dialling.rs",
       "live": "            through,\n            Some(expect),\n            true,\n            ask_presences,\n",
       "dead": "            through,\n            None.filter(|_: &DeviceId| expect == expect),\n            true,\n            ask_presences,\n"
     },
     "dialling: a pause on disk halts": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/shutdown.rs",
       "live": "    shutdown.load(Ordering::Relaxed) || control::paused_on_disk(&node.home)\n",
       "dead": "    shutdown.load(Ordering::Relaxed)\n"
     }

@@ -14,7 +14,7 @@
       "dead": "            let _ = &wanted;\n"
     },
     "setup-vault: a vault that holds data is not left": {
-      "file": "crates/itsanas-cli/src/lib.rs",
+      "file": "crates/itsanas-cli/src/drive_commands.rs",
       "live": "    if node.vault.held_bytes()? > 0 {\n        return Err(CliError::Usage(format!(\n            \"the vault at {} holds data: `itsanas vault {} --move` copies it there and switches once the copy checks out\",",
       "dead": "    if false {\n        return Err(CliError::Usage(format!(\n            \"the vault at {} holds data: `itsanas vault {} --move` copies it there and switches once the copy checks out\","
     }

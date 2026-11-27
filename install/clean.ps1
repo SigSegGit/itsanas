@@ -58,7 +58,7 @@ $state = "$env:LOCALAPPDATA\itsanas"
 # members: drain first (§8 0w (7)), with the task already stopped because one
 # process at a time holds a node. `leave` never refuses to finish. The
 # passphrase is read exactly as the task's wrapper reads it
-# (`setup/service.rs`): untrimmed, so one ending in a space still opens it.
+# (`setup/service/texts.rs`): untrimmed, so one ending in a space still opens it.
 function Invoke-DrainBeforePurge([string]$secretFile) {
     $exe = Join-Path $programs 'itsanas.exe'
     if (-not $PurgeAccount -or -not (Test-Path "$NodeHome\keystore.bin") -or -not (Test-Path $exe)) { return }

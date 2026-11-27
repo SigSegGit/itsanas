@@ -2,7 +2,7 @@
 //! machine being enrolled. (The file name is from when the bound was five.)
 //!
 //! Decided by Nicolas on 2026-09-30 at 5, raised to 10 on 2026-10-22 and to 20 on 2026-11-20. The coordinator's half is proved in
-//! `itsanas-coord` (`directory.rs`, `tests/coordinator.rs`); this proves the
+//! `itsanas-coord` (`directory/claims.rs`, `tests/coordinator/transport.rs`); this proves the
 //! client's half is wired: a node refuses, before it signs anything, to enrol
 //! one device too many, and names the ones to choose from. The coordinator here
 //! plays one older than the bound (`Directory::bound_devices(false)`), so

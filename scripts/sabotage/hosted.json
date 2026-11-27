@@ -11,12 +11,12 @@
   ],
   "defences": {
     "hosted: only this account's chunks": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/holders.rs",
       "live": "        let ours = self.store.referenced_among(chunks)?;",
       "dead": "        let ours = chunks.to_vec();"
     },
     "hosted: nothing from a paused host": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/holders.rs",
       "live": "        if !self.store.worth_sending_to(&caller)? {",
       "dead": "        if false {"
     }

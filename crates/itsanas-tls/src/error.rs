@@ -22,6 +22,9 @@ pub enum TlsError {
     #[error("expected to reach device {expected} but {found} answered")]
     WrongPeer { expected: String, found: String },
 
+    #[error("the peer presented this device's own proof; it is not this device")]
+    ReflectedProof,
+
     #[error("the peer closed before proving who it was")]
     NoProof,
 

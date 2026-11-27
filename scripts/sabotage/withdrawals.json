@@ -9,22 +9,22 @@
   ],
   "defences": {
     "withdrawals: not kept on the machine that signs them": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/claims.rs",
       "live": "        node.withdrawn_here(device, &bytes)?;\n",
       "dead": "        let _ = &bytes;\n"
     },
     "withdrawals: an old live claim replaces the kept withdrawal": {
-      "file": "crates/itsanas-net/src/service.rs",
+      "file": "crates/itsanas-net/src/service/claims.rs",
       "live": "                        if !unchanged && !withdrawn {\n",
       "dead": "                        if !unchanged || withdrawn {\n"
     },
     "withdrawals: not passed on to the hosts a machine meets": {
-      "file": "crates/itsanas-node/src/node.rs",
+      "file": "crates/itsanas-node/src/node/roster.rs",
       "live": "            let _ = client.present_claim(withdrawal);\n",
       "dead": "            let _ = withdrawal;\n"
     },
     "withdrawals: a host takes none but the caller's own": {
-      "file": "crates/itsanas-node/src/owners.rs",
+      "file": "crates/itsanas-node/src/owners/book.rs",
       "live": "            return Err(Self::withdrawn(&mut book, claim, bytes));\n",
       "dead": "            book.remove(&caller);\n            return Err(WITHDRAWN.to_owned());\n"
     }

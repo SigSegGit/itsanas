@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1784 test functions, 21 of them `#[ignore]`d into the slow job, and 711 of
+**1814 test functions, 21 of them `#[ignore]`d into the slow job, and 734 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -816,7 +816,7 @@ device and reaching a different one is refused.
     in a fresh process whose ceiling is the one `Node::open` sets (none), and
     a person asking for their own file back should get it, not a refusal
     worded as "no machine would serve it". Same for `itsanas-drive`.
-  - **A file refused for room freezes the applied-markers** (`session.rs`,
+  - **A file refused for room freezes the applied-markers** (`session/pulling.rs`,
     `note_all_applied` only after a round with nothing deferred), so every
     round replays the peers' chains until the disk is freed. Required -- an
     advanced marker would never retry the file -- and it costs a replay a
@@ -1600,6 +1600,11 @@ Still open, each with its reason:
   /48 budget means filling it from IPv6 takes over five hundred /48s. An
   attacker with that many
   /64s denies name questions to newcomers for that hour.
+- The escrow table holds `ESCROW_TRACKED` (4096) names per `ESCROW_WINDOW`
+  (15 minutes), in memory and on disk (`escrow_tries`); full, it refuses a
+  name it is not already counting. Inventing names at `NAME_QUESTIONS` an
+  hour, 547 IPv4 addresses or 137 IPv6 /48s keep it full, and while it is
+  full every recovery of a name not yet counted is refused.
 - What a censor sees besides the hello: a TLS 1.3 handshake to a fixed port
   (9898, 9797) whose cipher and extension order are rustls's own (a JA3-style
   fingerprint), and a server that answers any prober with a TLS handshake. An
@@ -1702,7 +1707,7 @@ Major step: Rodin on the plan before the code.
   local disk file systems (no NFS, SMB, SSHFS, `fuse.*`); the key's
   passphrase may not be the machine's in another case, hold it or be held
   in it, nor a common base with digits around it. Proven by the fifteen
-  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests.rs`;
+  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests/`;
   the drive parsers are tested on samples of each system's output, and the
   real listing on Windows and macOS is still to be seen by hand. Not in it: a
   device label (no field in the config or the claim carries one).
@@ -1842,15 +1847,22 @@ running them on the laptop is what showed it** — they had been inferred from
 the absence of code, which turned out to be the wrong evidence. Kept here in
 corrected form, because the correction is more useful than the claim was.
 
-* **Case-only pairs: handled, and handled well.** `Camera/IMG.JPG` and
-  `Camera/img.jpg` are two distinct logical paths. Written out to NTFS, which
-  folds case, the second collides with the first and the conflict machinery
-  keeps **both**, naming the copy in the output
-  (`Camera/img.local-<id>.jpg`). Nothing was lost; three further scans
-  reported `0 in, 0 out, 0 conflicts`, so it settles rather than oscillating,
-  and the conflict copy is not re-ingested. The mechanism written for two
-  machines editing one file turns out to cover two names one filesystem cannot
-  hold apart, which is a better outcome than the design aimed at.
+* **Case-only pairs: one spelling kept on a disk that folds case, the other
+  left alone in the account and reported.** `Camera/IMG.JPG` and
+  `Camera/img.jpg` are two distinct logical paths, and on Linux they are two
+  files. On NTFS or APFS, which fold case, they are one. The first run of
+  this entry (2026-09-16) saw the conflict machinery keep **both**, naming a
+  copy `Camera/img.local-<id>.jpg`; that is no longer what happens, because it
+  rewrote the second spelling for the whole account as an edit of the first.
+  Since the red-team sweep (2026-11-27), a pass on Windows or macOS keeps one
+  spelling here (the one on the disk, else one this folder already synced,
+  else the first), leaves the others in the account untouched, makes no
+  `.local-` copy, reads no delete from their absence, and lists each in
+  `report.failed` with the reason. The test is
+  `red_team_a_case_only_pair_from_another_machine_is_not_rewritten_by_one_that_joins`
+  (`crates/itsanas-folder/tests/folder.rs`, compiled on Windows and macOS only).
+  Still open: the skipped spelling is not visible as a file on that machine, so
+  its content cannot be reached from there.
 * **Long paths: fine.** A 305-character logical path — over 400 absolute — was
   stored and written to NTFS without complaint, well past the traditional 260.
 * **Unicode normalisation: the third prediction, and it was wrong too.** This
@@ -1868,7 +1880,8 @@ corrected form, because the correction is more useful than the claim was.
 
   Nothing here still normalises, so the store can hold both spellings as two
   logical paths, and on a Mac those collide into one file. That is the **case
-  collision above**, not a new failure, and the conflict machinery keeps both.
+  collision above**, not a new failure: one spelling is kept on the Mac and the
+  other stays in the account, reported.
   Canonicalising to NFC on ingest is still the tidier design; it is no longer
   urgent, and it was never the emergency this entry claimed.
 
@@ -2164,7 +2177,7 @@ the same account's data, which is what replication and audits need. Blinding
 hides content equality *across* accounts, not account identity from hosts.
 
 **Not tested here, named:** the two residues of the integrity pass. The
-has_chunk race in `session.rs` `kept` needs a second writer injected between
+has_chunk race in `session/fetching.rs` `kept` needs a second writer injected between
 the fetch and the check, and no seam exists for that -- not a five-line test.
 ✅ Repeated fetches of one noisy chunk shared by several files cost one
 chunk-sized download per file per round; since 2026-11-17 an address is asked
@@ -2609,7 +2622,7 @@ first pledge refusal, and for an hour (`FULL_RETRY`) asks that peer only about
 what it is recorded as holding; then one ordinary round probes. What it was: A host that refuses
 a chunk (`Offer::Refused`) leaves no record for it, so the next round finds it
 stale, asks about it, and sends it again; `ask` in
-`itsanas-net/src/session.rs` does not stop at the first refusal and nothing
+`itsanas-net/src/session/sweep.rs` does not stop at the first refusal and nothing
 remembers one. Against a phone holding a slice of a large account that is the
 whole unheld remainder uploaded and refused every five minutes -- far above
 anything the listing costs. Now tested by

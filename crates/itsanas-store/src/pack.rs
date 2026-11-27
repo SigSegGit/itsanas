@@ -33,6 +33,9 @@ use redb::{Database, ReadableTable as _, ReadableTableMetadata as _, TableDefini
 
 use crate::error::{Result, StoreError};
 
+mod compaction;
+mod replay;
+
 /// Address -> pack (u32 LE), offset of the sealed bytes (u64 LE), length (u32 LE).
 const CHUNKS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("pack_chunks");
 /// (pack u32 BE, address) -> (): which chunks a pack holds, for compaction.
@@ -217,27 +220,36 @@ impl Packs {
         let Ok(Some(place)) = self.place(address) else {
             return false;
         };
+        match self.header_at(address, place) {
+            Some(true) => true,
+            // An I/O failure is not evidence of loss: say no, keep the row.
+            None => false,
+            // Dropped only if the row still names what was read: a compaction
+            // may have moved it meanwhile, and then the record is where it is now.
+            Some(false) => {
+                matches!(self.remove_row(address, Some(place)), Ok(false))
+                    && matches!(self.place(address), Ok(Some(now))
+                        if now != place && self.header_at(address, now) == Some(true))
+            }
+        }
+    }
+
+    /// Whether `address`'s record header is at `place`: `None` for an I/O
+    /// failure that says nothing of the record.
+    fn header_at(&self, address: &ChunkId, place: Place) -> Option<bool> {
         let mut header = [0u8; HEADER_LEN];
         let read = File::open(self.pack_path(place.pack)).and_then(|mut file| {
             file.seek(SeekFrom::Start(place.offset - HEADER))?;
             file.read_exact(&mut header)
         });
-        let whole = read.is_ok()
-            && header[..32] == address.as_bytes()[..]
-            && header[32..] == place.len.to_le_bytes();
-        if !whole
-            && read.as_ref().is_err_and(|e| {
-                e.kind() != std::io::ErrorKind::UnexpectedEof
-                    && e.kind() != std::io::ErrorKind::NotFound
-            })
-        {
-            // An I/O failure is not evidence of loss: say no, keep the row.
-            return false;
+        match read {
+            Ok(()) => Some(
+                header[..32] == address.as_bytes()[..] && header[32..] == place.len.to_le_bytes(),
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Some(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
         }
-        if !whole {
-            let _ = self.remove(address);
-        }
-        whole
     }
 
     /// Damage `address`'s record the way a disk does, behind the index: a
@@ -353,83 +365,6 @@ impl Packs {
         Ok(())
     }
 
-    /// Rebuild the rows of every whole record after the durable mark that has
-    /// none: the ones a crash took with a commit that did not wait for the
-    /// disk. A record cut short by the crash ends the replay of its pack.
-    fn replay(&self) -> Result<()> {
-        let (mark_pack, mark_offset) = {
-            let txn = self.db.begin_read()?;
-            let meta = txn.open_table(META)?;
-            meta.get("mark")?.map_or((1, 0), |row| {
-                let bytes = row.value();
-                let pack = bytes
-                    .get(..4)
-                    .and_then(|b| b.try_into().ok())
-                    .map_or(1, u32::from_le_bytes);
-                let offset = bytes
-                    .get(4..12)
-                    .and_then(|b| b.try_into().ok())
-                    .map_or(0, u64::from_le_bytes);
-                (pack, offset)
-            })
-        };
-        let mut packs: Vec<u32> = Self::pack_numbers(&self.dir)?
-            .into_iter()
-            .filter(|&pack| pack >= mark_pack)
-            .collect();
-        packs.sort_unstable();
-        let txn = self.db.begin_write()?;
-        let mut end = (mark_pack, mark_offset);
-        for pack in packs {
-            let path = self.pack_path(pack);
-            let mut file =
-                File::open(&path).map_err(|error| StoreError::io(path.clone(), error))?;
-            let size = file
-                .metadata()
-                .map_err(|error| StoreError::io(path.clone(), error))?
-                .len();
-            let mut offset = if pack == mark_pack { mark_offset } else { 0 };
-            while offset + HEADER <= size {
-                let mut header = [0u8; HEADER_LEN];
-                file.seek(SeekFrom::Start(offset))
-                    .and_then(|_| file.read_exact(&mut header))
-                    .map_err(|error| StoreError::io(path.clone(), error))?;
-                let len = u32::from_le_bytes(header[32..].try_into().unwrap_or_default());
-                if len > MAX_RECORD || offset + HEADER + u64::from(len) > size {
-                    // Cut short by the crash: nothing follows it, and the
-                    // next append goes after it.
-                    offset = size;
-                    break;
-                }
-                let bytes: [u8; 32] = header[..32].try_into().unwrap_or_default();
-                let address = ChunkId::from_bytes(bytes);
-                let place = Place {
-                    pack,
-                    offset: offset + HEADER,
-                    len,
-                };
-                let known = txn
-                    .open_table(CHUNKS)?
-                    .get(address.as_bytes().as_slice())?
-                    .map(|row| Place::decode(row.value()))
-                    .transpose()?;
-                // Only a record with no row at all: one whose row points at
-                // another copy (compaction moved it) keeps that row.
-                if known.is_none() {
-                    Self::index_record(&txn, &address, place)?;
-                }
-                offset += HEADER + u64::from(len);
-            }
-            // Whatever is left (a header cut short) is dead space: the mark
-            // goes past it, so no replay ever parses it.
-            let _ = offset;
-            end = (pack, size);
-        }
-        Self::write_mark(&txn, end.0, end.1)?;
-        txn.commit()?;
-        Ok(())
-    }
-
     /// Make every row durable now, and move the mark to the end: what a
     /// conversion does before the rename that switches a store to packs.
     pub fn flush(&self) -> Result<()> {
@@ -459,6 +394,28 @@ impl Packs {
         let Some(place) = self.place(address)? else {
             return Ok(None);
         };
+        self.get_at(address, place)
+    }
+
+    /// [`Self::get`] from `place`, read a moment before. A record not there
+    /// drops the row only if it still names `place`: a compaction may have
+    /// moved it to a good copy meanwhile, which is then read where it is.
+    fn get_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
+        if let Some(bytes) = self.read_at(address, place)? {
+            return Ok(Some(bytes));
+        }
+        if self.remove_row(address, Some(place))? {
+            return Ok(None);
+        }
+        match self.place(address)? {
+            Some(now) if now != place => self.read_at(address, now),
+            _ => Ok(None),
+        }
+    }
+
+    /// `address`'s record at `place`, or `None` when it is cut short, gone or
+    /// names another address. Other I/O errors stay errors.
+    fn read_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
         let path = self.pack_path(place.pack);
         let mut header = [0u8; HEADER_LEN];
         let mut bytes = vec![0u8; place.len as usize];
@@ -475,7 +432,6 @@ impl Packs {
                     std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::NotFound
                 ) =>
             {
-                self.remove(address)?;
                 return Ok(None);
             }
             Err(error) => return Err(StoreError::io(path, error)),
@@ -484,7 +440,6 @@ impl Packs {
         // (a damaged pack, a pack rewritten under it) is caught here rather
         // than handed on as somebody else's chunk.
         if header[..32] != address.as_bytes()[..] || header[32..] != place.len.to_le_bytes() {
-            self.remove(address)?;
             return Ok(None);
         }
         Ok(Some(bytes))
@@ -497,6 +452,13 @@ impl Packs {
     /// (A durable commit in redb also makes every earlier one durable, so
     /// every record before the new mark has its row on the disk.)
     pub fn remove(&self, address: &ChunkId) -> Result<bool> {
+        self.remove_row(address, None)
+    }
+
+    /// [`Self::remove`], or, given `seen`, only while the row still names
+    /// that place: a reader that found its record gone must not drop the row
+    /// a compaction has moved since to a good copy.
+    fn remove_row(&self, address: &ChunkId, seen: Option<Place>) -> Result<bool> {
         let writer = self
             .current
             .lock()
@@ -509,10 +471,17 @@ impl Packs {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, 0);
         let removed = {
             let mut chunks = txn.open_table(CHUNKS)?;
-            let place = chunks
-                .remove(address.as_bytes().as_slice())?
+            let now = chunks
+                .get(address.as_bytes().as_slice())?
                 .map(|row| Place::decode(row.value()))
                 .transpose()?;
+            // Still committed when the row moved: the mark is written.
+            let place = if seen.is_none_or(|seen| now == Some(seen)) {
+                chunks.remove(address.as_bytes().as_slice())?;
+                now
+            } else {
+                None
+            };
             if let Some(place) = place {
                 txn.open_table(BY_PACK)?
                     .remove(member_key(place.pack, address).as_slice())?;
@@ -563,141 +532,13 @@ impl Packs {
         let txn = self.db.begin_read()?;
         Ok(txn.open_table(CHUNKS)?.len()?)
     }
-
-    /// Rewrite every closed pack less than half of which is still named by a
-    /// row: its live records are appended to the current pack, then the file
-    /// goes. Returns the bytes given back to the disk.
-    ///
-    /// Crash-safe in that order: each record is copied, then its row moved to
-    /// the copy in one durable commit, and only then is the old file removed.
-    /// At every point the row names bytes that exist. (The first version
-    /// removed the row, then put the copy: a crash between the two lost the
-    /// chunk, the old record being before the mark the replay starts from.)
-    pub fn compact(&self) -> Result<u64> {
-        let current = self
-            .current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .0;
-        let mut freed = 0u64;
-        for pack in Self::pack_numbers(&self.dir)? {
-            if pack >= current {
-                continue;
-            }
-            let path = self.pack_path(pack);
-            let size = fs::metadata(&path).map_or(0, |meta| meta.len());
-            let live = {
-                let txn = self.db.begin_read()?;
-                txn.open_table(LIVE)?.get(pack)?.map_or(0, |v| v.value())
-            };
-            if live.saturating_mul(2) >= size {
-                continue;
-            }
-            for address in self.members(pack)? {
-                // A record that no longer reads stays where it is (its pack
-                // with it): one damaged chunk must not stop every later
-                // compaction, and moving it would only copy the damage.
-                let Ok(Some(bytes)) = self.get(&address) else {
-                    continue;
-                };
-                self.relocate(&address, pack, &bytes)?;
-            }
-            if self.members(pack)?.is_empty() {
-                fs::remove_file(&path).map_err(|error| StoreError::io(path.clone(), error))?;
-                let txn = self.db.begin_write()?;
-                txn.open_table(LIVE)?.remove(pack)?;
-                txn.commit()?;
-                freed = freed.saturating_add(size);
-            }
-        }
-        Ok(freed)
-    }
-
-    /// Append a copy of `address`'s record and point its row at the copy, in
-    /// one durable commit. A crash before the commit leaves the old row and
-    /// an unnamed copy, which the replay skips (the address has a row).
-    fn relocate(&self, address: &ChunkId, from: u32, sealed: &[u8]) -> Result<()> {
-        let len = u32::try_from(sealed.len())
-            .map_err(|_| StoreError::Corrupt("a chunk too large for a pack record".to_owned()))?;
-        let mut current = self
-            .current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if current.1 >= PACK_TARGET {
-            *current = (current.0 + 1, 0);
-        }
-        let (pack, start) = *current;
-        let path = self.pack_path(pack);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|error| StoreError::io(path.clone(), error))?;
-        let start = file
-            .seek(SeekFrom::End(0))
-            .map_err(|error| StoreError::io(path.clone(), error))?
-            .max(start);
-        let mut record = Vec::with_capacity(sealed.len() + HEADER_LEN);
-        record.extend_from_slice(address.as_bytes());
-        record.extend_from_slice(&len.to_le_bytes());
-        record.extend_from_slice(sealed);
-        file.write_all(&record)
-            .and_then(|()| file.sync_data())
-            .map_err(|error| StoreError::io(path.clone(), error))?;
-        current.1 = start + record.len() as u64;
-        let txn = self.db.begin_write()?;
-        {
-            let mut members = txn.open_table(BY_PACK)?;
-            members.remove(member_key(from, address).as_slice())?;
-            drop(members);
-            let mut live = txn.open_table(LIVE)?;
-            let was = live.get(from)?.map_or(0, |v| v.value());
-            live.insert(from, was.saturating_sub(u64::from(len)))?;
-            drop(live);
-            Self::index_record(
-                &txn,
-                address,
-                Place {
-                    pack,
-                    offset: start + HEADER,
-                    len,
-                },
-            )?;
-            Self::write_mark(&txn, pack, current.1)?;
-        }
-        txn.commit()?;
-        *self
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, 0);
-        Ok(())
-    }
-
-    fn members(&self, pack: u32) -> Result<Vec<ChunkId>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(BY_PACK)?;
-        let start = member_key(pack, &ChunkId::from_bytes([0; 32]));
-        let end = member_key(pack, &ChunkId::from_bytes([0xff; 32]));
-        let mut out = Vec::new();
-        for row in table.range(start.as_slice()..=end.as_slice())? {
-            let (key, ()) = {
-                let (key, value) = row?;
-                (key, value.value())
-            };
-            let bytes: [u8; 32] = key.value()[4..]
-                .try_into()
-                .map_err(|_| StoreError::Corrupt("a pack member key is short".to_owned()))?;
-            out.push(ChunkId::from_bytes(bytes));
-        }
-        Ok(out)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn address(byte: u8) -> ChunkId {
+    pub(super) fn address(byte: u8) -> ChunkId {
         ChunkId::from_bytes([byte; 32])
     }
 
@@ -723,98 +564,6 @@ mod tests {
         );
         assert_eq!(packs.get(&address(2)).unwrap(), None);
         assert_eq!(packs.count().unwrap(), 1);
-    }
-
-    #[test]
-    fn red_team_a_torn_append_is_dead_space_not_a_shifted_pack() {
-        // A crash mid-append leaves bytes no row names. The next record must
-        // land after them, at the offset its row records: a store that
-        // trusted its own idea of the length would point every later row at
-        // the torn bytes.
-        // A failed write in this process (a full disk) is the same: the file
-        // is longer than the length kept in memory.
-        let dir = tempfile::tempdir().expect("temp dir");
-        let packs = Packs::open(dir.path()).expect("open");
-        packs.put(&address(1), b"before").unwrap();
-        let path = dir.path().join("packs").join("00000001.pack");
-        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        file.write_all(b"half a record that never got its row")
-            .unwrap();
-        drop(file);
-        packs.put(&address(2), b"after").unwrap();
-        assert_eq!(
-            packs.get(&address(1)).unwrap().as_deref(),
-            Some(&b"before"[..])
-        );
-        assert_eq!(
-            packs.get(&address(2)).unwrap().as_deref(),
-            Some(&b"after"[..]),
-            "a record written after a torn append was read from the wrong place"
-        );
-    }
-
-    #[test]
-    fn red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed() {
-        // Rows are committed without waiting for the disk between marks. A
-        // crash loses them; the records are on the disk and name themselves,
-        // so the replay at open must bring every one back -- and never a
-        // record whose chunk was removed.
-        let dir = tempfile::tempdir().expect("temp dir");
-        let packs = Packs::open(dir.path()).expect("open");
-        packs.put(&address(1), b"kept").unwrap();
-        packs.put(&address(2), b"removed").unwrap();
-        packs.remove(&address(2)).unwrap();
-        packs.put(&address(3), b"after the mark").unwrap();
-        // The crash: the rows after the mark never reached the disk.
-        {
-            let txn = packs.db.begin_write().unwrap();
-            txn.open_table(CHUNKS)
-                .unwrap()
-                .remove(address(3).as_bytes().as_slice())
-                .unwrap();
-            txn.commit().unwrap();
-        }
-        let path = packs.pack_path(1);
-        drop(packs);
-        // And a record cut short at the tail.
-        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        file.write_all(&[0xAB; 20]).unwrap();
-        drop(file);
-        let packs = Packs::open(dir.path()).expect("reopen");
-        assert_eq!(
-            packs.get(&address(3)).unwrap().as_deref(),
-            Some(&b"after the mark"[..]),
-            "a chunk whose record was on the disk was lost with its row"
-        );
-        assert_eq!(
-            packs.get(&address(2)).unwrap(),
-            None,
-            "a removed chunk came back"
-        );
-        assert_eq!(
-            packs.get(&address(1)).unwrap().as_deref(),
-            Some(&b"kept"[..])
-        );
-        packs.put(&address(4), b"after the torn tail").unwrap();
-        {
-            let txn = packs.db.begin_write().unwrap();
-            txn.open_table(CHUNKS)
-                .unwrap()
-                .remove(address(4).as_bytes().as_slice())
-                .unwrap();
-            txn.commit().unwrap();
-        }
-        drop(packs);
-        let packs = Packs::open(dir.path()).expect("reopen again");
-        assert_eq!(
-            packs.get(&address(4)).unwrap().as_deref(),
-            Some(&b"after the torn tail"[..])
-        );
-        assert_eq!(
-            packs.count().unwrap(),
-            3,
-            "the replay invented a chunk from torn bytes"
-        );
     }
 
     #[test]
@@ -851,78 +600,6 @@ mod tests {
             packs.get(&address(2)).unwrap().as_deref(),
             Some(&b"secnd"[..])
         );
-    }
-
-    #[test]
-    fn red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let packs = Packs::open(dir.path()).expect("open");
-        let chunk = vec![7u8; 1 << 20];
-        for byte in 0..10u8 {
-            packs.put(&address(byte), &chunk).unwrap();
-        }
-        // Close pack 1 by hand, as reaching PACK_TARGET would.
-        {
-            let mut current = packs.current.lock().unwrap();
-            *current = (2, 0);
-        }
-        for byte in 0..8u8 {
-            packs.remove(&address(byte)).unwrap();
-        }
-        let before = fs::metadata(packs.pack_path(1)).unwrap().len();
-        let freed = packs.compact().unwrap();
-        assert_eq!(freed, before, "a pack eight tenths dead was kept");
-        assert!(!packs.pack_path(1).exists());
-        for byte in 8..10u8 {
-            assert_eq!(
-                packs.get(&address(byte)).unwrap().as_deref(),
-                Some(chunk.as_slice()),
-                "compaction lost a live chunk"
-            );
-        }
-        assert_eq!(packs.total_bytes().unwrap(), 2 << 20);
-    }
-
-    #[test]
-    fn red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names() {
-        // Rodin, 2026-10-13: the first compaction removed the row, then put
-        // the copy; a crash between the two lost the chunk for good. Here
-        // every step of a relocation is checked: before and after its commit
-        // the row names readable bytes, and a reopen in between agrees.
-        let dir = tempfile::tempdir().expect("temp dir");
-        let packs = Packs::open(dir.path()).expect("open");
-        packs.put(&address(1), b"moved").unwrap();
-        packs.put(&address(2), b"dead").unwrap();
-        {
-            let mut current = packs.current.lock().unwrap();
-            *current = (2, 0);
-        }
-        packs.remove(&address(2)).unwrap();
-        // The crash, simulated: the copy appended, its commit never made.
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(packs.pack_path(2))
-            .unwrap();
-        let mut record = address(1).as_bytes().to_vec();
-        record.extend_from_slice(&5u32.to_le_bytes());
-        record.extend_from_slice(b"moved");
-        file.write_all(&record).unwrap();
-        drop(file);
-        drop(packs);
-        let packs = Packs::open(dir.path()).expect("reopen");
-        assert_eq!(
-            packs.get(&address(1)).unwrap().as_deref(),
-            Some(&b"moved"[..]),
-            "a crash in the middle of a relocation lost the chunk"
-        );
-        // And a whole compaction after it still keeps it.
-        packs.compact().unwrap();
-        assert_eq!(
-            packs.get(&address(1)).unwrap().as_deref(),
-            Some(&b"moved"[..])
-        );
-        assert!(!packs.pack_path(1).exists(), "the dead pack was kept");
     }
 
     #[test]

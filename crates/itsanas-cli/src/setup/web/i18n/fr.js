@@ -1,0 +1,631 @@
+// Translations of the setup and settings page, keyed by the English text in
+// index.html and app.js. A key missing here shows in English, and
+// `every_text_of_the_page_has_a_french_translation` (web/tests/languages.rs)
+// fails. To add a language: a new object beside `fr`, an <option> in #lang,
+// and its code in `LANGUAGES` (web/preferences.rs).
+// Served as one /i18n.js: this file, then zh.js, one table each (web/mod.rs).
+'use strict';
+
+window.I18N = {
+  fr: {
+    'ITSaNAS is running': 'ITSaNAS fonctionne',
+    'The background service': 'Le service en arrière-plan',
+    'The network knows this device': 'Le réseau connaît cet appareil',
+    'Other machines can reach this one': 'Les autres machines peuvent joindre celle-ci',
+    'The folder syncs': 'Le dossier se synchronise',
+    'the app does this itself': 'l’application s’en charge elle-même',
+    'a phone picks its folder in the app': 'un téléphone choisit son dossier dans l’application',
+    'a phone dials out and is never dialled back': 'un téléphone appelle les autres, on ne le rappelle jamais',
+    'no background service was asked for': 'aucun service en arrière-plan n’a été demandé',
+    'no coordinator is set': 'aucun coordinateur n’est défini',
+    'no coordinator is set to dial back': 'aucun coordinateur n’est défini pour rappeler',
+    'the coordinator was not reached': 'le coordinateur n’a pas été joint',
+    'no folder is set': 'aucun dossier n’est défini',
+    'not asked': 'non demandé',
+    'Skip to the current step': 'Aller à l’étape en cours',
+    'Set up this machine': 'Installer cette machine',
+    'Language': 'Langue',
+    'Steps': 'Étapes',
+    'This page needs JavaScript. Close it and run': 'Cette page a besoin de JavaScript. Fermez-la et lancez',
+    'in a terminal instead.': 'dans un terminal à la place.',
+    'Welcome': 'Bienvenue',
+    "ITSaNAS keeps a folder in sync between your machines. Your files are locked with a key only you have, and copies are kept on other members' computers in case yours breaks.":
+      'ITSaNAS synchronise un dossier entre vos machines. Vos fichiers sont verrouillés par une clé que vous seul avez, et des copies sont gardées sur les ordinateurs d’autres membres au cas où le vôtre tomberait en panne.',
+    'This takes about five minutes. Each step is saved: if something stops, run setup again and it picks up where it left off.':
+      'Comptez environ cinq minutes. Chaque étape est enregistrée : si quelque chose s’arrête, relancez l’installation et elle reprend là où elle en était.',
+    'Start': 'Commencer',
+    'This machine': 'Cette machine',
+    'Check that this is the machine you want to set up.': 'Vérifiez que c’est bien la machine que vous voulez installer.',
+    'Its ITSaNAS data goes in': 'Ses données ITSaNAS vont dans',
+    'Name of this setup': 'Nom de cette installation',
+    'Back': 'Retour',
+    'Next': 'Suivant',
+    'Your account': 'Votre compte',
+    'Is this your first machine with ITSaNAS?': 'Est-ce votre première machine avec ITSaNAS ?',
+    'ITSaNAS runs on this phone. Your files are in the app, which keeps them in sync with your other machines.':
+      'ITSaNAS fonctionne sur ce téléphone. Vos fichiers sont dans l’application, qui les garde synchronisés avec vos autres machines.',
+    'Account': 'Compte',
+    'Yes, create a new account': 'Oui, créer un nouveau compte',
+    'No, I already have an account': 'Non, j’ai déjà un compte',
+    'Your username': 'Votre nom d’utilisateur',
+    "Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.":
+      'Lettres minuscules, chiffres, « - » et « . ». Le même sur toutes vos machines.',
+    "My account's recovery copy is kept by the network (I chose it on my first machine)":
+      'La copie de secours de mon compte est gardée par le réseau (je l’ai choisi sur ma première machine)',
+    'Otherwise a separate window asks for your 24 recovery words.': 'Sinon, une fenêtre séparée demande vos 24 mots de récupération.',
+    'Your secret': 'Votre secret',
+    'Never type your recovery words into a web page — not even this one.': 'Ne tapez jamais vos mots de récupération dans une page web — pas même celle-ci.',
+    'Nothing opens yet. After the last question, when you press': 'Rien ne s’ouvre pour l’instant. Après la dernière question, quand vous appuierez sur',
+    'Start setting up': 'Lancer l’installation',
+    ', a separate ITSaNAS window will open for your secret — never this page.': ', une fenêtre ITSaNAS séparée s’ouvrira pour votre secret — jamais cette page.',
+    'A new account gets 24 recovery words: the only way back into your files if this machine is lost. Keep them in a password manager (you may copy them or save them to a file) or on paper. The window then asks three of them back.':
+      'Un nouveau compte reçoit 24 mots de récupération : le seul moyen de retrouver vos fichiers si cette machine est perdue. Gardez-les dans un gestionnaire de mots de passe (vous pouvez les copier ou les enregistrer dans un fichier) ou sur papier. La fenêtre vous en redemande ensuite trois.',
+    'An existing account: the window asks for your 24 words, unless the network keeps your recovery copy.':
+      'Un compte existant : la fenêtre demande vos 24 mots, sauf si le réseau garde votre copie de secours.',
+    'Then it asks for a passphrase that unlocks this machine.': 'Puis elle demande une phrase de passe qui déverrouille cette machine.',
+    'Joining the network': 'Rejoindre le réseau',
+    'ITSaNAS joins the network by itself: there is nothing to type here.':
+      'ITSaNAS rejoint le réseau tout seul : il n’y a rien à taper ici.',
+    'Invitation code (only for a private network that asks for one)': 'Code d’invitation (seulement pour un réseau privé qui en demande un)',
+    'Advanced': 'Avancé',
+    'Coordinator address': 'Adresse du coordinateur',
+    'Leave it as it is unless you run your own network. Empty: only machines on this home network find each other.':
+      'Laissez-la telle quelle sauf si vous avez votre propre réseau. Vide : seules les machines de ce réseau local se trouvent.',
+    'Your folder': 'Votre dossier',
+    'Choose the folder to sync on this machine. On your other machines it can be somewhere else: what is synced is what it holds.':
+      'Choisissez le dossier à synchroniser sur cette machine. Sur vos autres machines, il peut être ailleurs : c’est son contenu qui est synchronisé.',
+    'Folder': 'Dossier',
+    'Browse…': 'Parcourir…',
+    'It is created if it does not exist. Files you put in it are synced.': 'Il est créé s’il n’existe pas. Les fichiers que vous y mettez sont synchronisés.',
+    'Start ITSaNAS when I log in, with an icon near the clock (recommended)':
+      'Démarrer ITSaNAS à l’ouverture de session, avec une icône près de l’horloge (recommandé)',
+    'Space you offer': 'Espace offert',
+    'Choose how much of this disk other members may use for their copies. It is what earns room for your own files on theirs.':
+      'Choisissez combien de ce disque les autres membres peuvent utiliser pour leurs copies. C’est ce qui vous donne de la place pour vos fichiers chez eux.',
+    'Space to offer, in GB': 'Espace à offrir, en Go',
+    "You can change it later. The disk is the one that holds this machine's ITSaNAS data, unless you choose another below.":
+      'Vous pourrez le changer plus tard. Le disque est celui qui contient les données ITSaNAS de cette machine, sauf si vous en choisissez un autre ci-dessous.',
+    "Folder for other people's copies (optional)": 'Dossier pour les copies des autres (facultatif)',
+    "Empty: in this machine's ITSaNAS data. An empty folder on a bigger disk lets you offer more.":
+      'Vide : dans les données ITSaNAS de cette machine. Un dossier vide sur un disque plus grand permet d’offrir plus.',
+    'Free on that disk:': 'Libre sur ce disque :',
+    'Updates': 'Mises à jour',
+    'New versions of ITSaNAS are signed by its author. This machine installs only a version with that signature.':
+      'Les nouvelles versions d’ITSaNAS sont signées par son auteur. Cette machine n’installe qu’une version portant cette signature.',
+    'When a new version is out': 'Quand une nouvelle version sort',
+    'Install it by itself (once a day, it restarts in a few seconds)': 'L’installer toute seule (une fois par jour, redémarrage en quelques secondes)',
+    'Tell me, and I install it (': 'Me prévenir, et je l’installe (',
+    ')': ')',
+    'Never look': 'Ne jamais vérifier',
+    'Ready': 'Prêt',
+    'Press Start. ITSaNAS then checks the connection, starts in the background and checks that it all works.':
+      'Appuyez sur Lancer. ITSaNAS vérifie alors la connexion, démarre en arrière-plan et vérifie que tout fonctionne.',
+    'A separate ITSaNAS window has opened in front of this page.': 'Une fenêtre ITSaNAS séparée s’est ouverte devant cette page.',
+    'If you cannot see it, look for ITSaNAS in your taskbar / Dock.': 'Si vous ne la voyez pas, cherchez ITSaNAS dans la barre des tâches / le Dock.',
+    'Details': 'Détails',
+    'Final check': 'Vérification finale',
+    'What to do:': 'Que faire :',
+    'Open my folder': 'Ouvrir mon dossier',
+    "Add it to the file manager's favourites": 'L’ajouter aux favoris de l’explorateur',
+    'Try again': 'Réessayer',
+    'Close': 'Fermer',
+    'Settings': 'Réglages',
+    'Reading…': 'Lecture…',
+    'Syncing': 'Synchronisation',
+    'Pause': 'Pause',
+    'until I resume': 'jusqu’à ce que je reprenne',
+    'Resume': 'Reprendre',
+    'Sync now': 'Synchroniser maintenant',
+    'Check for changes': 'Vérifier les changements',
+    'automatically': 'automatiquement',
+    'every 5 minutes': 'toutes les 5 minutes',
+    'every 15 minutes': 'toutes les 15 minutes',
+    'every hour': 'toutes les heures',
+    'every 6 hours': 'toutes les 6 heures',
+    'once a day': 'une fois par jour',
+    'Save': 'Enregistrer',
+    'Changing these restarts ITSaNAS (a few seconds).': 'Les modifier redémarre ITSaNAS (quelques secondes).',
+    'Space offered to others, in GB': 'Espace offert aux autres, en Go',
+    'Open': 'Ouvrir',
+    'install it by itself': 'l’installer toute seule',
+    'tell me': 'me prévenir',
+    'never look': 'ne jamais vérifier',
+    'Invitation code, if the coordinator asks for one': 'Code d’invitation, si le coordinateur en demande un',
+    'Apply': 'Appliquer',
+    'Sign out': 'Se déconnecter',
+    'Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.':
+      'Arrête ITSaNAS sur cette machine et oublie sa phrase de passe. Vos fichiers et vos clés restent sur ce disque.',
+    'This page is closed': 'Cette page est fermée',
+    'You can close this tab. The icon near the clock opens Settings again (or run': 'Vous pouvez fermer cet onglet. L’icône près de l’horloge rouvre les Réglages (ou lancez',
+    ').': ').',
+    'This username is already taken. Choose another.': 'Ce nom d’utilisateur est déjà pris. Choisissez-en un autre.',
+    'Account found.': 'Compte trouvé.',
+    'This username is free.': 'Ce nom d’utilisateur est libre.',
+    'No account has this name on the network.': 'Aucun compte ne porte ce nom sur le réseau.',
+    'The network cannot be asked right now; it is checked again before anything is made.':
+      'Le réseau ne répond pas pour l’instant ; ce sera revérifié avant de créer quoi que ce soit.',
+    'You offer': 'Vous offrez',
+    'you get about': 'vous obtenez environ',
+    'for your own files on the network.': 'pour vos propres fichiers sur le réseau.',
+    'Setting up': 'Installation en cours',
+    'This takes a minute or two. Keep this page open.': 'Cela prend une minute ou deux. Gardez cette page ouverte.',
+    'It asks for': 'Elle demande',
+    'Now:': 'En cours :',
+    'Setup stopped': 'L’installation s’est arrêtée',
+    'It stopped at:': 'Arrêt à l’étape :',
+    'What is already done is kept.': 'Ce qui est déjà fait est conservé.',
+    '(the only one on this computer)': '(la seule sur cet ordinateur)',
+    'This disk has': 'Ce disque a',
+    'free.': 'de libre.',
+    'Secret': 'Secret',
+    'Checking the connection': 'Vérification de la connexion',
+    'Starting in the background': 'Démarrage en arrière-plan',
+    'Running and up to date': 'En marche et à jour',
+    'Paused: your files wait until you resume': 'En pause : vos fichiers attendent que vous repreniez',
+    'Running, but it has not synced for a while': 'En marche, mais pas synchronisé depuis un moment',
+    'Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere': 'En marche, mais vos fichiers ne sont pas encore en sécurité : ajoutez une machine à ce compte pour qu\'il en existe des copies ailleurs',
+    'Running, but this disk can no longer hold what it promised to others': 'En marche, mais ce disque ne peut plus garder ce qu\'il a promis aux autres',
+    'Running, but it has not reached any of your other machines for hours: check that this machine is online': 'En marche, mais aucune de vos autres machines n\'a été jointe depuis des heures : vérifiez que cette machine est en ligne',
+    'Running, but this disk refuses every write: what it promised to others fails': 'En marche, mais ce disque refuse toute écriture : ce qu\'il a promis aux autres échoue',
+    'Running, but a machine failed a storage check: what it holds no longer counts as a copy': 'En marche, mais une machine a échoué à une vérification de stockage : ce qu\'elle garde ne compte plus comme une copie',
+    'Running, but this disk is nearly full: free some room before writes start to fail': 'En marche, mais ce disque est presque plein : libérez de la place avant que les écritures n\'échouent',
+    'Not running': 'Arrêté',
+    'This machine has left the network': 'Cette machine a quitté le réseau',
+    'Cannot tell right now': 'Impossible à dire pour l’instant',
+    'All set': 'C’est prêt',
+    'Setup finished': 'Installation terminée',
+    'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.':
+      'ITSaNAS tourne sur cette machine, et son icône est près de l’horloge. Un fichier welcome.txt est dans votre dossier : ouvrez-le sur vos autres machines pour voir qu’elles se synchronisent.',
+    'This computer already has the ITSaNAS account': 'Cet ordinateur a déjà le compte ITSaNAS',
+    'Start continues with it. To set up a different account beside it, give it a name:': 'Commencer continue avec lui. Pour installer un autre compte à côté, donnez-lui un nom :',
+    'Name of the other setup (lowercase letters and digits)': 'Nom de l’autre installation (minuscules et chiffres)',
+    'Set up another account': 'Installer un autre compte',
+    'The setup of the other account opened in a new page.': 'L’installation de l’autre compte s’est ouverte dans une nouvelle page.',
+    'To remove the account already here instead, use Remove this machine in its icon near the clock, then run this setup again.': 'Pour supprimer plutôt le compte déjà présent, utilisez « Remove this machine » dans son icône près de l’horloge, puis relancez cette installation.',
+    'Already done on this machine.': 'Déjà fait sur cette machine.',
+    'This machine is already set up.': 'Cette machine est déjà installée.',
+    'This account is already on this machine; its keys were not touched.': 'Ce compte est déjà sur cette machine ; ses clés n’ont pas été touchées.',
+    'The folder is already chosen and kept in step.': 'Le dossier est déjà choisi et synchronisé.',
+    'The space offered is already set; change it later in Settings.': 'L’espace offert est déjà réglé ; vous pourrez le changer dans les Réglages.',
+    'Updates are already set.': 'Les mises à jour sont déjà réglées.',
+    'This machine is already known to the coordinator.': 'Cette machine est déjà connue du coordinateur.',
+    'Every step is done. The checks below could not run here; each says why.':
+      'Toutes les étapes sont faites. Les vérifications ci-dessous n’ont pas pu tourner ici ; chacune dit pourquoi.',
+    'Choose a username.': 'Choisissez un nom d’utilisateur.',
+    'Say whether you already have an account: choose one of the two answers.':
+      'Dites si vous avez déjà un compte : choisissez l’une des deux réponses.',
+    'username must be between 1 and 64 characters': 'le nom d’utilisateur doit compter de 1 à 64 caractères',
+    "username may contain only lowercase ASCII letters, digits, '-' and '.'":
+      'le nom d’utilisateur ne peut contenir que des lettres minuscules sans accent, des chiffres, « - » et « . »',
+    "username may not start or end with '-' or '.'": 'le nom d’utilisateur ne peut pas commencer ni finir par « - » ou « . »',
+    'Type a whole number of GB, at least 1.': 'Tapez un nombre entier de Go, au moins 1.',
+    'Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.':
+      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, recommencez : l’installation reprend là où elle en était.',
+    'Your recovery words and your passphrase are asked later in a separate ITSaNAS window, never in this page.':
+      'Vos mots de récupération et votre phrase de passe seront demandés plus tard dans une fenêtre ITSaNAS séparée, jamais dans cette page.',
+    'Your folder and your space': 'Votre dossier et votre espace',
+    'How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.':
+      'Combien de ce disque les autres membres peuvent utiliser pour leurs copies : c’est ce qui vous donne de la place pour vos fichiers chez eux.',
+    'Folder and space': 'Dossier et espace',
+    'Disks':
+      'Disques',
+    'These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.':
+      'C’est ITSaNAS en arrière-plan qui s’en charge : il doit être lancé. Rien ici ne demande votre phrase secrète.',
+    'Space for others is kept in:':
+      'L’espace pour les autres est gardé dans :',
+    'Move it to another disk':
+      'Le déplacer sur un autre disque',
+    'Move':
+      'Déplacer',
+    'That disk also holds the ITSaNAS data of this machine (less safe)':
+      'Ce disque contient aussi les données ITSaNAS de cette machine (moins sûr)',
+    'It is copied, checked, then used. The old copy stays until you delete it.':
+      'Il est copié, vérifié, puis utilisé. L’ancienne copie reste jusqu’à ce que vous la supprimiez.',
+    'Backup to a drive you keep apart':
+      'Sauvegarde sur un disque gardé à part',
+    'Back up':
+      'Sauvegarder',
+    'Restore from it':
+      'Restaurer depuis celle-ci',
+    'Sealed: without your 24 words it opens for nobody. On a new machine, set it up with your account first, then restore here.':
+      'Scellée : sans vos 24 mots, elle ne s’ouvre pour personne. Sur une nouvelle machine, installez-la d’abord avec votre compte, puis restaurez ici.',
+    'Put a portable ITSaNAS on a drive':
+      'Mettre un ITSaNAS portable sur un disque',
+    'Write it':
+      'L’écrire',
+    'It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.':
+      'Il ne tourne que sur ce type de système, synchronise vos fichiers et n’héberge ceux de personne. Ses clés voyagent avec le disque, protégées par votre seule phrase secrète.',
+    'the default place, next to the data of this machine':
+      'l’emplacement par défaut, à côté des données de cette machine',
+    'Failed:':
+      'Échec :',
+    'Choose a folder first.':
+      'Choisissez d’abord un dossier.',
+    'Move the space for others there? ITSaNAS stops hosting for the time of the copy.':
+      'Déplacer l’espace pour les autres ici ? ITSaNAS cesse d’héberger le temps de la copie.',
+    'Read this backup into this machine?':
+      'Lire cette sauvegarde dans cette machine ?',
+    'Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.':
+      'Écrire un ITSaNAS portable ici ? Qui a le disque peut essayer de deviner votre phrase secrète : prenez-en une longue.',
+
+    // Settings, set by the script (hand test, 2026-10-22: these showed in English).
+    'ITSaNAS stopped serving this page. Run the command again to reopen it.':
+      'ITSaNAS ne sert plus cette page. Relancez la commande pour la rouvrir.',
+    'Refused':
+      'Refusé',
+    "This page's key is missing. Open the address that the command printed in your terminal.":
+      'La clé de cette page manque. Ouvrez l’adresse que la commande a affichée dans votre terminal.',
+    'passed':
+      'réussi',
+    'failed':
+      'échoué',
+    'skipped':
+      'non vérifié',
+    'every':
+      'toutes les',
+    '(now)':
+      '(actuel)',
+    'Type a whole number of GB.':
+      'Tapez un nombre entier de Go.',
+    'Nothing was changed.':
+      'Rien n’a été changé.',
+    'ITSaNAS restarts (a few seconds).':
+      'ITSaNAS redémarre (quelques secondes).',
+    'Saved. ITSaNAS runs again.':
+      'Enregistré. ITSaNAS tourne de nouveau.',
+    'Saved.':
+      'Enregistré.',
+    'Not saved:':
+      'Non enregistré :',
+    'Sign out of ITSaNAS on this machine?':
+      'Se déconnecter d’ITSaNAS sur cette machine ?',
+    "Syncing stops, and this machine stops answering the other members' checks until you sign in again. Your files and this machine's keys stay on this disk.":
+      'La synchronisation s’arrête, et cette machine ne répond plus aux vérifications des autres membres jusqu’à ce que vous vous reconnectiez. Vos fichiers et les clés de cette machine restent sur ce disque.',
+
+    // What the server says to Settings, line by line (said() in app.js).
+    'Syncing paused on this machine until you resume. Nothing is lost: your changes here wait until syncing resumes, and this machine keeps hosting for the others. A transfer under way finishes with the machine it is talking to (five minutes at most); no other starts.':
+      'Synchronisation en pause sur cette machine jusqu’à ce que vous repreniez. Rien n’est perdu : vos modifications ici attendent la reprise, et cette machine continue d’héberger pour les autres. Un transfert en cours se termine avec la machine concernée (cinq minutes au plus) ; aucun autre ne commence.',
+    'Resume sooner with: itsanas resume':
+      'Pour reprendre plus tôt : itsanas resume',
+    '(No daemon is running this node now; it reads this when it starts.)':
+      '(ITSaNAS ne tourne pas sur cette machine pour l’instant ; il le lira à son démarrage.)',
+    'Syncing was already paused.':
+      'La synchronisation était déjà en pause.',
+    'Syncing was not paused.':
+      'La synchronisation n’était pas en pause.',
+    'Syncing resumed; a round starts within two seconds.':
+      'Synchronisation reprise ; un tour commence d’ici deux secondes.',
+    'syncing is paused on this machine; `itsanas resume` resumes and syncs at once':
+      'la synchronisation est en pause sur cette machine ; Reprendre la relance et synchronise aussitôt',
+    'no daemon is running this node; start it, and it syncs as it starts':
+      'ITSaNAS ne tourne pas sur cette machine ; démarrez-le, il synchronise dès son démarrage',
+    'Asked; the round starts within two seconds.':
+      'Demandé ; le tour commence d’ici deux secondes.',
+    'The daemon syncs on its own setting again.':
+      'ITSaNAS synchronise de nouveau selon son propre réglage.',
+    'the ITSaNAS service is not running on this machine: start it (Start ITSaNAS, or `itsanas daemon`), or do this in a terminal with `itsanas vault --move` or `itsanas backup`':
+      'le service ITSaNAS ne tourne pas sur cette machine : démarrez-le (Start ITSaNAS, ou `itsanas daemon`), ou faites-le dans un terminal avec `itsanas vault --move` ou `itsanas backup`',
+    'asked; the service starts within two seconds':
+      'demandé ; le service commence d’ici deux secondes',
+
+    // "Copy this account to a USB key" (#st-usb).
+    'Copy this account to a USB key':
+      'Copier ce compte sur une clé USB',
+    'The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.':
+      'La clé reçoit ITSaNAS pour Windows, Mac et Linux, avec ce compte dedans : branchez-la sur n’importe quel ordinateur, ouvrez-la, et vos fichiers sont là.',
+    'Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.':
+      'Quiconque ouvre la clé avec sa phrase de passe EST ce compte : il peut lire et modifier tous vos fichiers. Choisissez une longue phrase de passe que vous n’utilisez nulle part ailleurs, et gardez la clé aussi précieusement qu’une clé de maison.',
+    'USB keys and external disks':
+      'Clés USB et disques externes',
+    'No USB key or external disk was found. Plug one in, then Refresh.':
+      'Aucune clé USB ni aucun disque externe trouvé. Branchez-en un, puis Actualiser.',
+    'Another folder':
+      'Autre dossier',
+    'Another folder…':
+      'Autre dossier…',
+    'Copy here':
+      'Copier ici',
+    'Refresh':
+      'Actualiser',
+    'Two ITSaNAS windows open, one after the other:':
+      'Deux fenêtres ITSaNAS s’ouvrent, l’une après l’autre :',
+    "first this machine's passphrase, then a new passphrase for the key, typed twice. If you cannot see them, look for ITSaNAS in your taskbar / Dock.":
+      'd’abord la phrase de passe de cette machine, puis une nouvelle phrase de passe pour la clé, tapée deux fois. Si vous ne les voyez pas, cherchez ITSaNAS dans votre barre des tâches / le Dock.',
+    'Too little room on it for the copy.':
+      'Trop peu de place dessus pour la copie.',
+    'This key already holds an ITSaNAS account: choose another key, or empty this one first.':
+      'Cette clé contient déjà un compte ITSaNAS : choisissez une autre clé, ou videz celle-ci d’abord.',
+    "This is where this account already lives: choose the key's own drive.":
+      'C’est là que ce compte se trouve déjà : choisissez le lecteur de la clé elle-même.',
+    'Nothing is there: is the key plugged in?':
+      'Il n’y a rien ici : la clé est-elle branchée ?',
+    'Type a full path, starting with / or a drive letter.':
+      'Tapez un chemin complet, qui commence par / ou une lettre de lecteur.',
+    'NTFS: a Mac can read this key but not write to it, so the copy will not start on a Mac. Reformat it as exFAT to use it everywhere.':
+      'NTFS : un Mac peut lire cette clé mais pas y écrire, donc la copie ne démarrera pas sur un Mac. Reformatez-la en exFAT pour l’utiliser partout.',
+    'FAT32: no file on it may exceed 4 GB, and your account can grow past that. exFAT has no such limit.':
+      'FAT32 : aucun fichier n’y peut dépasser 4 Go, et votre compte peut grandir au-delà. exFAT n’a pas cette limite.',
+    'Copying in the background':
+      'Copie en arrière-plan',
+    'Checking the key':
+      'Vérification de la clé',
+    "Opening this machine's keys":
+      'Ouverture des clés de cette machine',
+    'Checking the room on the key':
+      'Vérification de la place sur la clé',
+    'Writing the programs for every system on the key':
+      'Écriture des programmes pour chaque système sur la clé',
+    'Sealing the account on the key under its own passphrase':
+      'Scellement du compte sur la clé sous sa propre phrase de passe',
+    'Enrolling the key with the coordinator':
+      'Inscription de la clé auprès du coordinateur',
+    'free,':
+      'de libre,',
+    'about':
+      'environ',
+    'needed.':
+      'nécessaires.',
+    'free of':
+      'de libre sur',
+    'external disk?':
+      'disque externe ?',
+    'The copy needs about':
+      'La copie demande environ',
+    'on the key:':
+      'sur la clé :',
+    'for the programs':
+      'pour les programmes',
+    'for your files.':
+      'pour vos fichiers.',
+    'The size of your files is not known yet.':
+      'La taille de vos fichiers n’est pas encore connue.',
+    'Waiting for the passphrase windows…':
+      'En attente des fenêtres de phrase de passe…',
+    'The key is ready. Unplug it safely before taking it out.':
+      'La clé est prête. Éjectez-la proprement avant de la retirer.',
+    'The copy stopped:':
+      'La copie s’est arrêtée :',
+    'The network cannot be asked right now. A new account is made only once the network says this username is free.':
+      'Le réseau ne peut pas être interrogé pour le moment. Un nouveau compte n’est créé que lorsque le réseau dit que ce nom d’utilisateur est libre.',
+    'Continue with this name': 'Continuer avec ce nom',
+    'No account has this name on the network. A name is bound to an account when it first joins: be sure it is the one you used on your other machines.':
+      'Aucun compte n’a ce nom sur le réseau. Un nom est lié à un compte lors de sa première arrivée : vérifiez que c’est celui de vos autres machines.',
+    'No account has this name on the network. Tick "Continue with this name" if you are sure it is the name of your account, or correct it.':
+      'Aucun compte n’a ce nom sur le réseau. Cochez « Continuer avec ce nom » si vous êtes sûr que c’est le nom de votre compte, ou corrigez-le.',
+    'The same as your other machines.': 'La même chose que vos autres machines.',
+    'Your other machines offer': 'Vos autres machines offrent',
+    'This one has room for less.': 'Celle-ci a de la place pour moins.',
+    'Appearance': 'Apparence',
+    'Colours': 'Couleurs',
+    'Same as the system': 'Comme le système',
+    'Light': 'Clair',
+    'Dark': 'Sombre',
+    'About and legal': 'À propos et mentions légales',
+    'Licence (AGPL-3.0)': 'Licence (AGPL-3.0)',
+    'Source code': 'Code source',
+    'At most the free space of this phone, less 10 GB.': "Au plus l'espace libre de ce téléphone, moins 10 Go.",
+    'Same as my other machines': 'Comme mes autres machines',
+    'No other machine offers space yet.': "Aucune autre machine n'offre encore d'espace.",
+    'This phone does not have room for that.': "Ce téléphone n'a pas la place pour ça.",
+    'Check for updates': 'Vérifier les mises à jour',
+    'By itself, ITSaNAS asks github.com for the signed release at most once a day.':
+      'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',
+    'I forgot my passphrase': 'J’ai oublié ma phrase de passe',
+    'Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.':
+      'Remplace les clés de cette machine à partir de vos 24 mots de récupération, sous une nouvelle phrase de passe. Votre compte et vos fichiers restent.',
+    'Replace my keys with my 24 words': 'Remplacer mes clés par mes 24 mots',
+    'Replace the keys on this machine with your 24 recovery words? A window asks for them, then for a new passphrase.':
+      'Remplacer les clés de cette machine par vos 24 mots de récupération ? Une fenêtre les demande, puis une nouvelle phrase de passe.',
+    'A window asks for your 24 words, then a new passphrase.':
+      'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
+    'Not changed:': 'Pas modifié :',
+    'Remove this account from this machine': 'Retirer ce compte de cette machine',
+    'This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.':
+      'Cela retire le compte et tous les fichiers téléchargés de cette machine, et libère sa place parmi vos appareils. Rien n’est supprimé de vos autres machines. Pour revenir, il faut le nom du compte et vos 24 mots.',
+    'Check what is safe to remove': 'Vérifier ce qui peut être retiré sans risque',
+    'Checking what is safe to remove...': 'Vérification de ce qui peut être retiré sans risque…',
+    'No other machine answered just now, so the last changes made here may not have reached them.':
+      'Aucune autre machine n’a répondu à l’instant : les derniers changements faits ici n’ont peut-être pas pu les atteindre.',
+    '{n} of {total} pieces of your files exist only on this machine. Removing the account now destroys them for good. Sync with one of your other machines first.':
+      '{n} morceaux de vos fichiers sur {total} n’existent que sur cette machine. Retirer le compte maintenant les détruit pour toujours. Synchronisez d’abord avec une de vos autres machines.',
+    'This machine keeps {size} for other members. They re-place it from their own copies.':
+      'Cette machine garde {size} pour d’autres membres. Ils le replacent à partir de leurs propres copies.',
+    'Type {name} to remove it anyway': 'Tapez {name} pour la retirer quand même',
+    'This account is removed from this machine.': 'Ce compte est retiré de cette machine.',
+    'This machine could not tell the network. It will be done at your next login.':
+      'Cette machine n’a pas pu prévenir le réseau. Ce sera fait à votre prochaine connexion.',
+    'Delete this account': 'Supprimer ce compte',
+    'This removes the account for good: your hosts free its data, your other machines stop, and the name stays retired for a year. Type the account\'s name to confirm.':
+      'Cela supprime le compte pour toujours : vos hôtes libèrent ses données, vos autres machines s’arrêtent, et le nom reste retiré un an. Tapez le nom du compte pour confirmer.',
+    'The account\'s name': 'Le nom du compte',
+    'Delete this account for good? This cannot be undone.': 'Supprimer ce compte pour toujours ? Cela ne peut pas être annulé.',
+    'This account is deleted.': 'Ce compte est supprimé.',
+    'Devices of this account': 'Appareils de ce compte',
+    'Trash': 'Corbeille',
+    'A file deleted on this machine, from the folder, the drive or a terminal, waits here before it is deleted from every machine. Until then it still counts in the space. Zero days deletes at once.':
+      'Un fichier supprimé sur cette machine, dans le dossier, le lecteur ou un terminal, attend ici avant d’être supprimé de toutes les machines. D’ici là, il compte encore dans l’espace. Zéro jour supprime tout de suite.',
+    'Days before a file is really deleted': 'Jours avant qu’un fichier soit vraiment supprimé',
+    'Show the trash': 'Afficher la corbeille',
+    'Files on this machine': 'Fichiers sur cette machine',
+    'A file freed here leaves this machine\'s folder and stays in the account, on its other machines. Keep it here to bring it back. Only a file already synced can be freed. Opening this list pauses ITSaNAS on this machine for a moment.': 'Un fichier libéré quitte le dossier de cette machine et reste dans le compte, sur ses autres machines. « Garder ici » le ramène. Seul un fichier déjà synchronisé peut être libéré. Ouvrir cette liste met ITSaNAS en pause un instant sur cette machine.',
+    'Show the files': 'Afficher les fichiers',
+    'Only the files whose name holds': 'Seulement les fichiers dont le nom contient',
+    'freed here': 'libéré ici',
+    'here': 'ici',
+    'not here': 'pas ici',
+    'Keep here': 'Garder ici',
+    'Free up': 'Libérer',
+    'Not every file is listed: `itsanas ls` shows them all.': 'Tous les fichiers ne sont pas listés : `itsanas ls` les montre tous.',
+    'Start at login': 'Démarrer à l\u2019ouverture de session',
+    'For this account only: each account on this machine has its own.': 'Pour ce compte seulement : chaque compte de cette machine a le sien.',
+    'Start ITSaNAS for this account when I log in': 'Démarrer ITSaNAS pour ce compte à l\u2019ouverture de session',
+    'It starts when you log in.': 'Il démarre à l\u2019ouverture de session.',
+    'It no longer starts when you log in. It runs until it is stopped.': 'Il ne démarre plus à l\u2019ouverture de session. Il tourne jusqu\u2019à ce qu\u2019on l\u2019arrête.',
+    'No background service runs this account here: the setup offers one.': 'Aucun service en arrière-plan ne fait tourner ce compte ici : l\u2019installation en propose un.',
+    'Asked. If a new version is out, it is installed and ITSaNAS restarts by itself.': 'Demandé. Si une nouvelle version existe, elle est installée et ITSaNAS redémarre tout seul.',
+    'The trash is empty.': 'La corbeille est vide.',
+    'days before it is really deleted:': 'jours avant la suppression définitive :',
+    'Restore': 'Restaurer',
+    'Delete from the network': 'Supprimer du réseau',
+    'It disappears from every machine of the account. There is no undo.': 'Il disparaît de toutes les machines du compte. Rien ne permet de revenir en arrière.',
+    'Restored. The folder gets it back on its next pass.': 'Restauré. Le dossier le retrouve à son prochain passage.',
+    'Deleted from every machine on the next round.': 'Supprimé de toutes les machines au prochain tour.',
+    'Devices of this account:': 'Appareils de ce compte :',
+    'withdraw one you no longer use, then try again.': 'retirez-en un que vous n’utilisez plus, puis réessayez.',
+    'The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.':
+      'Les machines de ce compte. En retirer une libère sa place pour une autre. Ouvrir cette liste met ITSaNAS en pause un instant sur cette machine.',
+    'Show the devices': 'Afficher les appareils',
+    'Withdraw': 'Retirer',
+    'this machine': 'cette machine',
+    'Only some of the devices could be listed: those heard from lately.':
+      'Seuls certains appareils ont pu être listés : ceux entendus récemment.',
+    'Withdraw this device? Nothing will dial it again. To use it again it must be set up afresh.':
+      'Retirer cet appareil ? Plus rien ne le contactera. Pour le réutiliser, il faudra le configurer de nouveau.',
+    'Withdrawn. Nothing will dial it again and its slot is free. The withdrawal is final for that device: to use it again, log out on it and log in afresh. Someone who has that device and its passphrase can still read the account.':
+      'Retiré. Plus rien ne le contactera et sa place est libre. Le retrait est définitif pour cet appareil : pour le réutiliser, déconnectez-le et reconnectez-le à neuf. Qui possède cet appareil et sa phrase de passe peut encore lire le compte.',
+    'Machines to sync with': 'Machines avec lesquelles synchroniser',
+    'Machines you name by address, besides the ones the coordinator knows. Write each as host:port.':
+      'Machines que vous nommez par leur adresse, en plus de celles que connaît le coordinateur. Écrivez chacune sous la forme hôte:port.',
+    'Address of a machine': 'Adresse d’une machine',
+    'Add': 'Ajouter',
+    'Forget': 'Oublier',
+    'Show the machines I named': 'Afficher les machines nommées',
+    'My 24 recovery words': 'Mes 24 mots de récupération',
+    'A window asks for your passphrase, then shows your 24 words. They never appear in this page.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots. Ils n’apparaissent jamais dans cette page.',
+    'Show my 24 words': 'Afficher mes 24 mots',
+    'A window asks for your passphrase, then shows your 24 words.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots.',
+    'The 24 words were shown in the window. Nothing was kept anywhere new.':
+      'Les 24 mots ont été affichés dans la fenêtre. Rien n’a été conservé ailleurs.',
+    'My passphrase': 'Ma phrase de passe',
+    'A window asks for the current passphrase, then for a new one. Your keys and your files stay.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle. Vos clés et vos fichiers restent.',
+    'Change my passphrase': 'Changer ma phrase de passe',
+    'A window asks for the current passphrase, then a new one.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle.',
+    'The passphrase is changed, and the background service has the new one.':
+      'La phrase de passe est changée, et le service en arrière-plan a la nouvelle.',
+    'The passphrase is changed.': 'La phrase de passe est changée.',
+    'Files kept here': 'Fichiers gardés ici',
+    "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
+      'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',
+    'Files to keep here, in GB': 'Fichiers à garder ici, en Go',
+    'Files kept on this machine, in GB (empty: everything)': 'Fichiers gardés sur cette machine, en Go (vide : tout)',
+    'Contribute to the network': 'Contribuer au réseau',
+    'Legal notice': 'Mentions légales',
+    'Privacy policy': 'Politique de confidentialité',
+    'Terms of use': 'Conditions d’utilisation',
+    'Signing in to this machine unlocks every account on it: the system asks again only when that is not enough, and before a delete for good. A machine restarted with nobody signed in waits for them.':
+      'Se connecter à cette machine déverrouille tous ses comptes : le système redemande seulement si cela ne suffit pas, et avant une suppression définitive. Une machine redémarrée sans personne de connecté les attend.',
+    'Offer this machine to the network': 'Offrir cette machine au réseau',
+    'Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.':
+      'Éteint, cette machine ne reçoit plus rien et ne déclare aucun espace, et vos valeurs ci-dessous sont conservées. Ce qu’elle garde déjà pour d’autres reste, et elle continue d’en répondre.',
+    'Minutes between rounds while charging': 'Minutes entre deux tours en charge',
+    'Battery level at or below which it stops working in the background, in percent':
+      'Niveau de batterie auquel ou sous lequel elle s’arrête en arrière-plan, en pourcent',
+    'Mobile data it may use for others, in GB (0: none)':
+      'Données mobiles utilisables pour les autres, en Go (0 : aucune)',
+    'Counted per': 'Compté par',
+    'per hour': 'par heure',
+    'per day': 'par jour',
+    'per week': 'par semaine',
+    'per month': 'par mois',
+    'A connection the system marks as metered counts as mobile data, whatever it is.':
+      'Une connexion que le système marque comme limitée compte comme des données mobiles, quelle qu’elle soit.',
+    'Type a battery level from 0 to 100.': 'Saisissez un niveau de batterie de 0 à 100.',
+    'Type a whole number of minutes, at least 1.': 'Saisissez un nombre entier de minutes, au moins 1.',
+    'Choose hour, day, week or month.': 'Choisissez heure, jour, semaine ou mois.',
+    'Download files over mobile data too': 'Télécharger aussi les fichiers en données mobiles',
+    'Security': 'Sécurité',
+    'Unlock with my fingerprint or face': 'Déverrouiller avec mon empreinte ou mon visage',
+    'The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.':
+      'La copie s’est arrêtée sans dire pourquoi. Réessayez ; une clé qu’elle a laissée à moitié écrite est refusée et doit d’abord être vidée.',
+    'What a delete does, machine by machine. Every machine of the account shows the rules of all of them.': 'Ce que fait une suppression, machine par machine. Chaque machine du compte affiche les règles de toutes.',
+    'A file deleted on this machine': 'Un fichier supprimé sur cette machine',
+    'goes to the account\'s trash: any machine can restore it, or delete it for good, until its days are over': 'va dans la corbeille du compte : toute machine peut le restaurer, ou le supprimer définitivement, jusqu’à la fin de son délai',
+    'is deleted from every machine at once': 'est supprimé de toutes les machines aussitôt',
+    'leaves this machine only: the account and your other machines keep it': 'quitte cette machine seulement : le compte et vos autres machines le gardent',
+    'A file another machine deletes at once': 'Un fichier qu’une autre machine supprime aussitôt',
+    'is kept here first, for the days below': 'est d’abord gardé ici, le nombre de jours ci-dessous',
+    'goes from here too': 'part d’ici aussi',
+    'Days a deleted file waits': 'Jours d’attente d’un fichier supprimé',
+    'What will the drive be for?': 'À quoi servira le disque ?',
+    'In a drawer, as a spare': 'Dans un tiroir, en secours',
+    'My own computers, now and then': 'Mes propres ordinateurs, de temps en temps',
+    'A computer that is not mine': 'Un ordinateur qui n’est pas le mien',
+    'A backup: sealed, it opens with your 24 words only. Use “Backup to a drive you keep apart” below.': 'Une sauvegarde : scellée, elle ne s’ouvre qu’avec vos 24 mots. Utilisez « Sauvegarde sur un disque gardé à part » ci-dessous.',
+    'A USB key: ITSaNAS for every system, with this account on it. Use “Copy this account to a USB key”.': 'Une clé USB : ITSaNAS pour tous les systèmes, avec ce compte dessus. Utilisez « Copier ce compte sur une clé USB ».',
+    'A portable ITSaNAS: it hosts nothing for others, and its keys stay on the drive. Use “Put a portable ITSaNAS on a drive” below.': 'Un ITSaNAS portable : il n’héberge rien pour les autres, et ses clés restent sur le disque. Utilisez « Mettre un ITSaNAS portable sur un disque » ci-dessous.',
+    'Another disk holds this machine’s identity: it writes nothing until one of the two is set up afresh': 'Un autre disque porte l’identité de cette machine : elle n’écrit plus rien tant que l’une des deux n’est pas réinstallée comme machine à part entière',
+    'Back after a long silence: catching up with your other machines': 'De retour après un long silence : rattrape vos autres machines',
+    'resting, not heard from for over a week': 'au repos, sans nouvelles depuis plus d’une semaine',
+    'named only by the coordinator; no signed record of it here': 'nommé par le coordinateur seul ; aucune trace signée ici',
+    'Traces of deleted files are kept for': 'Les traces des fichiers supprimés sont gardées',
+    'Never delete the traces': 'Ne jamais supprimer les traces',
+    'A trace stops a machine that was off when a file was deleted from bringing it back. A machine switched off for longer than this may bring a deleted file back. One choice for the whole account; keeping them for less time asks who you are.': 'Une trace empêche une machine éteinte au moment d’une suppression de ramener le fichier. Une machine éteinte plus longtemps que cette durée peut ramener un fichier supprimé. Un seul choix pour tout le compte ; garder les traces moins longtemps demande qui vous êtes.',
+    'Save for the account': 'Enregistrer pour le compte',
+    '10 days': '10 jours',
+    '15 days': '15 jours',
+    '20 days': '20 jours',
+    '30 days': '30 jours',
+    '45 days': '45 jours',
+    '2 months': '2 mois',
+    '3 months': '3 mois',
+    '6 months': '6 mois',
+    '1 year': '1 an',
+    '18 months': '18 mois',
+    '2 years': '2 ans',
+    '3 years': '3 ans',
+    '5 years': '5 ans',
+    'Ask who I am before a file is deleted for good': 'Vérifier mon identité avant une suppression définitive',
+    'Ask me to confirm a delete': 'Me demander de confirmer une suppression',
+    'Keeping less than now (a delete at once, nothing kept, fewer days, a question turned off) asks who you are first.': 'Garder moins qu’aujourd’hui (suppression immédiate, rien de gardé, moins de jours, une question désactivée) demande d’abord votre identité.',
+    'Save for this machine': 'Enregistrer pour cette machine',
+    'Apply to every machine': 'Appliquer à toutes les machines',
+    'Follow the account\'s rules': 'Suivre les règles du compte',
+    'Rules of each machine': 'Règles de chaque machine',
+    'In the trash': 'Dans la corbeille',
+    'Delete the selected files for good': 'Supprimer définitivement la sélection',
+    'Empty the trash': 'Vider la corbeille',
+    'Trash and deletes': 'Corbeille et suppressions',
+    'Syncing, the folder, start at login, files kept here, disks and colours.': 'Synchronisation, dossier, démarrage, fichiers gardés ici, disques et couleurs.',
+    'What a delete does on each machine, and what waits in the trash.': 'Ce que fait une suppression sur chaque machine, et ce qui attend dans la corbeille.',
+    'The space and the resources this machine gives the network.': 'L’espace et les ressources que cette machine donne au réseau.',
+    'Unlocking, the 24 recovery words, the passphrase and a copy on a USB key.': 'Déverrouillage, les 24 mots de récupération, la phrase de passe et une copie sur clé USB.',
+    'The devices of this account, removing it, signing out.': 'Les appareils de ce compte, le retirer, se déconnecter.',
+    'The version, the licence and the legal texts.': 'La version, la licence et les textes légaux.',
+    'to the trash': 'à la corbeille',
+    'at once, everywhere': 'aussitôt, partout',
+    'from this machine only': 'de cette machine seulement',
+    'keeps what others delete': 'garde ce que les autres suppriment',
+    'lets it go': 'le laisse partir',
+    'days': 'jours',
+    'The account:': 'Le compte :',
+    'this machine follows it': 'cette machine le suit',
+    'Every machine of the account follows these rules, and loses its own. Go on?': 'Toutes les machines du compte suivent ces règles et perdent les leurs. Continuer ?',
+    'Change what a delete does on this machine?': 'Changer ce que fait une suppression sur cette machine ?',
+    'A window asks who you are.': 'Une fenêtre vérifie votre identité.',
+    'in the account\'s trash': 'dans la corbeille du compte',
+    'in this machine\'s trash': 'dans la corbeille de cette machine',
+    'waits for you to confirm': 'attend votre confirmation',
+    'kept here after another machine deleted it': 'gardé ici après sa suppression par une autre machine',
+    'Every file in the trash disappears from every machine of the account. There is no undo.': 'Chaque fichier de la corbeille disparaît de toutes les machines du compte. Impossible d’annuler.',
+    'Tick the files to delete first.': 'Cochez d’abord les fichiers à supprimer.',
+    'Restored on every machine of the account.': 'Restauré sur toutes les machines du compte.',
+    'This machine\'s rules are set.': 'Les règles de cette machine sont enregistrées.',
+    'Every machine of the account follows these rules on its next round.': 'Toutes les machines du compte suivent ces règles à leur prochain tour.',
+    'This machine follows the account\'s rules.': 'Cette machine suit les règles du compte.',
+    'Delete everywhere': 'Supprimer partout',
+    'Versions': 'Versions',
+    'Rename': 'Renommer',
+    'New name, on every machine:': 'Nouveau nom, sur toutes les machines :',
+    'Bring back': 'Rétablir',
+    'current': 'actuelle',
+    'It goes to the account\'s trash and leaves every machine when its days are over.':
+      'Il va dans la corbeille du compte et quitte toutes les machines à la fin de son délai.',
+    "Work in the background without the system's battery limits":
+      'Travailler en arrière-plan sans les limites de batterie du système',
+    "Otherwise the phone runs ITSaNAS only a few times a day once the app has not been opened for a while. The system asks you to confirm; turning it off is done in the phone's own settings.":
+      'Sinon le téléphone ne lance ITSaNAS que quelques fois par jour quand l’application n’a pas été ouverte depuis un moment. Le système vous demande de confirmer ; pour le désactiver, passez par les réglages du téléphone.',
+  },

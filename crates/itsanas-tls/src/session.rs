@@ -198,6 +198,10 @@ pub fn accept<S: Read + Write>(
     let mut connection = Connection::new(StreamOwned::new(session, stream));
 
     let hello: AuthHello = connection.receive()?.ok_or(TlsError::NoProof)?;
+    // A caller claiming to be this very device is never one: see `connect`.
+    if hello.device == device.device_id() {
+        return Err(TlsError::ReflectedProof);
+    }
     // A server takes callers as they come, so there is nobody to expect.
     let peer = auth::check(&hello, &exporter, None)?;
 
@@ -394,6 +398,12 @@ pub fn connect<S: Read + Write>(
     connection.send(&auth::prove(device, &exporter))?;
 
     let hello: AuthHello = connection.receive()?.ok_or(TlsError::NoProof)?;
+    // Both sides sign the same exporter under the same domain, and this side
+    // spoke first: a listener can send this very proof back, and it verifies.
+    // No honest peer is this device.
+    if hello.device == device.device_id() {
+        return Err(TlsError::ReflectedProof);
+    }
     let peer = auth::check(&hello, &exporter, expected)?;
 
     Ok(Authenticated { peer, connection })
@@ -521,6 +531,43 @@ mod tests {
              500 ms deadline; every slot on a public listener can be held this way"
         );
         let _ = trickler.join();
+    }
+
+    /// THE ATTACK, by a listener on an address dialled without a pinned id:
+    /// both sides sign the same exporter under the same domain and the
+    /// dialler speaks first, so the listener sends the dialler's own proof
+    /// back. It verified, and the dialler took the stranger for itself:
+    /// placement was skipped and every chunk offered to it. Sabotage: drop
+    /// the `ReflectedProof` check in `connect`.
+    #[test]
+    fn red_team_a_listener_that_echoes_the_callers_proof_is_refused() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_config = Identity::generate().unwrap().server_config().unwrap();
+
+        let mirror = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut session = ServerConnection::new(server_config).unwrap();
+            session.complete_io(&mut stream).unwrap();
+            let mut connection = Connection::new(StreamOwned::new(session, stream));
+            let hello: Option<AuthHello> = connection.receive().unwrap_or(None);
+            if let Some(hello) = hello {
+                let _ = connection.send(&hello);
+            }
+            // Held open until the dialler has decided.
+            let _: Option<u32> = connection.receive().unwrap_or(None);
+        });
+
+        let stream = TcpStream::connect(address).unwrap();
+        let client_config = Identity::generate().unwrap().client_config().unwrap();
+        let device = DeviceKeys::from_seed(&SecretBytes::new([6; 32]));
+        let outcome = connect(&client_config, &device, stream, None);
+        assert!(
+            matches!(outcome, Err(TlsError::ReflectedProof)),
+            "a listener echoing the dialler's own proof was taken for the dialler itself: {:?}",
+            outcome.map(|authenticated| authenticated.peer.short())
+        );
+        mirror.join().unwrap();
     }
 
     /// The deadline is for proving who you are, not for the conversation after.

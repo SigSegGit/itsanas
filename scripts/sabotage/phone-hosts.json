@@ -9,7 +9,7 @@
   ],
   "defences": {
     "hosts: nothing private": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
+      "file": "crates/itsanas-node/src/coordinator/lookup.rs",
       "live": "                && dialable_from_anywhere(&row.presence.presence.address)\n",
       "dead": ""
     },
@@ -19,7 +19,7 @@
       "dead": "if let Some(every) = plan.every.filter(|_| false) {"
     },
     "hosting: on battery it takes in nothing": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/pledge.rs",
       "live": "if answers_only.load(Ordering::Relaxed) || !vault_present(&vault) {",
       "dead": "if !vault_present(&vault) {"
     },

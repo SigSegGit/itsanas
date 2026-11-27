@@ -27,6 +27,12 @@ turned off by filtering a test or running one configuration, and sabotaging it
 stops the build rather than a test. That case looked like silence here until
 this script was run against one, the day it was written.
 
+A build refusal counts only for a defence that asks for it with
+`"expect": "build"`, and only when rustc printed an `error[E...]`. Any other
+command that fails with no test red is REFUSED, with its last lines: a sabotage
+that breaks the syntax, a linker or a full disk stops the build too, and none
+of them has tested the defence.
+
 What it does
 ------------
 
@@ -58,7 +64,7 @@ where the file is::
       "command": ["cargo", "test", "-p", "itsanas-coord", "--lib"],
       "defences": {
         "the private-address guard": {
-          "file": "crates/itsanas-coord/src/service.rs",
+          "file": "crates/itsanas-coord/src/service/probe.rs",
           "live": "if itsanas_tls::reach::is_private_address(&address) {",
           "dead": "if false {"
         }
@@ -127,9 +133,16 @@ def verify(name, defence, command, root):
         # type that cannot be built wrong -- cannot turn a test red, because
         # sabotaging it means nothing compiles and no test runs. That is the
         # strongest verification there is and it looked like silence until this
-        # script was run against one on 2026-09-21.
-        if run.returncode != 0 and 'error' in output:
-            return ['(the build itself refused it)'], None
+        # script was run against one on 2026-09-21. Such a defence says so with
+        # `"expect": "build"`, and rustc must have rejected the code itself: a
+        # broken anchor, a linker or a full disk also stop the build, and none
+        # of them proves anything.
+        if run.returncode != 0:
+            if defence.get('expect') == 'build' and 'error[E' in output:
+                return ['(the build itself refused it)'], None
+            tail = '\n'.join(output.splitlines()[-20:])
+            return None, ('the command failed (exit %d) without a test going red:\n%s'
+                          % (run.returncode, tail))
 
         return [], None
     finally:

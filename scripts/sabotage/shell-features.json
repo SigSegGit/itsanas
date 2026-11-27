@@ -39,32 +39,32 @@
       "dead": "data-nothing=\"biometric\""
     },
     "gate: open and pin (not pick: it opens a real dialog)": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "(features.folder, \"synced folder\")",
       "dead": "(true, \"synced folder\")"
     },
     "gate: disks": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "(features.disks, \"disk to move or back up to\")",
       "dead": "(true, \"disk to move or back up to\")"
     },
     "gate: usb": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "(features.usb_key, \"USB key to copy to\")",
       "dead": "(true, \"USB key to copy to\")"
     },
     "gate: another account": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "(features.another_account, \"second account beside this one\")",
       "dead": "(true, \"second account beside this one\")"
     },
     "fixed coordinator: name check": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/state.rs",
       "live": "fixed.or(field(&form, \"coordinator\"))",
       "dead": "field(&form, \"coordinator\").or(fixed)"
     },
     "fixed coordinator: offered": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/state.rs",
       "live": "quote(&ctx.backends.fixed_coordinator.as_ref().map_or_else(",
       "dead": "quote(&None::<&(String, Option<String>)>.map_or_else("
     }
