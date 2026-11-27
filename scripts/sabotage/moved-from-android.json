@@ -63,7 +63,7 @@
       "dead": "Ok(test.clone().unwrap_or(Network { address: \"evil.test:1\".to_owned(), device: None }))"
     },
     "logout: no claim presented to the host": {
-      "file": "crates/itsanas-node/src/node.rs",
+      "file": "crates/itsanas-node/src/node/roster.rs",
       "live": "        if let Ok(Some(theirs)) = client.present_claim(self.claim_bytes(now)) {\n            siblings.push(theirs);\n        }\n",
       "dead": "        let _ = now;\n"
     },

@@ -9,7 +9,7 @@
   ],
   "defences": {
     "heads: a relayed presence's length is not kept": {
-      "file": "crates/itsanas-node/src/contact.rs",
+      "file": "crates/itsanas-node/src/contact/relay.rs",
       "live": "            *longest = (*longest).max(row.presence.presence.head);\n",
       "dead": "            let _ = &longest;\n"
     }
