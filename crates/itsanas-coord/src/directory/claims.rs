@@ -4,7 +4,7 @@
 use itsanas_crypto::{DeviceId, UserId};
 use redb::{ReadableTable, ReadableTableMetadata};
 
-use super::{CLAIMS, CLAIMS_BY_OWNER, Directory, SUSPENDED, owner_device_key};
+use super::{CLAIMS, CLAIMS_BY_OWNER, DELETED_DEVICES, Directory, SUSPENDED, owner_device_key};
 use crate::{
     claim::{MAX_DEVICES_PER_ACCOUNT, SignedClaim},
     error::{CoordError, Result},
@@ -39,6 +39,16 @@ impl Directory {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
                 None => None,
             };
+            if existing.is_none()
+                && txn
+                    .open_table(DELETED_DEVICES)?
+                    .get(key.as_slice())?
+                    .is_some()
+            {
+                return Err(CoordError::Rejected(
+                    "that device belonged to a deleted account",
+                ));
+            }
 
             // Only a live claim for a device with no claim here takes a slot.
             // A device already live is re-signing (a new pledge, `register`

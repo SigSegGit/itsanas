@@ -349,3 +349,51 @@ fn every_refusal_reads_the_same_so_codes_cannot_be_enumerated() {
          ones: {reasons:?}"
     );
 }
+
+/// THE ATTACK: the operator suspends a member after an abuse report, and
+/// the member's keys go on bringing people in: a code lodged before the
+/// suspension, or a fresh one lodged after it, admits a sock puppet as a
+/// new member nobody suspended. A deleted inviter's codes, left on disk,
+/// do the same. Sabotage: drop the suspension check at lodging; drop the
+/// inviter's standing check at redemption.
+#[test]
+fn red_team_a_suspended_member_admits_nobody() {
+    let (_dir, directory) = directory();
+    let (mallory, gone) = (user(91), user(92));
+    for (who, name) in [(&mallory, "mallory"), (&gone, "gone")] {
+        directory
+            .register(&open_registration(who, name, NOW), NOW)
+            .expect("member");
+    }
+    let code = |n: u8| [n; SECRET_LEN];
+    directory
+        .lodge_invitation(&invite(&mallory, &code(1), 2, NOW), NOW)
+        .expect("lodged before the suspension");
+    directory
+        .lodge_invitation(&invite(&gone, &code(3), 1, NOW), NOW)
+        .expect("lodged before the deletion");
+
+    directory.suspend(mallory.user_id(), NOW).expect("suspend");
+    assert!(
+        directory
+            .lodge_invitation(&invite(&mallory, &code(2), 1, NOW + 1), NOW + 1)
+            .is_err(),
+        "a suspended member lodged a new invitation"
+    );
+    assert!(
+        join(&directory, &user(93), "puppet", Some(&code(1)), NOW + 2).is_err(),
+        "a code from a suspended member admitted a new account"
+    );
+
+    directory
+        .delete_account(&deletion(&gone, "gone", NOW + 3), NOW + 3)
+        .expect("delete");
+    assert!(
+        join(&directory, &user(94), "orphan", Some(&code(3)), NOW + 4).is_err(),
+        "a code from a deleted account admitted a new account"
+    );
+
+    directory.unsuspend(mallory.user_id()).expect("lift");
+    join(&directory, &user(93), "puppet", Some(&code(1)), NOW + 5)
+        .expect("once the suspension is lifted the code works again");
+}

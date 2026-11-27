@@ -6,9 +6,9 @@ use redb::{ReadableTable, ReadableTableMetadata};
 
 use super::{
     ACCOUNTS, AVAILABILITY, Account, AccountInventory, Admission, BY_ID, CLAIMS, CLAIMS_BY_OWNER,
-    DELETED, DeviceInventory, Directory, ESCROW, ESCROW_TRIES, Forgotten, NAME_RETIRED_FOR,
-    PRESENCE, RETIRED, SUSPENDED, SignedRegistration, USAGE, claims::live_claims_in,
-    invitations::redeem_in, owner_device_key,
+    DELETED, DELETED_DEVICES, DeviceInventory, Directory, ESCROW, ESCROW_TRIES, Forgotten,
+    NAME_RETIRED_FOR, PRESENCE, RETIRED, SUSPENDED, SignedRegistration, USAGE,
+    claims::live_claims_in, invitations::redeem_in, owner_device_key,
 };
 use crate::{
     claim::SignedClaim,
@@ -123,7 +123,7 @@ impl Directory {
                 let secret = secret.ok_or(CoordError::Rejected(
                     "this coordinator admits new members by invitation only",
                 ))?;
-                redeem_in(&txn, secret, joiner, now)?;
+                redeem_in(&txn, &by_id, secret, joiner, now)?;
             }
             // After the code, not before: a retired name told a stranger with
             // none that an account of that name once existed, and until when
@@ -351,6 +351,14 @@ impl Directory {
             )?;
             txn.open_table(RETIRED)?
                 .insert(name, now.saturating_add(NAME_RETIRED_FOR))?;
+            let index = txn.open_table(CLAIMS_BY_OWNER)?;
+            let mut gone = txn.open_table(DELETED_DEVICES)?;
+            let first = owner_device_key(user, DeviceId::from_bytes([0x00; 32]));
+            let last = owner_device_key(user, DeviceId::from_bytes([0xff; 32]));
+            for row in index.range(first.as_slice()..=last.as_slice())? {
+                let (key, _) = row?;
+                gone.insert(&key.value()[32..], ())?;
+            }
         }
         txn.commit()?;
         self.forget_account(name)?;

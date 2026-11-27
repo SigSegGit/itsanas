@@ -25,9 +25,11 @@ impl CoordService<'_> {
     ///   accepted.
     ///
     /// What remains is: a member, who published a public address, may have that
-    /// address dialled once an hour. The residual is written down rather than
-    /// argued away -- an enrolled member can make the coordinator open one
-    /// connection an hour to a public address of their choosing, which is a
+    /// address dialled once an hour, and at most
+    /// [`PROBES_PER_DEVICE`](super::PROBES_PER_DEVICE)
+    /// addresses an hour per device. The residual is written down rather than
+    /// argued away -- an enrolled member can make the coordinator open a few
+    /// connections an hour per device to public addresses of their choosing, which is a
     /// slow and attributable port scanner, and the answer to that is that they
     /// are enrolled and can be un-enrolled.
     pub fn probe_target(&self, caller: DeviceId, now_unix: u64) -> Result<Probe> {
