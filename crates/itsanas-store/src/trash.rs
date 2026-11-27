@@ -139,7 +139,7 @@ pub fn days(dir: &Path) -> u64 {
 ///
 /// When the setting cannot be written; the previous one then stands.
 pub fn set_days(dir: &Path, days: u64) -> std::io::Result<()> {
-    write_all(dir, DAYS, &days.min(MAX_DAYS).to_string())
+    write_all(dir, DAYS, days.min(MAX_DAYS).to_string())
 }
 
 /// What a delete made on this machine became.

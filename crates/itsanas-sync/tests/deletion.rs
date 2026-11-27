@@ -145,8 +145,12 @@ fn red_team_a_direct_delete_elsewhere_is_kept_by_a_machine_that_protects() {
 fn red_team_an_unreadable_protected_record_stops_gc_and_is_not_overwritten() {
     let swarm = swarm();
     let phone = swarm.device(PHONE);
-    phone.write("report.pdf", b"kept for days by the pc").unwrap();
-    phone.write("later.txt", b"deleted after the record broke").unwrap();
+    phone
+        .write("report.pdf", b"kept for days by the pc")
+        .unwrap();
+    phone
+        .write("later.txt", b"deleted after the record broke")
+        .unwrap();
     swarm.settle_and_check().unwrap();
     phone.remove("report.pdf").unwrap();
     swarm.settle_and_check().unwrap();
@@ -154,7 +158,10 @@ fn red_team_an_unreadable_protected_record_stops_gc_and_is_not_overwritten() {
     let pc = swarm.device(PC).store();
     let record = deletion::protected(pc.root());
     let chunks = record["report.pdf"].1.chunks.clone();
-    assert!(!chunks.is_empty(), "the protected file holds no chunk to keep");
+    assert!(
+        !chunks.is_empty(),
+        "the protected file holds no chunk to keep"
+    );
     std::fs::write(pc.root().join("protected"), [0xFF; 7]).unwrap();
 
     assert!(

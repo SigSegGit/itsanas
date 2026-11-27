@@ -615,7 +615,11 @@ impl std::io::Read for PausedReader {
             let _ = reached.send(());
             let _ = go.recv();
         }
-        let end = if self.at < self.pause_at { self.pause_at } else { self.data.len() };
+        let end = if self.at < self.pause_at {
+            self.pause_at
+        } else {
+            self.data.len()
+        };
         let n = buf.len().min(end - self.at);
         buf[..n].copy_from_slice(&self.data[self.at..self.at + n]);
         self.at += n;
@@ -634,10 +638,18 @@ fn a_refused_write_does_not_remove_a_chunk_repair_brought_back_meanwhile() {
     let shared = testkit::filler("shared", 512 * 1024);
     let entry = store.write_file("f.bin", &shared).unwrap();
     let lost = entry.chunks[0];
-    let genuine = store.blobs().get(&lost).unwrap().expect("the chunk just written");
+    let genuine = store
+        .blobs()
+        .get(&lost)
+        .unwrap()
+        .expect("the chunk just written");
     store.blobs().damage(&lost).unwrap();
     store.verify_integrity(false).unwrap();
-    assert_eq!(store.loss_count().unwrap(), 1, "fixture: the loss is queued");
+    assert_eq!(
+        store.loss_count().unwrap(),
+        1,
+        "fixture: the loss is queued"
+    );
     store
         .set_write_budget(Some(WriteBudget {
             allowed: 1200 * KIB,
@@ -663,8 +675,14 @@ fn a_refused_write_does_not_remove_a_chunk_repair_brought_back_meanwhile() {
         let repair = scope.spawn(|| store.accept_chunk(&lost, &genuine));
         std::thread::sleep(Duration::from_millis(300));
         go.send(()).unwrap();
-        assert!(write.join().unwrap().is_err(), "fixture: the write is refused");
-        assert!(repair.join().unwrap().unwrap(), "the genuine chunk was refused");
+        assert!(
+            write.join().unwrap().is_err(),
+            "fixture: the write is refused"
+        );
+        assert!(
+            repair.join().unwrap().unwrap(),
+            "the genuine chunk was refused"
+        );
     });
 
     assert!(
