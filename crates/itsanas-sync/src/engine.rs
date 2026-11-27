@@ -474,10 +474,13 @@ fn apply_conflict(
     // operation twice must be a no-op. Without this check a resolved conflict
     // is re-resolved on every sync round, and a settle loop that stops when
     // nothing changes would never stop.
-    if let Some(existing) = store.stat(&sibling)?
-        && existing.version.compare(&loser.version) == CausalOrder::Equal
-    {
-        return Ok(Applied::AlreadyKnown);
+    // The copy may also have been edited or deleted here since: an edit or a
+    // delete that saw the losing version settles it, and the replay must not
+    // put the old version back over it.
+    let settled = sibling_settled(store, &sibling, &loser.version)?;
+    let copy_settled = settled.is_some();
+    if !remote_wins && let Some(outcome) = settled {
+        return Ok(outcome);
     }
 
     // Both versions are about to exist, so the incoming one is charged whole
@@ -496,9 +499,13 @@ fn apply_conflict(
     }
 
     if remote_wins {
-        // The incoming version takes the original path; ours moves aside.
-        store.adopt_entry(&sibling, local)?;
+        // The incoming version takes the original path; ours moves aside,
+        // unless the copy here already went past it.
         store.adopt_entry(path, remote)?;
+        if copy_settled {
+            return Ok(Applied::Adopted);
+        }
+        store.adopt_entry(&sibling, local)?;
     } else {
         // We keep the original path; the incoming version moves aside.
         store.adopt_entry(&sibling, remote)?;
@@ -507,6 +514,27 @@ fn apply_conflict(
     Ok(Applied::Conflicted {
         sibling,
         remote_kept_original: remote_wins,
+    })
+}
+
+/// Whether the conflict copy at `sibling` already holds the losing version,
+/// or something that saw it: a later edit, or a delete.
+fn sibling_settled(
+    store: &Store,
+    sibling: &str,
+    loser: &VersionVector,
+) -> Result<Option<Applied>> {
+    let seen = match store.stat(sibling)? {
+        Some(existing) => existing.version.compare(loser),
+        None => match store.tombstone(sibling)? {
+            Some(tombstone) => tombstone.version.compare(loser),
+            None => return Ok(None),
+        },
+    };
+    Ok(match seen {
+        CausalOrder::Equal => Some(Applied::AlreadyKnown),
+        CausalOrder::After => Some(Applied::Superseded),
+        CausalOrder::Before | CausalOrder::Concurrent => None,
     })
 }
 
