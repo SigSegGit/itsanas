@@ -562,13 +562,30 @@ fn forget_noted(dir: &std::path::Path, path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// What this machine protects: `path` -> (due, the entry it had).
+/// What this machine protects: `path` -> (due, the entry it had). A record
+/// that cannot be read reads as empty here, which is for showing it only:
+/// anything that keeps or rewrites it goes through [`read_protected`].
 #[must_use]
 pub fn protected(dir: &std::path::Path) -> BTreeMap<String, (u64, FileEntry)> {
-    std::fs::read(dir.join(PROTECTED))
-        .ok()
-        .and_then(|bytes| postcard::from_bytes(&bytes).ok())
-        .unwrap_or_default()
+    read_protected(dir).unwrap_or_default()
+}
+
+/// [`protected`], or why it cannot be read. No record is an empty one; a record
+/// that is there but unreadable is an error, so that nothing collects the
+/// chunks it keeps or writes a record that forgets them.
+///
+/// # Errors
+///
+/// When the record is there but cannot be read or decoded.
+pub fn read_protected(
+    dir: &std::path::Path,
+) -> std::io::Result<BTreeMap<String, (u64, FileEntry)>> {
+    match std::fs::read(dir.join(PROTECTED)) {
+        Ok(bytes) => postcard::from_bytes(&bytes)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(error) => Err(error),
+    }
 }
 
 fn save_protected(
@@ -576,10 +593,7 @@ fn save_protected(
     kept: &BTreeMap<String, (u64, FileEntry)>,
 ) -> std::io::Result<()> {
     let bytes = postcard::to_allocvec(kept).map_err(std::io::Error::other)?;
-    std::fs::create_dir_all(dir)?;
-    let temporary = dir.join(format!("{PROTECTED}.new"));
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(&temporary, dir.join(PROTECTED))
+    trash::write_all(dir, PROTECTED, bytes)
 }
 
 /// The account's own files this machine has in its index. A synced folder and
@@ -665,12 +679,15 @@ pub fn restore_shared_known(store: &Store, path: &str) -> crate::Result<bool> {
 }
 
 /// The chunks a protected entry still needs: garbage collection keeps them.
-#[must_use]
-pub fn protected_chunks(dir: &std::path::Path) -> BTreeSet<ChunkId> {
-    protected(dir)
+///
+/// # Errors
+///
+/// When the record is there but cannot be read ([`read_protected`]).
+pub fn protected_chunks(dir: &std::path::Path) -> std::io::Result<BTreeSet<ChunkId>> {
+    Ok(read_protected(dir)?
         .into_values()
         .flat_map(|(_, entry)| entry.chunks)
-        .collect()
+        .collect())
 }
 
 /// Whether this machine's own rules, as far as its index knows them, protect.
@@ -729,7 +746,7 @@ pub fn protect(
     let Some(entry) = store.stat(path)? else {
         return Ok(());
     };
-    let mut kept = protected(store.root());
+    let mut kept = read_protected(store.root()).map_err(|error| StoreError::io(path, error))?;
     let due = now.saturating_add(days.clamp(1, trash::MAX_DAYS).saturating_mul(trash::DAY));
     kept.insert(path.clone(), (due, entry));
     save_protected(store.root(), &kept).map_err(|error| StoreError::io(path, error))
@@ -742,7 +759,7 @@ pub fn protect(
 ///
 /// When the store cannot be written.
 pub fn restore_protected(store: &Store, path: &str) -> crate::Result<bool> {
-    let mut kept = protected(store.root());
+    let mut kept = read_protected(store.root()).map_err(|error| StoreError::io(path, error))?;
     let Some((_, entry)) = kept.remove(path) else {
         return Ok(false);
     };
@@ -766,7 +783,7 @@ pub fn release_protected(
     paths: Option<&[String]>,
     now: u64,
 ) -> std::io::Result<usize> {
-    let mut kept = protected(dir);
+    let mut kept = read_protected(dir)?;
     let before = kept.len();
     kept.retain(|path, (due, _)| match paths {
         Some(named) => !named.iter().any(|name| name == path),

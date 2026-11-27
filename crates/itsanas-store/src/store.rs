@@ -1264,6 +1264,12 @@ impl Store {
         if self.user.chunk_id(&plaintext) != *address {
             return Ok(false);
         }
+        // Under the write lock: a refused `write_stream` removes the chunks it
+        // created, and one it created that repair restores meanwhile would go
+        // with them after its loss had been cleared.
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
         self.blobs.put(address, sealed)?;
         // It is here, so it is not lost. The queue must shrink on success or
         // repair would keep asking about chunks it has already recovered.
@@ -1336,8 +1342,10 @@ impl Store {
         let cutoff = now_unix().saturating_sub(grace.as_secs());
         let mut report = GcReport::default();
         // A file another machine deleted and this one protects is not in the
-        // index, and its chunks are all that can bring it back.
-        let protected = crate::deletion::protected_chunks(&self.root);
+        // index, and its chunks are all that can bring it back. A record that
+        // cannot be read stops the collection rather than keeping nothing.
+        let protected = crate::deletion::protected_chunks(&self.root)
+            .map_err(|error| StoreError::io(self.root.clone(), error))?;
 
         for (address, unreferenced_since) in self.index.unreferenced_chunks()? {
             if unreferenced_since > cutoff || protected.contains(&address) {
