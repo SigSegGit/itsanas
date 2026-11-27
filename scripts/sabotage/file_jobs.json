@@ -9,12 +9,12 @@
   ],
   "defences": {
     "jobs: the daemon refuses file jobs": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/disk_work.rs",
       "live": "        | Kind::Versions => crate::file_job(node, &job),\n",
       "dead": "        | Kind::Versions => Err(\"refused\".to_owned()),\n"
     },
     "jobs: the conversion is done at once and nothing converted": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/disk_work.rs",
       "live": "            eprintln!(\"itsanas: converting to pack files; this run stops for it\");\n",
       "dead": "            jobs::report(&node.home, job.id, State::Done, \"converted\");\n            return;\n"
     }

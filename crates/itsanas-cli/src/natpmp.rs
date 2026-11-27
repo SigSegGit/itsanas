@@ -1,7 +1,7 @@
 //! NAT-PMP (RFC 6886): the router's port opened for routers that speak no
 //! `UPnP` IGD, HANDOVER §8 0u.
 //!
-//! Tried after `UPnP` fails (`daemon.rs`). Two UDP requests to the gateway on
+//! Tried after `UPnP` fails (`daemon/parking.rs`). Two UDP requests to the gateway on
 //! port 5351: one for the public address, one to map the listening TCP port.
 //! PCP (RFC 6887) answers version-0 requests with a version error, so a PCP
 //! router is not used here; it is the next step if the fleet shows one.

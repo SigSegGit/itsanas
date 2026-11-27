@@ -1,6 +1,6 @@
 //! `itsanas setup --answers`, run twice on a throwaway home, for real.
 //!
-//! The engine's unit tests (`src/setup/tests.rs`) drive `Setup` with a
+//! The engine's unit tests (`src/setup/tests/`) drive `Setup` with a
 //! scripted person. This one drives the binary a provisioning script would:
 //! the answers file parsed, the passphrase from `ITSANAS_PASSPHRASE`, the
 //! words printed once, and -- the point of Nicolas's "resilient install" -- a

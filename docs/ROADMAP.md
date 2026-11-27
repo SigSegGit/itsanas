@@ -1702,7 +1702,7 @@ Major step: Rodin on the plan before the code.
   local disk file systems (no NFS, SMB, SSHFS, `fuse.*`); the key's
   passphrase may not be the machine's in another case, hold it or be held
   in it, nor a common base with digits around it. Proven by the fifteen
-  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests.rs`;
+  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests/`;
   the drive parsers are tested on samples of each system's output, and the
   real listing on Windows and macOS is still to be seen by hand. Not in it: a
   device label (no field in the config or the claim carries one).

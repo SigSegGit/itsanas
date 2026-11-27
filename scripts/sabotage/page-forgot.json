@@ -39,7 +39,7 @@
       "dead": "    for _ in 0..1 {"
     },
     "forgot: the page route is on every page": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "(\"POST\", \"/api/forgot\") if ctx.mode == Mode::Settings => start_forgot(ctx),",
       "dead": "(\"POST\", \"/api/forgot\") => start_forgot(ctx),"
     }

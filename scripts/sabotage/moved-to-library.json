@@ -94,7 +94,7 @@
       "dead": "!text.is_empty()"
     },
     "sign out: the app is not told": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/account_actions.rs",
       "live": "            ctx.backends.host.event(\"signedOut\", \"\");\n",
       "dead": ""
     },

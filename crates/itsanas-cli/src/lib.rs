@@ -2947,7 +2947,7 @@ pub(crate) fn register_only(node: &Node) -> Result<()> {
 fn enrol(node: &Node, invite: Option<&str>, now: u64) -> Result<()> {
     let secret = invite.map(coordinator::decode_secret).transpose()?;
     coordinator::register_with(node, secret.as_ref(), now)?;
-    // `daemon.rs`, `enrol_at_daemon_start`, reads the address it holds.
+    // `daemon/reachability.rs`, `enrol_at_daemon_start`, reads the address it holds.
     mark_registered(node);
     Ok(())
 }
