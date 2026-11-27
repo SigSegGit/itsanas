@@ -58,7 +58,7 @@ node with the new one and not the old.
 
 The **protocol** behaviour both rely on is covered.
 `a_member_registers_enrols_a_device_and_is_then_findable_by_name` in
-`itsanas-coord/tests/coordinator.rs` runs the exact Lookup-then-Peers sequence
+`itsanas-coord/tests/coordinator/members.rs` runs the exact Lookup-then-Peers sequence
 from a machine that knows only the name, and
 `a_revoked_device_leaves_the_live_set` covers the directory honouring a
 revocation. What is untested is the glue: turning a `Response::Missing` into a
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-net` placement (`tests/placement/main.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 143 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 25 |
+| `itsanas-coord` integration (`tests/coordinator/main.rs`) | 25 |
 | `itsanas-coordinator` unit | 1 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
@@ -3175,7 +3175,7 @@ refuses to do.
 
 # `itsanas-coord` — the coordinator server (34)
 
-Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
+Sixteen integration tests in `tests/coordinator/` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
 device authentication, real signatures, real framing.
 
@@ -3298,8 +3298,8 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 
 Decided by Nicolas on 2026-09-30 at 5, raised to 10 on 2026-10-22 and to 20
 on 2026-11-20; every count below is derived from the constant, so "full" means
-`MAX_DEVICES_PER_ACCOUNT`. Five unit tests in `directory.rs` and one
-integration test in `tests/coordinator.rs`. `MAX_DEVICES_PER_ACCOUNT` in
+`MAX_DEVICES_PER_ACCOUNT`. Five unit tests in `directory/tests/claims.rs` and one
+integration test in `tests/coordinator/transport.rs`. `MAX_DEVICES_PER_ACCOUNT` in
 `claim.rs`; `Directory::bound_devices(false)` plays a coordinator older than
 the bound, behind `cfg(test)` and the `hostile` feature.
 

@@ -43,7 +43,6 @@ CEILING = {
     'crates/itsanas-store/tests/store.rs': 2199,
     'crates/itsanas-store/src/store.rs': 2078,
     'crates/itsanas-android/src/lib.rs': 1924,
-    'crates/itsanas-coord/src/service.rs': 1814,
     'crates/itsanas-node/src/owners.rs': 1803,
     'crates/itsanas-node/src/config.rs': 1703,
     'scripts/check-installers.sh': 1650,

@@ -58,7 +58,7 @@ where the file is::
       "command": ["cargo", "test", "-p", "itsanas-coord", "--lib"],
       "defences": {
         "the private-address guard": {
-          "file": "crates/itsanas-coord/src/service.rs",
+          "file": "crates/itsanas-coord/src/service/probe.rs",
           "live": "if itsanas_tls::reach::is_private_address(&address) {",
           "dead": "if false {"
         }
