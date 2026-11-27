@@ -101,18 +101,29 @@ object Account {
      */
     suspend fun add(context: Context, uri: Uri, name: String, folder: String) =
         withContext(Dispatchers.IO) {
+            val single = oneName(name)
             val staged = File(context.cacheDir, "staged").also { it.mkdirs() }
-            val copy = File(staged, name)
+            val copy = File(staged, single)
+            require(copy.canonicalFile.parentFile == staged.canonicalFile) { "that file's name is not one name" }
             context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "that file could not be read" }
                 copy.outputStream().use { input.copyTo(it) }
             }
             try {
-                val path = if (folder.isBlank()) name else "$folder/$name"
+                val path = if (folder.isBlank()) single else "$folder/$single"
                 Native.put(path, copy.absolutePath)
             } finally {
                 copy.delete()
             }
         }
+
+    /**
+     * The last segment of a name another application gave, never a path: a
+     * provider answering "../../shared_prefs/…" as a display name would have
+     * had the copy written over this application's own files, then deleted.
+     */
+    fun oneName(name: String): String =
+        name.substringAfterLast('/').substringAfterLast('\\').trim()
+            .takeIf { it.isNotEmpty() && it != "." && it != ".." } ?: "file"
 
 }

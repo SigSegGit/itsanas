@@ -120,23 +120,33 @@ class MainActivity : FragmentActivity() {
      */
     @Suppress("DEPRECATION")
     private fun incoming(intent: Intent?): List<Uri> = when (intent?.action) {
-        Intent.ACTION_SEND -> listOfNotNull(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Intent.ACTION_SEND -> {
+            val stream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-            } ?: sharedText(intent)
-        )
+            }
+            if (stream != null) listOf(stream).filter(::foreign) else listOfNotNull(sharedText(intent))
+        }
 
         Intent.ACTION_SEND_MULTIPLE ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
-            }.orEmpty()
+            }.orEmpty().filter(::foreign)
 
         else -> emptyList()
     }
+
+    /**
+     * A shared stream another application serves: `content://`, and not this
+     * application's own provider. A `file://` stream, or one of our own URIs,
+     * would have had this application read its own private files into the
+     * account at another application's request.
+     */
+    private fun foreign(uri: Uri): Boolean =
+        uri.scheme == android.content.ContentResolver.SCHEME_CONTENT && uri.authority != "$packageName.files"
 
     /**
      * A share that carries words and no file -- a link from the browser, a
@@ -1207,10 +1217,10 @@ private fun nameOf(context: android.content.Context, uri: Uri): String {
         val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (column >= 0 && cursor.moveToFirst()) {
             val name = cursor.getString(column)
-            if (!name.isNullOrBlank()) return name
+            if (!name.isNullOrBlank()) return Account.oneName(name)
         }
     }
-    return uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+    return Account.oneName(uri.lastPathSegment ?: "file")
 }
 
 /**
