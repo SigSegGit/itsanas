@@ -32,28 +32,6 @@ LIMIT = 1000
 KINDS = ('.rs', '.kt', '.swift', '.py', '.sh', '.ps1', '.js')
 
 CEILING = {
-    'crates/itsanas-net/tests/two_nodes.rs': 4972,
-    'crates/itsanas-store/src/index.rs': 4454,
-    'crates/itsanas-coord/src/directory.rs': 4162,
-    'crates/itsanas-store/src/vault.rs': 3268,
-    'crates/itsanas-node/src/contact.rs': 3125,
-    'crates/itsanas-node/src/coordinator.rs': 2790,
-    'crates/itsanas-net/src/service.rs': 2577,
-    'crates/itsanas-net/src/session.rs': 2424,
-    'crates/itsanas-store/tests/store.rs': 2199,
-    'crates/itsanas-store/src/store.rs': 2078,
-    'crates/itsanas-android/src/lib.rs': 1924,
-    'crates/itsanas-node/src/owners.rs': 1803,
-    'crates/itsanas-node/src/config.rs': 1703,
-    'scripts/check-installers.sh': 1650,
-    'crates/itsanas-store/src/index/placement.rs': 1508,
-    'crates/itsanas-coord/tests/coordinator.rs': 1455,
-    'crates/itsanas-folder/src/lib.rs': 1297,
-    'android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt': 1273,
-    'crates/itsanas-net/src/protocol.rs': 1228,
-    'crates/itsanas-coord/src/server.rs': 1120,
-    'crates/itsanas-cli/src/setup/web/i18n.js': 1102,
-    'crates/itsanas-net/tests/placement.rs': 1037,
 }
 
 
