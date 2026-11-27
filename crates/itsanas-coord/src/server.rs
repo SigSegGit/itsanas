@@ -41,7 +41,9 @@ use rustls::{ClientConfig, ServerConfig};
 use crate::directory::{Admission, Directory};
 use crate::error::{CoordError, Result};
 use crate::protocol::{COORD_VERSION, MAX_REQUESTS_PER_CONNECTION, Request, Response};
-use crate::service::{CoordService, EscrowLimiter, Expired, PROBE_TRACKED, PROBE_WINDOW, Probe};
+use crate::service::{
+    CoordService, EscrowLimiter, Expired, PROBE_TRACKED, PROBE_WINDOW, PROBES_PER_DEVICE, Probe,
+};
 
 /// Default port for a coordinator.
 pub const DEFAULT_COORD_PORT: u16 = 9898;
@@ -257,14 +259,15 @@ impl CoordServer {
         // per-connection budget is no budget at all: an attacker reconnects and
         // gets a fresh one, which costs them a handshake and buys them
         // everything. Shared state behind a mutex is the price of the rate
-        // limit meaning anything, and it is only touched on escrow fetches.
+        // limit meaning anything, and only an escrow fetch locks it, for its
+        // count in memory and not across the disk write after it.
         let limiter = Mutex::new(EscrowLimiter::new());
 
         // A second budget, for the one request that makes this process act on
         // the internet rather than answer about it. Shared for the same reason
         // as the first: a per-connection budget is no budget, because
         // reconnecting is cheap.
-        let probes = Mutex::new(EscrowLimiter::with(1, PROBE_WINDOW, PROBE_TRACKED));
+        let probes = Mutex::new(ProbeBudget::new(PROBE_TRACKED));
         let in_flight = AtomicUsize::new(0);
 
         // A third, per address rather than per name: see [`NAME_QUESTIONS`].
@@ -358,6 +361,66 @@ fn expire_once(service: &CoordService<'_>, on_event: &mut impl FnMut(&str)) {
     }
 }
 
+/// What a [`Request::CheckMe`] is charged to: one probe per address of a
+/// device, and [`PROBES_PER_DEVICE`] addresses per device, per
+/// [`PROBE_WINDOW`].
+#[derive(Debug)]
+pub struct ProbeBudget {
+    per_device: EscrowLimiter,
+    per_target: EscrowLimiter,
+}
+
+impl ProbeBudget {
+    /// The budget, remembering at most `tracked` devices.
+    #[must_use]
+    pub fn new(tracked: usize) -> Self {
+        Self {
+            per_device: EscrowLimiter::with(PROBES_PER_DEVICE, PROBE_WINDOW, tracked),
+            per_target: EscrowLimiter::with(
+                1,
+                PROBE_WINDOW,
+                tracked.saturating_mul(PROBES_PER_DEVICE as usize),
+            ),
+        }
+    }
+
+    /// Whether `caller` may have `target` probed at `now`; charged only when
+    /// it may, and the refusal to say when not.
+    ///
+    /// # Errors
+    ///
+    /// The sentence for the caller: a repeat, or one address too many.
+    pub fn allow(
+        &mut self,
+        caller: DeviceId,
+        target: &str,
+        now: Instant,
+    ) -> std::result::Result<(), &'static str> {
+        // Keyed by device **and address**: the budget exists to stop a daemon
+        // asking every round, and a *new* address is precisely the case where
+        // the answer can have changed. Found by using it -- repointing a node
+        // during a fleet migration, the second question was refused as a
+        // repeat of the first, which is the moment somebody most needs it.
+        let device = caller.to_hex();
+        let key = format!("{device}@{target}");
+        // Both checked before either is charged: a repeat must not spend one
+        // of the device's addresses, nor one address too many take a row.
+        if !self.per_target.would_allow(&key, now) {
+            return Err(
+                "this address was already probed within the hour; the answer from then stands",
+            );
+        }
+        if !self.per_device.would_allow(&device, now) {
+            return Err(
+                "this device has had as many addresses probed as it may this hour; ask again later",
+            );
+        }
+        self.per_target.allow(&key, now);
+        self.per_device.allow(&device, now);
+        Ok(())
+    }
+}
+
 /// Decide whether to probe this caller, and probe them.
 ///
 /// The decision is `CoordService`'s and is tested without a socket; everything
@@ -369,7 +432,7 @@ fn answer_check_me(
     service: &CoordService<'_>,
     caller: DeviceId,
     device: &DeviceKeys,
-    probes: &Mutex<EscrowLimiter>,
+    probes: &Mutex<ProbeBudget>,
     in_flight: &AtomicUsize,
 ) -> Response {
     let target = match service.probe_target(caller, now_unix()) {
@@ -385,16 +448,8 @@ fn answer_check_me(
         let Ok(mut probes) = probes.lock() else {
             return Response::Refused("this coordinator is not answering probes".to_owned());
         };
-        // Keyed by device **and address**: the budget exists to stop a daemon
-        // asking every round, and a *new* address is precisely the case where
-        // the answer can have changed. Found by using it -- repointing a node
-        // during a fleet migration, the second question was refused as a
-        // repeat of the first, which is the moment somebody most needs it.
-        if !probes.allow(&format!("{}@{target}", caller.to_hex()), Instant::now()) {
-            return Response::Unknown(
-                "this address was already probed within the hour; the answer from then stands"
-                    .to_owned(),
-            );
+        if let Err(why) = probes.allow(caller, &target, Instant::now()) {
+            return Response::Unknown(why.to_owned());
         }
     }
 
@@ -638,14 +693,10 @@ fn serve_one(
         } else if is_a_question(&request) && !spend(names) {
             Response::Refused(TOO_MANY_NAME_QUESTIONS.to_owned())
         } else {
-            // Held only across one request, and only escrow fetches touch it.
-            // A poisoned lock means another thread panicked mid-request; the
-            // safe answer is to refuse rather than to ignore the limit.
-            let Ok(mut limiter) = limiter.lock() else {
-                return Ok(());
-            };
+            // Locked inside, by an escrow fetch alone, and for its count in
+            // memory alone: every other request runs beside the others.
             service
-                .handle(&request, caller, now_unix(), &mut limiter, Instant::now())
+                .handle(&request, caller, now_unix(), limiter, Instant::now())
                 .unwrap_or_else(|error| Response::Refused(error.to_string()))
         };
 
@@ -678,7 +729,7 @@ fn serve_one(
 #[derive(Clone, Copy)]
 struct Budgets<'a> {
     escrow: &'a Mutex<EscrowLimiter>,
-    probes: &'a Mutex<EscrowLimiter>,
+    probes: &'a Mutex<ProbeBudget>,
     names: &'a Mutex<NameBudget>,
 }
 
@@ -705,21 +756,43 @@ impl NameBudget {
     /// `allowed` questions per address per [`NAME_WINDOW`].
     #[must_use]
     pub fn new(allowed: u32) -> Self {
+        Self::with_capacity(allowed, NAME_TRACKED)
+    }
+
+    /// The same, remembering at most `tracked` addresses and as many blocks.
+    #[must_use]
+    pub fn with_capacity(allowed: u32, tracked: usize) -> Self {
         Self {
-            addresses: EscrowLimiter::with(allowed, NAME_WINDOW, NAME_TRACKED),
+            addresses: EscrowLimiter::with(allowed, NAME_WINDOW, tracked),
             blocks: EscrowLimiter::with(
                 allowed.saturating_mul(NAME_BLOCK_SHARES),
                 NAME_WINDOW,
-                NAME_TRACKED,
+                tracked,
             ),
         }
     }
 
     /// Whether `from` may ask one more question about a name at `now`; counts
     /// it when it may.
+    ///
+    /// Both tables are checked before either is charged: a /64 whose /48 is
+    /// spent must take no row, or one /48 fills the address table and every
+    /// address not yet seen is refused for the hour.
     pub fn allow(&mut self, from: IpAddr, now: Instant) -> bool {
-        self.addresses.allow(&address_key(from), now)
-            && block_key(from).is_none_or(|block| self.blocks.allow(&block, now))
+        let address = address_key(from);
+        let block = block_key(from);
+        if !self.addresses.would_allow(&address, now)
+            || block
+                .as_ref()
+                .is_some_and(|block| !self.blocks.would_allow(block, now))
+        {
+            return false;
+        }
+        self.addresses.allow(&address, now);
+        if let Some(block) = block {
+            self.blocks.allow(&block, now);
+        }
+        true
     }
 }
 
@@ -940,6 +1013,88 @@ mod tests {
         assert!(
             budget.allow("203.0.113.9".parse().expect("an address"), now),
             "an IPv4 address was counted in an IPv6 site"
+        );
+    }
+
+    /// THE ATTACK: one /48 asks one question from each of its /64s. Past the
+    /// /48's budget every one is refused, and if the refusal still recorded
+    /// the /64, the address table filled and every address it had not seen,
+    /// IPv4 or IPv6, was refused name questions and recovery for the hour.
+    /// Sabotage: record the /64 before checking the /48.
+    #[test]
+    fn red_team_one_ipv6_site_cannot_fill_the_address_table() {
+        let tracked = 64;
+        let mut budget = NameBudget::with_capacity(1, tracked);
+        let now = Instant::now();
+        for index in 0..tracked {
+            let from: IpAddr = format!("2001:db8:7:{index:x}::1")
+                .parse()
+                .expect("an address");
+            let _ = budget.allow(from, now);
+        }
+        assert!(
+            budget.allow("203.0.113.9".parse().expect("an address"), now),
+            "one IPv6 site filled the address table and locked a stranger out"
+        );
+    }
+
+    /// A full escrow table refuses every recovery of a name it is not already
+    /// counting, and the name budget is what prices filling it. The ceiling is
+    /// written in the ROADMAP with its arithmetic; this keeps the numbers
+    /// there equal to the constants here. Sabotage: change `ESCROW_TRACKED`.
+    #[test]
+    fn a_full_escrow_table_is_a_documented_ceiling() {
+        let roadmap = include_str!("../../../docs/ROADMAP.md");
+        let per_hour = u64::try_from(crate::service::ESCROW_TRACKED).expect("small")
+            * (NAME_WINDOW.as_secs() / crate::service::ESCROW_WINDOW.as_secs());
+        let ipv4 = per_hour.div_ceil(u64::from(NAME_QUESTIONS));
+        let ipv6 = per_hour.div_ceil(u64::from(NAME_QUESTIONS * NAME_BLOCK_SHARES));
+        for said in [
+            format!("`ESCROW_TRACKED` ({})", crate::service::ESCROW_TRACKED),
+            format!("{ipv4} IPv4 addresses or {ipv6} IPv6 /48s"),
+        ] {
+            assert!(
+                roadmap.contains(&said),
+                "the ROADMAP's escrow ceiling no longer says {said:?}"
+            );
+        }
+    }
+
+    /// THE ATTACK: an enrolled device announces a new public address before
+    /// each probe, and each new address was a fresh budget: the coordinator
+    /// dialled one chosen host after another. Sabotage: drop the per-device
+    /// budget; charge it before checking the per-address one.
+    #[test]
+    fn red_team_one_device_cannot_probe_a_new_address_every_time() {
+        let mut budget = ProbeBudget::new(PROBE_TRACKED);
+        let now = Instant::now();
+        let (one, two) = (keys(1).device_id(), keys(2).device_id());
+        let allowed = (1..=10)
+            .filter(|n| budget.allow(one, &format!("203.0.113.{n}:22"), now).is_ok())
+            .count();
+        assert_eq!(
+            allowed, PROBES_PER_DEVICE as usize,
+            "one device had a new address probed every time it asked"
+        );
+        assert!(
+            budget.allow(two, "203.0.113.1:22", now).is_ok(),
+            "another device was refused for the first one's probes"
+        );
+        assert!(
+            budget.allow(two, "203.0.113.1:22", now).is_err(),
+            "the same address was probed twice within the hour"
+        );
+        for n in [2, 3] {
+            assert!(
+                budget.allow(two, &format!("203.0.113.{n}:22"), now).is_ok(),
+                "a repeat refused spent the device's budget of addresses"
+            );
+        }
+        assert!(
+            budget
+                .allow(one, "203.0.113.1:22", now + PROBE_WINDOW)
+                .is_ok(),
+            "the window never reopened"
         );
     }
 

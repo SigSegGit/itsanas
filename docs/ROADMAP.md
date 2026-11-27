@@ -1600,6 +1600,11 @@ Still open, each with its reason:
   /48 budget means filling it from IPv6 takes over five hundred /48s. An
   attacker with that many
   /64s denies name questions to newcomers for that hour.
+- The escrow table holds `ESCROW_TRACKED` (4096) names per `ESCROW_WINDOW`
+  (15 minutes), in memory and on disk (`escrow_tries`); full, it refuses a
+  name it is not already counting. Inventing names at `NAME_QUESTIONS` an
+  hour, 547 IPv4 addresses or 137 IPv6 /48s keep it full, and while it is
+  full every recovery of a name not yet counted is refused.
 - What a censor sees besides the hello: a TLS 1.3 handshake to a fixed port
   (9898, 9797) whose cipher and extension order are rustls's own (a JA3-style
   fingerprint), and a server that answers any prober with a TLS handshake. An
