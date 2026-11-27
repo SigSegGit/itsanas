@@ -1048,7 +1048,13 @@ impl PeerClient {
     /// If the peer refuses, or answers something else.
     pub fn want_hosted(&mut self, limit: u32) -> Result<(UserId, Vec<ChunkId>)> {
         match self.request(&Request::WantHosted { limit })? {
-            Response::WantHosted { owner, chunks } => Ok((owner, chunks)),
+            // Held to the limit here, where the peer's list arrives: the
+            // host looks up or fetches every id it names.
+            Response::WantHosted { owner, chunks }
+                if u32::try_from(chunks.len()).is_ok_and(|len| len <= limit) =>
+            {
+                Ok((owner, chunks))
+            }
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "chunks wanted",
@@ -1311,13 +1317,25 @@ impl PeerClient {
     }
 
     /// Ask which of `addresses` the peer lacks.
+    ///
+    /// The answer is a subset of the question, once each, or it is refused:
+    /// every caller uploads or re-records what comes back, so an id the peer
+    /// was not asked about, or one repeated, would be sent again and credited
+    /// to it outside placement.
     pub fn missing_chunks(
         &mut self,
         owner: UserId,
         addresses: Vec<ChunkId>,
     ) -> Result<Vec<ChunkId>> {
+        let asked_len = addresses.len();
+        let asked: std::collections::BTreeSet<ChunkId> = addresses.iter().copied().collect();
         match self.request(&Request::HaveChunks { owner, addresses })? {
-            Response::Missing(missing) => Ok(missing),
+            Response::Missing(missing)
+                if missing.len() <= asked_len && missing.iter().all(|a| asked.contains(a)) =>
+            {
+                let unique: std::collections::BTreeSet<ChunkId> = missing.into_iter().collect();
+                Ok(unique.into_iter().collect())
+            }
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "missing chunks",
@@ -1494,6 +1512,102 @@ mod tests {
                 "the owner was told its segments were bad when the host said: {text}"
             );
         }
+    }
+
+    /// A peer that answers the opening exchange honestly and then `answer`,
+    /// whatever was asked: a host that lies about one verb.
+    fn scripted_peer(answer: Response) -> (SocketAddr, std::thread::JoinHandle<()>) {
+        use itsanas_crypto::SecretBytes;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let config = Identity::generate().unwrap().server_config().unwrap();
+            let device = DeviceKeys::from_seed(&SecretBytes::new([41; 32]));
+            let Authenticated { mut connection, .. } =
+                itsanas_tls::accept(&config, &device, stream).unwrap();
+            while let Ok(Some(request)) = connection.receive::<Request>() {
+                let reply = match request {
+                    Request::Hello { .. } => Response::Hello {
+                        protocol: PROTOCOL_VERSION,
+                        device: device.device_id(),
+                    },
+                    _ => answer.clone(),
+                };
+                if connection.send(&reply).is_err() {
+                    return;
+                }
+            }
+        });
+        (address, handle)
+    }
+
+    fn dial(address: SocketAddr) -> PeerClient {
+        use itsanas_crypto::SecretBytes;
+        let device = DeviceKeys::from_seed(&SecretBytes::new([42; 32]));
+        PeerClient::connect(address, &device, UserId::from_bytes([7; 32]), None).unwrap()
+    }
+
+    #[test]
+    fn red_team_a_missing_answer_naming_chunks_not_asked_for_is_refused() {
+        // THE ATTACK, by a host offered one chunk by placement: it answers
+        // that it lacks that one, another the owner holds, and one id
+        // repeated. The owner uploaded every id it named, credited the host
+        // with copies the roster gave to others, and sent the same 256 KiB
+        // again for the whole session. Sabotage: drop the subset check in
+        // `missing_chunks`.
+        let (a, b, c) = (
+            ChunkId::from_bytes([1; 32]),
+            ChunkId::from_bytes([2; 32]),
+            ChunkId::from_bytes([3; 32]),
+        );
+        let (address, peer) = scripted_peer(Response::Missing(vec![a, b, b, b, c]));
+        let mut client = dial(address);
+        let answer = client.missing_chunks(UserId::from_bytes([7; 32]), vec![a]);
+        assert!(
+            matches!(answer, Err(NetError::UnexpectedResponse { .. })),
+            "a host's answer named chunks it was not asked about and the owner took it: {answer:?}"
+        );
+        drop(client);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn a_missing_answer_comes_back_without_repeats() {
+        // An honest host answers a batch that names a chunk twice with it
+        // twice; the owner uploads it once.
+        let a = ChunkId::from_bytes([1; 32]);
+        let (address, peer) = scripted_peer(Response::Missing(vec![a, a]));
+        let mut client = dial(address);
+        let answer = client
+            .missing_chunks(UserId::from_bytes([7; 32]), vec![a, a])
+            .unwrap();
+        assert_eq!(answer, vec![a]);
+        drop(client);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn red_team_a_want_hosted_answer_longer_than_asked_is_refused() {
+        // THE ATTACK, by a member this node hosts for: asked for 32 chunks,
+        // it names 33 (or 262 144, a full frame). The host looked up or
+        // fetched every one, then sent a `Hosted` over the protocol's batch
+        // cap, which lost the round's genuine holder records too. Sabotage:
+        // drop the length guard in `want_hosted`.
+        let chunks = (0..33u8).map(|i| ChunkId::from_bytes([i; 32])).collect();
+        let (address, peer) = scripted_peer(Response::WantHosted {
+            owner: UserId::from_bytes([9; 32]),
+            chunks,
+        });
+        let mut client = dial(address);
+        let answer = client.want_hosted(32);
+        assert!(
+            matches!(answer, Err(NetError::UnexpectedResponse { .. })),
+            "an answer longer than the limit asked was taken: {:?}",
+            answer.map(|(_, chunks)| chunks.len())
+        );
+        drop(client);
+        peer.join().unwrap();
     }
 
     #[test]
