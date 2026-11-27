@@ -174,6 +174,8 @@ jobs:
       # work, and the two look identical from outside.
       - name: Every sabotage plan can run
         run: python scripts/check-sabotage-plans.py
+      - name: A failed build verifies a defence only when the plan expects it
+        run: python scripts/test_sabotage.py
       - name: Every public method has a call site
         run: python scripts/check-wired.py
       # A job here once ran for five hours before a person stopped it.

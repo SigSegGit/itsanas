@@ -115,6 +115,13 @@ def main():
     expect("an oversized first file is cut, not dropped",
            (kept.startswith("diff --git a/f0"), omitted[0]), (True, "f0 (partially)"))
     expect("a diff under the cap is untouched", c.truncate(diff, 10**6), (diff, []))
+    # A file too big for what is left is dropped, and a smaller one after it is
+    # still sent: the omitted files are not always the end of the diff.
+    uneven = "".join(f"diff --git a/f{i} b/f{i}\n+{'x' * n}\n"
+                     for i, n in enumerate((50, 400, 50)))
+    kept, omitted = c.truncate(uneven, 300)
+    expect("a file that no longer fits is dropped, a later one is kept",
+           (omitted, "diff --git a/f2" in kept), (["f1"], True))
 
     server.shutdown()
     if failures:
@@ -122,7 +129,7 @@ def main():
         for f in failures:
             print(f"  {f}")
         sys.exit(1)
-    print(f"ci_code_reviewer: {len(cases) + 4} checks passed")
+    print(f"ci_code_reviewer: {len(cases) + 5} checks passed")
 
 
 if __name__ == "__main__":
