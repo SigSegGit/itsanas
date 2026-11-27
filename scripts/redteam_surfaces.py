@@ -140,6 +140,7 @@ SURFACES = [
         'itsanas-cli/src/app_mode.rs',
         'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',
+        'itsanas-cli/src/daemon/',
         'itsanas-cli/src/phone_folder.rs',
         'itsanas-cli/src/trash.rs',
         'itsanas-cli/src/phone.rs',

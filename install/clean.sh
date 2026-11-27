@@ -183,7 +183,7 @@ require_passphrase() {
 # one process at a time holds a node. `leave` asks each owner to re-place what
 # rests here alone, waits up to --drain-for minutes, and never refuses to
 # finish. The passphrase is read the way the service reads it
-# (`setup/service.rs`): the first ITSANAS_PASSPHRASE= line of $1; without one,
+# (`setup/service/passphrase_file.rs`): the first ITSANAS_PASSPHRASE= line of $1; without one,
 # `leave` prompts on the terminal.
 drain_before_purge() {
     [ "$PURGE" -eq 1 ] && [ -f "$NODE_HOME/keystore.bin" ] || return 0

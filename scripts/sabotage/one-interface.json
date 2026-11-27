@@ -28,7 +28,7 @@
       "dead": "    if false {"
     },
     "remove page: the name is not required where pieces are only here": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/account_actions.rs",
       "live": "            if only_here > 0 && confirm != username {",
       "dead": "            if false {"
     },
@@ -48,7 +48,7 @@
       "dead": "    json!({ \"ok\": true, \"wordIndex\": position, \"count\": count }).to_string()"
     },
     "page: a phone replaces its keys under an open node": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "        \"/api/forgot\" => (\n            features.forgot_in_settings,",
       "dead": "        \"/api/forgot\" => (\n            true || features.forgot_in_settings,"
     }

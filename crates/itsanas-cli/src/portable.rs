@@ -13,7 +13,7 @@
 //! - **A client, never a host.** A drive in a different house every week is
 //!   no place to keep other people's data, and counting it as one would
 //!   distort durability. Its home holds a `portable` file, and a daemon
-//!   started on such a home refuses to host anybody (`daemon.rs`).
+//!   started on such a home refuses to host anybody (`daemon/pledge.rs`).
 //! - **The keys travel with it.** They are sealed by the passphrase; a lost
 //!   drive is an offline attack on that passphrase, which Argon2 slows and
 //!   does not stop. The README and the command both say so.

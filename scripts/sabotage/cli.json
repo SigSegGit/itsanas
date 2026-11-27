@@ -8,7 +8,7 @@
   ],
   "defences": {
     "page: invalid not checked": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/state.rs",
       "live": "    if let Some(why) = crate::coordinator::username_refusal(username) {\n        return ok_json(",
       "dead": "    if let Some(why) = None::<String> {\n        return ok_json("
     },
@@ -28,12 +28,12 @@
       "dead": "          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"new\"> Yes, create a new account</label>\n          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"join\"> No, I already have an account</label>\n"
     },
     "page: no answer reads as new": {
-      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "file": "crates/itsanas-cli/src/setup/web/app/setup.js",
       "live": "return chosen ? chosen.value : null;",
       "dead": "return chosen ? chosen.value : 'new';"
     },
     "page: Next without an answer": {
-      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "file": "crates/itsanas-cli/src/setup/web/app/setup.js",
       "live": "page === 'account' && !done.account && !accountKind()",
       "dead": "page === 'account' && !done.account && false"
     },
@@ -68,12 +68,12 @@
       "dead": ""
     },
     "gate: pause and interval": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/routing.rs",
       "live": "features.sync_controls || !timed,",
       "dead": "true || !timed,"
     },
     "host: biometric on a computer": {
-      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "file": "crates/itsanas-cli/src/setup/web/settings_actions.rs",
       "live": "            features.biometric,\n            \"fingerprint or face unlock\",",
       "dead": "            true,\n            \"fingerprint or face unlock\","
     },
@@ -118,7 +118,7 @@
       "dead": "Ok(_) if isolated.is_some() && safety::failing_machines(header).is_none() => {"
     },
     "alerts: status says no silence": {
-      "file": "crates/itsanas-cli/src/daemon.rs",
+      "file": "crates/itsanas-cli/src/daemon/snapshot.rs",
       "live": "\"{}\\n{silence}{text}\",",
       "dead": "\"{}\\n{text}\", "
     },

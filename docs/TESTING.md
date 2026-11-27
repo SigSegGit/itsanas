@@ -1411,7 +1411,7 @@ The other machines in application mode a machine dials first and every minute
 ## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase, a vault on the disk chosen (21)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
-`setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
+`setup/tests/`). `itsanas setup` walks Machine, Account, Secret,
 Registration, Pledge, Folder, Updates, Connectivity, Service and Verify; each step has a
 check, an apply and a one-line remedy, so a second run skips what is done.
 `signout` / `signin` live here too. These tests drive the engine with a scripted
@@ -1502,20 +1502,30 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (10)
+## `service` — the background service under the installers' names, brought up to date by `update` (2)
 
 | Test | What it proves |
 | --- | --- |
 | `an_update_brings_an_old_wrapper_up_to_date_and_creates_none` | `update` rewrites each node's `run-daemon*.ps1` that differs from this version's (`refresh_windows_wrapper`, called from `restart_every_node`): the laptop's log after 0.1.12 still showed `NativeCommandError` blocks, because only `setup` wrote the wrapper. An up-to-date wrapper is left alone, a missing one is not created. Takes effect at the next logon: the running loop keeps the text it started with. Sabotaged (never rewritten): red. |
 | `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
-| `a_disabled_launchd_agent_is_read_as_disabled_and_no_other` | Settings' Start at login on a Mac reads `launchctl print-disabled`: `=> disabled` (and the older `=> true`) is off, an enabled or unlisted agent is on, and a label sharing a prefix is another account's. |
+
+## `texts` — the Windows wrapper's log and restarts, the task, tray, unit and plist as text (4)
+
+| Test | What it proves |
+| --- | --- |
 | `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
-| `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
-| **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
-| `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
 | `the_windows_tray_starts_now_and_only_once` | The Windows tray script starts the icon at once, not only at the next logon, and first looks for one already running for that node (default or instance), so a second setup adds no second icon. Sabotaged (no start; check ignoring the instance): red. |
 | **`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`** | The wrapper the logon task runs sets the console's encoding to UTF-8 before the daemon starts, merges stderr with `2>&1` and writes each line as its text (`ForEach-Object { "$_" }`), so `daemon-NAME.log` holds what the daemon wrote: it showed `nÔÇÖa pu ├¬tre` and a `NativeCommandError` block around each stderr line (hand test, 2026-10-22). Exit 0 still ends the loop; exit 75 restarts at once with the failure pause reset, at most three times in 60 s (red team, 2026-10-23: a daemon exiting 75 at every start restarted every second for ever) -- past that it takes the failure path's pause, doubled up to 300 s, and logs one line saying so; any other code restarts after the pause. The script is ASCII (written without a BOM), and `install/provision.ps1` writes the same code. Sabotaged seven times (encoding line, the `ForEach-Object`, the exit-75 branch, the `ForEach-Object` in provision.ps1, the restart limit removed, a restart not counted, the limit widened in provision.ps1 alone): red each time. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
+
+## `passphrase_file` — the service's passphrase file, and whether a launchd agent is disabled (4)
+
+| Test | What it proves |
+| --- | --- |
+| `a_disabled_launchd_agent_is_read_as_disabled_and_no_other` | Settings' Start at login on a Mac reads `launchctl print-disabled`: `=> disabled` (and the older `=> true`) is off, an enabled or unlisted agent is on, and a label sharing a prefix is another account's. |
+| `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
+| **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
+| `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
 
 ## `verify` — the final check (4)
 
@@ -1528,7 +1538,7 @@ tested: no window was opened by a test.
 
 ## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (51)
 
-`crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
+`crates/itsanas-cli/src/setup/web/` (tests in `web/tests/`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
 port and a 128-bit token, std::net only. The tests run a real server
 in-process with stand-in secret windows; no real browser is launched. The page
@@ -1799,7 +1809,15 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `a_file_gone_from_the_folder_is_listed_and_another_folders_is_not` | A file gone from the chosen folder is listed; choosing another folder does not offer the previous one's files for deletion. |
 | `a_file_kept_after_it_left_the_folder_is_not_asked_about_again` | A file the person kept after it left the folder is no longer listed, the others still are; a path with a line break is refused rather than keeping another file. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (42)
+## `daemon` — the interval, and a portable copy's pace and banner (3)
+
+| Test | What it proves |
+| --- | --- |
+| `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
+| `a_portable_copy_syncs_every_minute_unless_told_otherwise` | A portable copy's base interval is 60 s, not 300 s; `--interval` and the policy's own schedule still win. Sabotaged (portable ignored): red. |
+| `a_portable_copy_says_so_in_its_banner` | The banner, on stdout, has a `portable  yes … hosts nobody` line for a portable copy and none otherwise. It used to be one stderr line before the banner, skipped when the vault's disk was away, and a hand test never saw it. Sabotaged: red. |
+
+## `disk_work` — disk work and file commands handed to the running daemon (4)
 
 | Test | What it proves |
 | --- | --- |
@@ -1807,28 +1825,13 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_an_old_store_converts_itself_but_never_fills_its_disk`** | At the daemon's start, a store still in one file per chunk goes into packs on its own (`conversion_due`, ROADMAP M10), unless packs are off, and never when its disk lacks room for the copy the conversion makes before it deletes (the store's bytes, a quarter more and a gigabyte). Sabotaged (the free-space check dropped): red. |
 | **`red_team_convert_packs_while_the_service_runs_stops_the_run_and_waits_for_the_store`** | `itsanas convert-packs` handed to the daemon stops its run with the job left for `start_daemon`, as a vault move, since packs cannot be written beside an open store; converted once the store is closed, the store is in packs. Sabotaged (the daemon reports it done and converts nothing): red. |
 | **`red_team_the_file_commands_work_while_the_daemon_holds_the_store`** | `itsanas put`, `ls`, `get`, `rm`, `trash` (list, rules, days, restore) and `rm --now` run while a node holds the store, as the service always does: each is handed to the daemon's job loop, `get` gives back what `put` stored and `rm` leaves the account without the file. They refused to start before. Sabotaged (the daemon refuses file jobs): red. |
+
+## `dialling` — whom a round dials, in which order, through which relay, and when it stops (11)
+
+| Test | What it proves |
+| --- | --- |
 | **`red_team_the_dialling_adapter_is_pinned_on_the_device_and_halts_on_a_pause`** | The adapter `dial_book` is tested through, run against a real serving machine: a round with the device expected at the address runs, one expecting another device there does not; a pause written on disk and a shutdown halt it. Sabotaged (no device pinned; the pause not read): red. |
-| `the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window` | `drain_refusal_due`: the first refusal at the drain is said, the same refused set five minutes later is not (the forged segment stays in the vault and every loop drains it again), the same set after `OUTAGE_QUIET` is, and a different device, or one more chain past the names, is said at once. Keyed on one fixed label, a second forged chain pushed five minutes after the first went unsaid for the rest of the half hour; the drain's slot is now its own, apart from the peer labels of `REFUSALS_REPORTED`. Sabotaged (the devices not compared; the count not compared): red both times. |
-| **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
-| **`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`** | Through `write_snapshot`: a header left by an earlier run with `reached T` a day old keeps T while this process has reached nobody yet, so a restart neither forgets a day of silence nor starts it again; a round that reached a machine stamps now, and the next one that reached nobody keeps it. Sabotaged (now stamped every round; only this process's own contact): red, both. It builds `Seen` by hand: that `sync_loop` stamps it is `red_team_a_round_that_reaches_the_account_stamps_the_contact` (steering). |
-| **`red_team_a_vault_the_probe_could_not_write_reaches_the_icon_and_status`** | A failed write probe, through `write_snapshot`: the header carries ` unwritable`, `brief_status` reads `unwritable ...`, and the text `status` prints says `cannot be written (why)`. Sabotaged (the header without ` unwritable`; the `unwritable` arm dropped): red, both. It sets `Seen.unwritable` by hand: the probe is the row below, its call from `sync_loop` `red_team_a_running_daemon_says_when_its_vault_takes_no_write` (steering). |
-| **`red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after`** | `probe_vault`, which `sync_loop` calls once a round: a writable vault leaves `unwritable` unset, a vault path that is a plain file sets it, a node pledging nothing or away from its vault's disk is not probed, and a vault that takes writes again clears it -- else the icon stays orange for good. Runs on Windows. Sabotaged (never set; never cleared; a pledge of 0 probed; an away node probed): red, all four. |
-| **`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`** | A failed storage challenge, through `write_snapshot`: `status --brief` reads `failing AGE 1`, the snapshot `status` prints names the machine (the list used to go to stdout, so a running node could not say), and an answered round reads `healthy` again. |
-| **`red_team_a_machine_that_failed_and_left_does_not_keep_the_icon_orange`** | `machines_failing` counts a failure for `LIVE_FOR`: a machine that failed and left stops counting, so the icon does not stay orange for ever. |
-| **`red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`** | ` failing N` reads `failing AGE N`, ` lowdisk FREE` reads `lowdisk AGE FREE`; `failing` wins over `lowdisk`, and `isolated` over `failing`, because a node cut off cannot audit and the record would hide the silence. |
-| **`red_team_status_says_in_words_that_no_round_reached_anybody`** | Seven hours without a contact puts `NOT SYNCED ... for 7 h` in what `status` prints; a contact just now does not. |
-| **`red_team_a_write_made_while_a_machine_is_off_reads_exposed`** | The online-node floor of ARCHITECTURE §7: a file on one of two machines drops the complete copies elsewhere from 2 to 1, and that shortfall reads `exposed` past its grace. |
 | **`red_team_a_stranger_that_only_answered_is_no_contact`** | The review of #345: every machine a round completed with stamped the contact, rationed LAN strangers included, whose identity costs nothing -- a laptop on a café LAN read green all week with nothing of its account synced. `counts_as_contact`: the account's own machine (beacon tag), a host confirmed before, or one that earned trust this round; not a stranger that only authenticated. Configured peers and the coordinator's listed machines count as they are. Sabotaged (every machine counts): red. Its use in `one_round`'s LAN loop is the two `tests/route.rs` rows on the contact. |
-| **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. The wiring in `sync_loop` is `red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`'s. |
-| **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
-| **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
-| `the_snapshot_says_which_version_wrote_it_and_still_reads_as_before` | The snapshot's first line ends `version <the running daemon's version>`, after the words every reader parses (`brief_status` reads `snapshot <t> every <s>` in that order, `snapshot_counts` the stamp and the file count): an `update` that restarted nothing left three laptop daemons on 0.1.8 (hand test, 2026-10-22), and the fleet run's V row compares this across machines. Sabotaged (no version; the version before `every`): red both. |
-| `the_daemon_takes_itself_at_its_bound_port_and_its_published_addresses` | The daemon's side of the self-dial guard (`this_listener`): an address is this node at the port the daemon is **bound** to, not the configured `listen` (a node configured for 9797 and started on 9811 is at 9811, and 9797 is the next account), and at both published addresses (`announce`, the router's). Asked for by the CI reviewer on #307: the contact.rs test builds its own port. Sabotaged (the configured port; the router's address dropped): red both. |
-| **`red_team_a_router_port_that_reaches_another_machine_is_withdrawn`** | Hand test, 2026-10-22: the home address's port 9799 answered as the VM, which a hand-made forward sends it to, while a daemon there published it as its own. A port the router said it opened (`UPnP`, NAT-PMP) that the coordinator's probe disproves (another device answered, or nothing did) is no longer published (`hear_reachability`, `withdraw_found`): every member was dialling the wrong machine at every round, and the machine, believing itself reachable, never parked on a relay. Also in the list form with this machine's IPv6 address. A written `announce` is reported and kept; a probe that reached this device, an `Unknown` answer and an old coordinator withdraw nothing. Sabotaged (never withdraw; withdraw an `announce` too): red both. |
-| **`red_team_once_every_relay_has_failed_the_first_is_tried_again`** | The skip list rotates: a machine with one relay that refused once parks on it again. Sabotage: no `failed.clear()` (red). |
-| **`red_team_a_machine_never_parks_on_itself`** | The book lists this machine too; it never parks on its own listener. Sabotage: the `me` filter removed (red). |
-| **`red_team_a_global_ipv6_address_alone_does_not_stop_a_machine_parking`** | `needs_relay`, what the parking thread asks: a direct address that is a global IPv6 one proves nothing, so with no router port and no caller from outside the machine parks. Since #346 the Windows laptop at home has such an address, and taken as proof it stopped parking while Windows Defender Firewall (no rule) or the router's IPv6 firewall dropped every other house. One caller from outside, a public IPv4 address, or a router port still mean no relay. Sabotaged (the IPv6 clause of `proves_nothing` dropped): red. |
-| **`red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached`** | One caller per park, so it parks again after each; once reachable it stops and withdraws its `relay:` address. Sabotage: no re-park (red); no final withdrawal (red). |
 | **`red_team_a_relay_address_with_no_known_relay_is_never_dialled`** | `dial_book` (the decisions of `dial_listed`) over a scripted `DialSite`: a book address `relay:<id>` whose relay the book does not hold is skipped, not dialled as a string that is no address (a timeout every round); the machine beside it is dialled. Sabotage: the `continue` removed (red). |
 | **`red_team_a_machine_a_sibling_relays_is_dialled_next_round_and_a_forged_one_never`** | Three machines of one account, all answering; the laptop relays a newer signed address for the Pi and a row for the Mac whose address its device never signed. The next round, the Pi and the Mac are silent at the addresses that worked: the Pi is dialled at the relayed address, the forged one is dialled in no round. Sabotaged (no `contact.relayed`: red, the Pi never redialled; `verify_for` skipped in `Contact::relayed`: red, the forged address dialled; `ask_presences` false in `dial_book`'s dial, which the scripted site answers with no rows: red, the Pi never redialled). |
 | **`red_team_a_machine_that_did_not_answer_waits_before_it_is_dialled_again`** | A machine that missed is not dialled again by the next round at once (`QUIET_AFTER_MISS`): most of an account is off. Sabotage: no `contact.failed` (red). |
@@ -1838,12 +1841,64 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`an_address_that_answered_is_dialled_first_the_next_round`** | A machine listed at a stale address then a working one: after the working one answers, the next round dials it first and only it (`Contact::worked` ranks it, `reached` skips the stale one). Sabotaged (no `contact.worked`): red. |
 | **`a_private_address_that_answered_is_dialled_between_probe_rounds`** | A 10.x address of a machine discovery here does not hear (past `WARM_UP`) is dialled on the first, probe, round and, having answered, again on the next, non-probe round: a machine over a VPN syncs every round, not one in `PRIVATE_PROBE_EVERY`. Sabotaged (no `contact.worked`): red. |
 | **`a_pause_stops_the_book_dials_after_the_machine_under_way`** | A pause or a shutdown raised during a round over three machines stops the book dials after the machine under way. Sabotaged (no `site.halted()` in `dial_book`): red. |
+
+## `round` — one round, and a refused chain said once (1)
+
+| Test | What it proves |
+| --- | --- |
+| `the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window` | `drain_refusal_due`: the first refusal at the drain is said, the same refused set five minutes later is not (the forged segment stays in the vault and every loop drains it again), the same set after `OUTAGE_QUIET` is, and a different device, or one more chain past the names, is said at once. Keyed on one fixed label, a second forged chain pushed five minutes after the first went unsaid for the rest of the half hour; the drain's slot is now its own, apart from the peer labels of `REFUSALS_REPORTED`. Sabotaged (the devices not compared; the count not compared): red both times. |
+
+## `snapshot` — the snapshot the icon and status read: contact, failures, the vault, its version and pace (11)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
+| **`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`** | Through `write_snapshot`: a header left by an earlier run with `reached T` a day old keeps T while this process has reached nobody yet, so a restart neither forgets a day of silence nor starts it again; a round that reached a machine stamps now, and the next one that reached nobody keeps it. Sabotaged (now stamped every round; only this process's own contact): red, both. It builds `Seen` by hand: that `sync_loop` stamps it is `red_team_a_round_that_reaches_the_account_stamps_the_contact` (steering). |
+| **`red_team_a_vault_the_probe_could_not_write_reaches_the_icon_and_status`** | A failed write probe, through `write_snapshot`: the header carries ` unwritable`, `brief_status` reads `unwritable ...`, and the text `status` prints says `cannot be written (why)`. Sabotaged (the header without ` unwritable`; the `unwritable` arm dropped): red, both. It sets `Seen.unwritable` by hand: the probe is the row below, its call from `sync_loop` `red_team_a_running_daemon_says_when_its_vault_takes_no_write` (steering). |
+| **`red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after`** | `probe_vault`, which `sync_loop` calls once a round: a writable vault leaves `unwritable` unset, a vault path that is a plain file sets it, a node pledging nothing or away from its vault's disk is not probed, and a vault that takes writes again clears it -- else the icon stays orange for good. Runs on Windows. Sabotaged (never set; never cleared; a pledge of 0 probed; an away node probed): red, all four. |
+| **`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`** | A failed storage challenge, through `write_snapshot`: `status --brief` reads `failing AGE 1`, the snapshot `status` prints names the machine (the list used to go to stdout, so a running node could not say), and an answered round reads `healthy` again. |
+| **`red_team_a_machine_that_failed_and_left_does_not_keep_the_icon_orange`** | `machines_failing` counts a failure for `LIVE_FOR`: a machine that failed and left stops counting, so the icon does not stay orange for ever. |
+| **`red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`** | ` failing N` reads `failing AGE N`, ` lowdisk FREE` reads `lowdisk AGE FREE`; `failing` wins over `lowdisk`, and `isolated` over `failing`, because a node cut off cannot audit and the record would hide the silence. |
+| **`red_team_status_says_in_words_that_no_round_reached_anybody`** | Seven hours without a contact puts `NOT SYNCED ... for 7 h` in what `status` prints; a contact just now does not. |
+| **`red_team_a_write_made_while_a_machine_is_off_reads_exposed`** | The online-node floor of ARCHITECTURE §7: a file on one of two machines drops the complete copies elsewhere from 2 to 1, and that shortfall reads `exposed` past its grace. |
+| **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. The wiring in `sync_loop` is `red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`'s. |
+| `the_snapshot_says_which_version_wrote_it_and_still_reads_as_before` | The snapshot's first line ends `version <the running daemon's version>`, after the words every reader parses (`brief_status` reads `snapshot <t> every <s>` in that order, `snapshot_counts` the stamp and the file count): an `update` that restarted nothing left three laptop daemons on 0.1.8 (hand test, 2026-10-22), and the fleet run's V row compares this across machines. Sabotaged (no version; the version before `every`): red both. |
+
+## `parking` — parking on a relay, a router port that reaches another machine, and never parking on itself (6)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
+| **`red_team_a_router_port_that_reaches_another_machine_is_withdrawn`** | Hand test, 2026-10-22: the home address's port 9799 answered as the VM, which a hand-made forward sends it to, while a daemon there published it as its own. A port the router said it opened (`UPnP`, NAT-PMP) that the coordinator's probe disproves (another device answered, or nothing did) is no longer published (`hear_reachability`, `withdraw_found`): every member was dialling the wrong machine at every round, and the machine, believing itself reachable, never parked on a relay. Also in the list form with this machine's IPv6 address. A written `announce` is reported and kept; a probe that reached this device, an `Unknown` answer and an old coordinator withdraw nothing. Sabotaged (never withdraw; withdraw an `announce` too): red both. |
+| **`red_team_once_every_relay_has_failed_the_first_is_tried_again`** | The skip list rotates: a machine with one relay that refused once parks on it again. Sabotage: no `failed.clear()` (red). |
+| **`red_team_a_machine_never_parks_on_itself`** | The book lists this machine too; it never parks on its own listener. Sabotage: the `me` filter removed (red). |
+| **`red_team_a_global_ipv6_address_alone_does_not_stop_a_machine_parking`** | `needs_relay`, what the parking thread asks: a direct address that is a global IPv6 one proves nothing, so with no router port and no caller from outside the machine parks. Since #346 the Windows laptop at home has such an address, and taken as proof it stopped parking while Windows Defender Firewall (no rule) or the router's IPv6 firewall dropped every other house. One caller from outside, a public IPv4 address, or a router port still mean no relay. Sabotaged (the IPv6 clause of `proves_nothing` dropped): red. |
+| **`red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached`** | One caller per park, so it parks again after each; once reachable it stops and withdraws its `relay:` address. Sabotage: no re-park (red); no final withdrawal (red). |
+
+## `reachability` — the enrolment at start, and the daemon taking itself at its own addresses (2)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
+| `the_daemon_takes_itself_at_its_bound_port_and_its_published_addresses` | The daemon's side of the self-dial guard (`this_listener`): an address is this node at the port the daemon is **bound** to, not the configured `listen` (a node configured for 9797 and started on 9811 is at 9811, and 9797 is the next account), and at both published addresses (`announce`, the router's). Asked for by the CI reviewer on #307: the contact.rs test builds its own port. Sabotaged (the configured port; the router's address dropped): red both. |
+
+## `pledge` — what a vault whose disk drops takes in (1)
+
+| Test | What it proves |
+| --- | --- |
 | **`red_team_a_vault_that_drops_while_running_takes_no_chunk`** | When the vault's marker disappears under a running daemon (a NAS unmounted, an empty local mount point left), the room offered for chunks is 0, so nothing lands on the system disk to vanish under the mount; the round then stops the daemon. Sabotaged (marker check off): red. |
-| `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
-| `a_portable_copy_syncs_every_minute_unless_told_otherwise` | A portable copy's base interval is 60 s, not 300 s; `--interval` and the policy's own schedule still win. Sabotaged (portable ignored): red. |
-| `a_portable_copy_says_so_in_its_banner` | The banner, on stdout, has a `portable  yes … hosts nobody` line for a portable copy and none otherwise. It used to be one stderr line before the banner, skipped when the vault's disk was away, and a hand test never saw it. Sabotaged: red. |
-| `only_a_change_made_here_calls_for_an_early_round` | Only files taken in from the folder or deleted from it call for an early round; files written out from the store came from a peer, and two daemons answering each other's writes with rounds would never be quiet. Sabotaged (any change counts): red. |
+
+## `shutdown` — a shutdown noticed at once (2)
+
+| Test | What it proves |
+| --- | --- |
 | `shutdown_is_noticed_quickly_enough_to_feel_immediate` | A Ctrl-C that took a whole interval to be noticed would be indistinguishable from a hang. |
+
+## `reconciling` — what the folder changed (1)
+
+| Test | What it proves |
+| --- | --- |
+| `only_a_change_made_here_calls_for_an_early_round` | Only files taken in from the folder or deleted from it call for an early round; files written out from the store came from a peer, and two daemons answering each other's writes with rounds would never be quiet. Sabotaged (any change counts): red. |
 
 The daemon's real behaviour — that two nodes converge with nobody running
 `sync` — is verified by running it, not by a unit test. The loop itself is
