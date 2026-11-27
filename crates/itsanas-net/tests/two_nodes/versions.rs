@@ -3,6 +3,51 @@
 
 use super::*;
 
+/// The version a phone brings back is the one it was shown, even when an edit
+/// from another machine arrives between the list and the tap: a position in
+/// the list named another version once the newer edit came in, and the broken
+/// draft went to every machine. Sabotage: pick the version by its position.
+#[test]
+fn red_team_a_version_brought_back_after_a_newer_edit_arrived_is_the_one_shown() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    let write = |content: &[u8]| {
+        laptop
+            .store
+            .write_file("essay.txt", content)
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        pull_all(&phone, &laptop);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+    };
+    write(b"the good draft");
+    write(b"the draft that broke it");
+    let shown = itsanas_store::versions(&phone.store, &phone.vault, "essay.txt")
+        .expect("versions")
+        .iter()
+        .find(|version| version.size == 14)
+        .expect("the good draft is listed")
+        .id();
+    write(b"a third edit, made on the laptop");
+
+    assert!(
+        itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", &shown)
+            .expect("bring back")
+    );
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"the good draft".to_vec()),
+        "a newer edit between the list and the tap changed which version came back"
+    );
+    assert!(
+        !itsanas_store::bring_back_version(&phone.store, &phone.vault, "essay.txt", "0123")
+            .expect("bring back"),
+        "a key naming no version brought one back"
+    );
+}
+
 /// `itsanas versions --restore` on a phone that holds an earlier version and
 /// has only listed the newest: the earlier one becomes the file on the laptop
 /// too, not a conflict copy beside the newest. Sabotage: date the version

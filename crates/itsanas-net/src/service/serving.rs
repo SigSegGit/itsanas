@@ -5,7 +5,7 @@ use itsanas_crypto::{DeviceId, UserId};
 
 use crate::{
     error::Result,
-    protocol::{Head, Response},
+    protocol::{Head, MAX_SEGMENT_BYTES, Response},
 };
 
 use super::PeerService;
@@ -63,10 +63,23 @@ impl PeerService<'_> {
                     None => return Ok(Vec::new()),
                 },
             };
-            return Ok(mine.into_iter().skip(start).take(limit).collect());
+            // The same byte budget as the vault's page, on an upper bound of
+            // each envelope's encoding: the body and its fixed header.
+            let mut bytes = 0usize;
+            let page = mine.into_iter().skip(start).take(limit);
+            let page = page.take_while(|envelope| {
+                let first = bytes == 0;
+                bytes = bytes.saturating_add(envelope.sealed_body.len() + 256);
+                first || bytes <= MAX_SEGMENT_BYTES
+            });
+            return Ok(page.collect());
         }
 
-        Ok(self.vault.segments_for(owner, device, after, limit)?)
+        // Bounded in bytes as well as in number: 256 segments of 8 MiB each
+        // were decoded for one request, into an answer no frame could carry.
+        Ok(self
+            .vault
+            .segments_page(owner, device, after, limit, MAX_SEGMENT_BYTES)?)
     }
 
     pub(super) fn chunk(
