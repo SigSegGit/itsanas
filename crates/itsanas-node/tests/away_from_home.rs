@@ -98,7 +98,7 @@ fn a_member_elsewhere_is_given_the_address_that_can_answer_first() {
         let (forwarded, phrase) = member(
             &homes.path().join("pi"),
             address,
-            Some("ngas.fr:9801"),
+            Some("nas.example.org:9801"),
             None,
         );
         let phrase = phrase.expect("the first node returns the account phrase");
@@ -132,7 +132,7 @@ fn a_member_elsewhere_is_given_the_address_that_can_answer_first() {
              got {addresses:?}"
         );
         assert_eq!(
-            addresses[0], "ngas.fr:9801",
+            addresses[0], "nas.example.org:9801",
             "the machine reachable from another network must be offered first, \
              and with the port of its forward rather than the port it listens \
              on; got {addresses:?}"
@@ -242,10 +242,10 @@ fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
         assert!(contacted.pledges_not_kept.is_none());
 
         let mut announced = laptop.config.clone();
-        announced.announce = Some("ngas.fr:9801".to_owned());
+        announced.announce = Some("nas.example.org:9801".to_owned());
         assert_eq!(
             coordinator::address_now(&announced, listen).as_deref(),
-            Some("ngas.fr:9801"),
+            Some("nas.example.org:9801"),
             "an announced address is what is published, so it is what is compared"
         );
     });

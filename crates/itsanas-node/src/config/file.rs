@@ -497,7 +497,7 @@ mod tests {
             keep_only: vec!["Documents".to_owned(), "Photos/2026".to_owned()],
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
             vault: Some(PathBuf::from("/mnt/nas/itsanas-vault")),
-            announce: Some("ngas.fr:9801".to_owned()),
+            announce: Some("nas.example.org:9801".to_owned()),
             // Not the default, so the round trip covers the line being written.
             updates: Updates::Auto,
             placement: PlacementMode::Measured,
@@ -553,14 +553,14 @@ mod tests {
         // and nothing would say so.
         let text = Config {
             username: "nicolas".to_owned(),
-            announce: Some("ngas.fr:9801".to_owned()),
+            announce: Some("nas.example.org:9801".to_owned()),
             ..Config::default()
         }
         .render();
 
         assert_eq!(
             Config::parse(&text).unwrap().announce.as_deref(),
-            Some("ngas.fr:9801")
+            Some("nas.example.org:9801")
         );
     }
 
@@ -598,8 +598,8 @@ mod tests {
 
         // And the ones that are the point of the setting.
         for value in [
-            "announce = ngas.fr:9801",
-            "announce = 82.67.35.234:9801",
+            "announce = nas.example.org:9801",
+            "announce = 203.0.113.7:9801",
             "announce = [2001:db8::1]:9797",
             "announce = pi.ngas.fr:9797",
         ] {

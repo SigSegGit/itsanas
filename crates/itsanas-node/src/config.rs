@@ -159,7 +159,7 @@ pub struct Config {
     /// coordinator from -- which is its address *on the LAN it is on*, and
     /// means nothing to a member in another house. This is what to publish
     /// instead: the name or public address that reaches this machine from
-    /// outside, `ngas.fr:9801` for a forwarded port or a global IPv6 address
+    /// outside, `nas.example.org:9801` for a forwarded port or a global IPv6 address
     /// for a machine that needs no forward at all.
     ///
     /// The port is published as written and is **not** replaced by the listen

@@ -103,7 +103,7 @@ echo
 # Pi and the VM that printed nothing on 2026-10-23 (sshd not answering on
 # localhost there), and the first fleet run skipped the Pi for want of it.
 echo "this machine's host key, for FLEET_KNOWN_HOSTS: one line, the name and port the"
-echo "runner dials first (for example [ngas.fr]:22010), then these two words:"
+echo "runner dials first (for example [host.example.org]:2222), then these two words:"
 key=$(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || true)
 if [ -n "$key" ]; then
     echo "  $key"

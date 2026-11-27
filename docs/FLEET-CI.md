@@ -167,9 +167,9 @@ Two ways that did not: a file written with `>` (Windows PowerShell 5.1 writes
 UTF-16, which ssh on the runner cannot read, so every machine is "No
 ED25519 host key is known"), and `ssh-keyscan` (it printed nothing there).
 
-    $pi = (ssh -p 22010 USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
-    $vm = (ssh -p 22011 USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
-    $k = "[HOST]:22010 $($pi[0]) $($pi[1])", "[HOST]:22011 $($vm[0]) $($vm[1])"
+    $pi = (ssh -p PI_PORT USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+    $vm = (ssh -p VM_PORT USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+    $k = "[HOST]:PI_PORT $($pi[0]) $($pi[1])", "[HOST]:VM_PORT $($vm[0]) $($vm[1])"
     $k   # two lines, each "[HOST]:port ssh-ed25519 AAAA..."
     ($k -join "`n") | gh secret set FLEET_KNOWN_HOSTS --env fleet -R OWNER/REPO
 

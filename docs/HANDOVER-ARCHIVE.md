@@ -832,7 +832,7 @@ by `check-fleet.sh`, which needs `pwsh`.
 nothing for `test` every night and the row said only that. One lead from
 the runner's log, not a conclusion: the member's 2 x "refused 1 offer(s):
 its pledge is full or zero" are the **Pi**'s `test` node
-(82.67.35.234:9798), so that node hosts nothing more; the VM's `nicolas`
+(203.0.113.7:9798), so that node hosts nothing more; the VM's `nicolas`
 is another account the runner never dials (only the VM's own `test` node
 meets it there, on that machine's LAN). `agent.sh`'s NOTHOSTED line now
 adds "its daemon says pledged <size>, <n> peer(s) hosted", read from that
@@ -847,7 +847,7 @@ its Git Bash failures are Windows paths only.
 
 **2026-10-27, later: a machine of the account that is off is dialled
 less and less, not at every round.** The same run's other repeated line,
-31 x "relay:<pi>@82.67.35.234:9798: ... this peer relays nothing for this
+31 x "relay:<pi>@203.0.113.7:9798: ... this peer relays nothing for this
 device", is **not** the Pi's park bug (the 10-25 paragraph below assumed
 it): it is the same sleeping laptop `test` node, dialled through the relay
 it once parked on, right after the direct dial -- 31 and 31. Now a device
@@ -906,9 +906,9 @@ Windows paths, which is the environment, not the tree (CI runs it on Linux).
 machine.** Run 40176979039 (green, 5 checked; the Pi still SKIP on its host
 key, V SKIP because the VM's daemons are 0.1.12 and no release carries the
 version line yet, C vm:nicolas SKIP, nothing for `test` there). The member's
-log: 23 x "relay:<id>@82.67.35.234:9798: ... this peer relays nothing for
+log: 23 x "relay:<id>@203.0.113.7:9798: ... this peer relays nothing for
 this device" to 3 splices that went through, and "could not park on
-82.67.35.234:9798 (... without sending TLS close_notify)". 82.67.35.234:9798
+203.0.113.7:9798 (... without sending TLS close_notify)". 203.0.113.7:9798
 is the Freebox forward to the **Pi**'s 9798 (the `test` node there is the
 relay), not the VM. Cause: no client ever sends close_notify (nothing in
 `itsanas-tls`/`-net` calls it), so a caller done with a parked machine ended
@@ -931,7 +931,7 @@ said (`connect_within` in `itsanas-tls/src/reach.rs`); and why
 **2026-10-24: the first green fleet run, and its log read.** Run
 40006387602: S on the runner and the VM, B and F runner -> VM (test O, from
 a datacentre through the coordinator and the relay); the Pi skipped (no
-host key for `[ngas.fr]:22010` in FLEET_KNOWN_HOSTS, Nicolas's to redo), V
+host key for `[ngas.fr]:PI_PORT` in FLEET_KNOWN_HOSTS, Nicolas's to redo), V
 skipped (0.1.12 daemons), C skipped (`nicolas` on the VM holds nothing for
 `test`). Issue #312 closed. The member's log printed "relayed 5 address(es)
 ... that do not check out" every round: `Contact::relayed` counted forged,
@@ -2377,8 +2377,8 @@ From §8 0:
       without a third party.
 
       **Verified facts for whoever picks this up**, measured 2026-09-18 from the
-      laptop on the home LAN through the public name: `ngas.fr` is 82.67.35.234;
-      `:22010` and `:22011` (the SSH forwards) answer, so **the Freebox hairpins
+      laptop on the home LAN through the public name: `ngas.fr` is 203.0.113.7;
+      `:PI_PORT` and `:VM_PORT` (the SSH forwards) answer, so **the Freebox hairpins
       its forwards** and one name serves inside and outside; `:9898` and `:9797`
       answer nothing, so **nothing reaches ITSaNAS from outside yet**. Every
       node still has `coordinator = 192.168.1.10:9898`. Opening the port and
@@ -5719,8 +5719,8 @@ The answer to the question, established before any code: **no.** Every node has
 `coordinator = 192.168.1.10:9898` and `peer = 192.168.1.11:9801`, both private.
 Away from home a round reaches nothing, the daemon keeps scanning and versioning
 locally, and everything flushes on return. Two measurements worth keeping, both
-made from the laptop on the home LAN through the public name: `ngas.fr:22010`
-and `:22011` answer, so **the Freebox hairpins its forwards** -- one name works
+made from the laptop on the home LAN through the public name: `ngas.fr:PI_PORT`
+and `:VM_PORT` answer, so **the Freebox hairpins its forwards** -- one name works
 from both sides, and the "hairpin NAT" risk in ROADMAP's adversarial sweep is
 one sample of evidence lighter. `9898` and `9797` answer nothing: **no port
 reaches ITSaNAS from outside today**, which is the real blocker and is Nicolas's
@@ -6060,8 +6060,8 @@ noise.
 on 2026-09-16 and asked for as much as possible to be taken off his hands.
 
 *How to reach it, because working it out again wastes a session:*
-`ssh -i ~/.ssh/itsanas_session itsomeone@ngas.fr -p 22010` is the **Pi**
-(`NGASRPI4B`, member node **and** the coordinator) and `-p 22011` is the
+`ssh -i ~/.ssh/fleet_key itsanas@ngas.fr -p PI_PORT` is the **Pi**
+(`NGASRPI4B`, member node **and** the coordinator) and `-p VM_PORT` is the
 **Freebox VM** (`itsworkstation`). A bare `ssh` without `-i` is refused; the
 project key is the one that works. Non-login shells have no `itsanas` on
 `PATH` — it lives at `~/.local/bin/itsanas` — and `systemctl --user` needs

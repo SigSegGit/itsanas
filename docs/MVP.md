@@ -505,7 +505,7 @@ networks.
 
 1. A port reaches the coordinator from outside. On the Freebox: a forward to
    the VM's 9898, or an IPv6 pinhole. Measured on 2026-09-18, from inside the
-   LAN through the public name: `ngas.fr:22010` and `:22011` answer, so **the
+   LAN through the public name: the two SSH ports answer, so **the
    box does hairpin its forwards** and one name works from both sides; 9898 and
    9797 answered nothing, so nothing is forwarded to ITSaNAS yet.
 2. Every node's `coordinator` becomes that name, not `192.168.1.10:9898`.
@@ -523,7 +523,7 @@ machine:
     network
       out    the coordinator at ngas.fr:9898 answered
       peers  2 other machine(s) of this account have published an address
-      in     ngas.fr:9801 answered, and it is this device
+      in     nas.example.org:9801 answered, and it is this device
 
 `out` failing is step 1 or 2 above, and the line names which: a name that does
 not resolve is DNS, a refused connection is a port, a timeout is usually a
