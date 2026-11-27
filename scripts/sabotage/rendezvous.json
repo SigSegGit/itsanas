@@ -7,7 +7,7 @@
   ],
   "defences": {
     "presence: only the date the machine announced": {
-      "file": "crates/itsanas-coord/src/directory.rs",
+      "file": "crates/itsanas-coord/src/directory/expiry.rs",
       "live": "if now.saturating_sub(heard.max(said)) > older_than {",
       "dead": "if now.saturating_sub(said) > older_than {"
     }

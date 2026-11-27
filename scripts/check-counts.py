@@ -193,6 +193,9 @@ def collect(root):
             crate = parts[0]
             if parts[1] == 'src':
                 kind = 'unit'
+            elif parts[1] == 'tests' and len(parts) > 3:
+                # `tests/x/main.rs` and the modules beside it are one binary.
+                kind = 'tests/%s/main.rs' % parts[2]
             else:
                 kind = '/'.join(parts[1:])
             text = io.open(path, encoding='utf-8', errors='replace').read()

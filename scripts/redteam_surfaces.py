@@ -54,11 +54,13 @@ SURFACES = [
     ]),
     ('coordinator', 'directory, presences, accounting, the coordinator as an adversary', [
         'itsanas-coord/src/directory.rs',
-        'itsanas-coord/src/directory/disk_bytes.rs',
+        'itsanas-coord/src/directory/',
         'itsanas-coord/src/service.rs',
+        'itsanas-coord/src/service/',
         'itsanas-coord/src/server.rs',
+        'itsanas-coord/src/server/',
         'itsanas-coord/src/accounting.rs',
-        'itsanas-coord/tests/coordinator.rs',
+        'itsanas-coord/tests/coordinator/',
         'itsanas-coordinator/tests/crash.rs',
         'itsanas-node/src/coordinator.rs',
         'itsanas-node/tests/away_from_home.rs',
@@ -201,7 +203,10 @@ def filter_for(key):
             continue
         crate, rest = path.split('/', 1)
         if rest.startswith('tests/'):
-            parts.append(f'binary_id({crate}::{rest[6:-3]})')
+            # `tests/x.rs` and `tests/x/main.rs` with its modules are one binary, `x`.
+            part = f'binary_id({crate}::{rest[6:-3].split("/")[0]})'
+            if part not in parts:
+                parts.append(part)
             continue
         module = rest[4:-3]
         if module.endswith('/mod'):
