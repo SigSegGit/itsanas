@@ -64,7 +64,7 @@ object Biometric {
      * and forget the plain copy. [done] says whether it is now enabled.
      */
     fun enable(activity: FragmentActivity, passphrase: String, done: (Boolean) -> Unit) {
-        val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
+        val cipher = sealing() ?: return done(false)
         prompt(activity, cipher, activity.getString(R.string.biometric_prompt_enrol), { unlocked ->
             val sealed = unlocked.doFinal(passphrase.toByteArray(Charsets.UTF_8))
             prefs(activity).edit()
@@ -73,7 +73,29 @@ object Biometric {
                 .apply()
             Vault.forget(activity)
             done(true)
-        }, { done(false) })
+        }, {
+            // A cancelled prompt leaves no key behind, so a later enrolment
+            // has nothing to invalidate.
+            if (!enabled(activity)) runCatching { keyStore().deleteEntry(KEY) }
+            done(false)
+        })
+    }
+
+    /**
+     * A cipher that seals under the key, or null. A key a new enrolment
+     * invalidated is replaced once: it threw out of the click handler, or
+     * showed the Locked screen over an open account every time after.
+     */
+    private fun sealing(): Cipher? {
+        fun attempt() = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
+        return try {
+            attempt()
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            runCatching { keyStore().deleteEntry(KEY) }
+            runCatching { attempt() }.getOrNull()
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /**
