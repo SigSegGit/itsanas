@@ -32,7 +32,6 @@ LIMIT = 1000
 KINDS = ('.rs', '.kt', '.swift', '.py', '.sh', '.ps1', '.js')
 
 CEILING = {
-    'crates/itsanas-cli/src/lib.rs': 8307,
     'crates/itsanas-net/tests/two_nodes.rs': 4972,
     'crates/itsanas-cli/src/daemon.rs': 4928,
     'crates/itsanas-store/src/index.rs': 4454,
@@ -62,13 +61,10 @@ CEILING = {
     'android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt': 1273,
     'crates/itsanas-cli/src/setup/tests.rs': 1268,
     'crates/itsanas-net/src/protocol.rs': 1228,
-    'crates/itsanas-cli/src/control.rs': 1178,
     'crates/itsanas-coord/src/server.rs': 1120,
-    'crates/itsanas-cli/src/copy_to_key.rs': 1105,
     'crates/itsanas-cli/src/setup/web/i18n.js': 1102,
     'crates/itsanas-sync/tests/convergence.rs': 1068,
     'crates/itsanas-net/tests/placement.rs': 1037,
-    'crates/itsanas-cli/src/phone.rs': 1021,
 }
 
 

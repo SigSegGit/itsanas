@@ -98,22 +98,22 @@
       "dead": "record.failed > 0\n                && now"
     },
     "alerts: the failed list goes to stdout": {
-      "file": "crates/itsanas-cli/src/lib.rs",
+      "file": "crates/itsanas-cli/src/status.rs",
       "live": "    report_unreliable_peers(node, &mut out)?;",
       "dead": "    report_unreliable_peers(node, &mut String::new())?;"
     },
     "alerts: failing reads green": {
-      "file": "crates/itsanas-cli/src/lib.rs",
+      "file": "crates/itsanas-cli/src/status.rs",
       "live": "Ok(_) if safety::failing_machines(header).is_some() => {",
       "dead": "Ok(_) if false && safety::failing_machines(header).is_some() => {"
     },
     "alerts: lowdisk reads green": {
-      "file": "crates/itsanas-cli/src/lib.rs",
+      "file": "crates/itsanas-cli/src/status.rs",
       "live": "Ok(_) if safety::low_disk(header).is_some() => {",
       "dead": "Ok(_) if false && safety::low_disk(header).is_some() => {"
     },
     "alerts: isolated hidden by failing": {
-      "file": "crates/itsanas-cli/src/lib.rs",
+      "file": "crates/itsanas-cli/src/status.rs",
       "live": "Ok(_) if isolated.is_some() => {",
       "dead": "Ok(_) if isolated.is_some() && safety::failing_machines(header).is_none() => {"
     },

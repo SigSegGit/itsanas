@@ -13,32 +13,32 @@
       "dead": ""
     },
     "fetch: config.peers alone": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "    let targets = targets(node);\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this",
       "dead": "    let targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node.config.peers.iter().map(|peer| (peer.clone(), None)).collect();\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this"
     },
     "sync: no ensure_enrolled": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/round.rs",
       "live": "    let _ = itsanas_node::coordinator::ensure_enrolled(node, now);\n",
       "dead": ""
     },
     "sync: no refresh_others_pledged": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/round.rs",
       "live": "    let _ = itsanas_node::coordinator::refresh_others_pledged(node);\n",
       "dead": ""
     },
     "put: no refresh": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "    refresh_old_pledges(node, std::time::SystemTime::now());\n",
       "dead": ""
     },
     "put: no age check": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "if Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {",
       "dead": "if false && Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {"
     },
     "put: nothing remembers the attempt": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "        let _ = node.remember_others_pledged(Node::others_pledged(&node.home));\n",
       "dead": ""
     },
@@ -118,12 +118,12 @@
       "dead": "\"silentFor\": Option::<u64>::None,"
     },
     "alerts: a round records no contact": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/round.rs",
       "live": "crate::note_phone_contact(&node.home, totals.reached > 0, now);",
       "dead": "crate::note_phone_contact(&node.home, false, now);"
     },
     "alerts: the wait never starts": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/round.rs",
       "live": "crate::note_phone_contact(&node.home, false, now);\n        return Err",
       "dead": "return Err"
     },
@@ -138,12 +138,12 @@
       "dead": "            Err(error) => {\n                refused.push(format!(\"{}: {}\", file.path, error.message()));\n                taken.push(file);\n            }"
     },
     "folder: one segment per photo": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "    let entry = node.store.write_stream(path, file)?;\n    trash::take_out",
       "dead": "    let entry = node.store.write_stream(path, file)?;\n    node.store.flush_segment()?;\n    trash::take_out"
     },
     "trash: a file put back stays hidden": {
-      "file": "crates/itsanas-cli/src/phone.rs",
+      "file": "crates/itsanas-cli/src/phone/account_files.rs",
       "live": "    itsanas_store::deletion::restore_shared(&node.store, &node.vault, path)?;\n    Ok(entry)",
       "dead": "    Ok(entry)"
     },

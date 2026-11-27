@@ -1,6 +1,6 @@
 //! The daemon loop, driven for real: a paused node takes in no file.
 //!
-//! `control.rs` tests the decisions -- what is due, what a pause allows -- as
+//! `control/schedule.rs` tests the decisions -- what is due, what a pause allows -- as
 //! pure functions. What acts on them is `sync_loop`, and no other test runs
 //! it: the guard that keeps a paused daemon away from the folder could be
 //! deleted and every unit test would still pass (the CI reviewer's finding on
