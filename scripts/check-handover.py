@@ -47,6 +47,8 @@ import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 HANDOVER = os.path.join(ROOT, 'docs', 'HANDOVER.md')
+MAX_LINES = 1000
+MAX_ZERO_LINES = 130
 
 BLOCK = re.compile(r'<!-- ITSANAS-STATE\n(.*?)\n-->', re.S)
 FIELDS = ('NEXT', 'TITLE', 'WRITTEN-AT', 'BASE')
@@ -155,6 +157,21 @@ def main():
         problems.append(
             'BASE %s is not an ancestor of HEAD; the pointer was written on '
             'another history' % fields['BASE']
+        )
+
+    # A handover, not a journal (Nicolas, 2026-11-27): it had grown to 5,050
+    # lines, 1,800 of them in §0, and nobody read it cold any more. A session's
+    # story goes to HANDOVER-ARCHIVE.md; finished §8 text goes there verbatim.
+    total = text.count('\n') + 1
+    if total > MAX_LINES:
+        problems.append(
+            'docs/HANDOVER.md has %d lines, over %d: move finished §8 text and '
+            'session stories to docs/HANDOVER-ARCHIVE.md' % (total, MAX_LINES)
+        )
+    if zero is not None and zero.count('\n') > MAX_ZERO_LINES:
+        problems.append(
+            '§0 has %d lines, over %d: it says where things are, the story of a '
+            'session goes to docs/HANDOVER-ARCHIVE.md' % (zero.count('\n'), MAX_ZERO_LINES)
         )
 
     if problems:

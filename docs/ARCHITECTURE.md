@@ -302,9 +302,12 @@ VM on a Freebox Delta.
 It no longer publishes a node set, and it never held accounting state. Both were
 removed rather than implemented.
 
-**Not built:** relaying for peers that cannot be dialled directly. A node behind
-NAT can already push, and `session::drain_vault` means the node it pushed to
-still applies what arrived.
+**Relaying.** A node nobody can dial parks a connection on a reachable peer
+(`Request::Park`), and a caller asks that peer to splice the two
+(`Request::Splice`, `crates/itsanas-net/src/relay.rs`). The relay carries only
+ciphertext, within bounded parks, splices and a shared rate. A node behind NAT
+can also push, and `session::drain_vault` means the node it pushed to still
+applies what arrived.
 
 **What it explicitly cannot do**
 
@@ -411,12 +414,12 @@ hold a slot for ever. Storing is the one thing still done one request at a
 time, so that concurrent offers cannot overfill a pledge. The coordinator's
 listener has the same deadline and a per-address cap.
 
-**NAT traversal is not built.** A node behind NAT can push but cannot be dialled.
-That is less limiting than it sounds: `session::drain_vault` means a node that
-only ever accepts connections still learns what was pushed to it, so work flows
-in both directions as long as one side can dial. Hole punching and relay
-fallback would want QUIC, which is now an optimisation rather than a
-prerequisite for security.
+**Behind NAT.** The daemon first asks the home router to open its port, by UPnP
+IGD (`crates/itsanas-cli/src/upnp.rs`) and then NAT-PMP
+(`crates/itsanas-cli/src/natpmp.rs`); failing both, it parks on a relay (above).
+A node that only ever accepts connections still learns what was pushed to it
+(`session::drain_vault`), so work flows both ways as long as one side can dial.
+Hole punching is not built; it would want QUIC.
 
 **What is built instead, since 2026-09-18, is the cheap half of the same
 problem**: being dialable on purpose rather than by luck. `announce` in the

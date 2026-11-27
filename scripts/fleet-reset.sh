@@ -25,7 +25,7 @@ case "$ROLE" in
     *) echo "usage: bash fleet-reset.sh vm|pi   (vm = the coordinator's machine, first)"; exit 2 ;;
 esac
 
-ACCOUNTS="nicolas test mandarine"
+ACCOUNTS="nicolas test partner"
 COORD=itsanas.ngas.fr:9898
 COORD_ID=2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce
 RAW=https://raw.githubusercontent.com/SigSegGit/itsanas/main/install

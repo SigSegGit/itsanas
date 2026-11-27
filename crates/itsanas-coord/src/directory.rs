@@ -2747,7 +2747,7 @@ mod tests {
         // its live devices behind to be handed out as addresses or claims.
         let (_dir, directory) = directory();
         let old = user(50);
-        register(&directory, "mandarine", &old);
+        register(&directory, "partner", &old);
         directory
             .claim(&signed(&old, 1, NOW, false), NOW)
             .expect("claim");
@@ -2755,7 +2755,7 @@ mod tests {
             .put_escrow(old.user_id(), b"sealed")
             .expect("escrow");
 
-        let forgotten = directory.forget_account("mandarine").unwrap().unwrap();
+        let forgotten = directory.forget_account("partner").unwrap().unwrap();
         assert_eq!((forgotten.devices, forgotten.withdrawals_kept), (1, 0));
         assert!(directory.account_of(old.user_id()).unwrap().is_none());
         assert_eq!(directory.live_claims_of(old.user_id()).unwrap().len(), 0);
@@ -2765,11 +2765,11 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(directory.escrow("mandarine").unwrap().is_none());
+        assert!(directory.escrow("partner").unwrap().is_none());
 
-        register(&directory, "mandarine", &user(51));
+        register(&directory, "partner", &user(51));
         assert_eq!(
-            directory.account("mandarine").unwrap().unwrap().user.id,
+            directory.account("partner").unwrap().unwrap().user.id,
             user(51).user_id(),
             "the name must be free for a new key once forgotten"
         );
@@ -3187,7 +3187,7 @@ mod tests {
         let (_dir, directory) = directory();
         let _full = a_full_account(&directory);
         let other = user(42);
-        register(&directory, "mandarine", &other);
+        register(&directory, "partner", &other);
         directory
             .claim(&signed(&other, FULL + 1, NOW, false), NOW)
             .expect("another account's first device");

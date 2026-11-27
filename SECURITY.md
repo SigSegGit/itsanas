@@ -6,12 +6,13 @@ ITSaNAS is pre-release and has had no external audit. **Do not use it for data
 you cannot afford to lose or to leak.**
 
 What exists and is tested: the cryptographic core, the local store, the sync
-engine, the TLS transport and peer protocol, and a synced folder. What does not
-exist yet, and matters to this document: no coordinator server, so there is no
-node set and no revocation distribution; no scheduled storage challenges, so a
-host that discards data is caught only by accident; no repair execution, so a
-chunk that falls below its replication target stays there. Full status in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+engine, the TLS transport and peer protocol, a synced folder, the coordinator
+(directory, invitations, revocation distribution), storage challenges drawn in
+an order a host cannot predict (`session::audit`) and repair (`session::repair`),
+both run by the daemon's round. What remains open is listed, with its reasons,
+in [docs/ROADMAP.md](docs/ROADMAP.md) ("Known ceilings"): among them, an audit
+proves possession at the moment it is answered, and a pledge is a claim a host
+checks against what it proves.
 
 ## Threat model
 
@@ -42,8 +43,9 @@ service and partition attempts, not data.
 - Traffic analysis. Object sizes, object counts and access timing are visible to
   a host. Hiding them requires padding and cover traffic, a deliberate non-goal
   for now.
-- Availability against a fully offline swarm. Your own devices always hold your
-  own data, so you are never locked out of your files, but replication targets
+- Availability against a fully offline swarm. A device that keeps everything
+  (`itsanas keep all`) can read your files with every other machine off; a device
+  with a keep limit cannot read what it does not hold, and replication targets
   need peers.
 
 ## Transport
@@ -101,9 +103,8 @@ node **accepts** one of them.
 
 By email to `nicolas.girard.e@gmail.com`.
 
-There is no public repository yet, so there is no GitHub Security tab to report
-through. When one exists, its **Report a vulnerability** button becomes the
-preferred channel and this section will say so.
+Or through **Report a vulnerability** on the repository's GitHub Security tab
+(github.com/SigSegGit/itsanas), which keeps the report private.
 
 Please include what you were able to do, not just what looks wrong. A working
 proof of concept — a case where a host reads plaintext, forges a signed log

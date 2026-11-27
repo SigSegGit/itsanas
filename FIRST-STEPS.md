@@ -3,31 +3,28 @@
 Fifteen minutes from nothing to two machines keeping a folder in step. Pick your
 machine, run one command, then follow **After the install** at the bottom.
 
-> **Read this first.** This is v0.1.0 — a first tagged version so it can be
+> **Read this first.** Releases are tagged so they can be
 > tested, not a product. The on-disk format may change without a migration.
 > **Keep another copy of anything you put in it.**
 
-From a clone, build the tag rather than `main`:
-`git clone --branch v0.1.0 https://github.com/SigSegGit/itsanas`.
+From a clone, build the newest tag rather than `main` (`git tag --sort=-v:refname`
+lists them, newest first): `git clone --branch <that tag> https://github.com/SigSegGit/itsanas`.
 
 **No compiler? Install a release.** Windows:
 `irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex`. Linux/macOS:
 `curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.sh | sh`. It downloads the latest release, checks it, installs it and starts
-`itsanas setup`. This works only once Nicolas has published a first signed
-release; until then, compile as below.
+`itsanas setup`.
 
-Everything here builds from source on the machine it runs on. There are no
-prebuilt binaries and that is deliberate: the fleet this is written for is a
-Windows laptop, a Raspberry Pi and an ARM virtual machine, and a build on each
-is both the artefact and the proof it works there. Expect the first run to take
-ten to forty minutes, mostly compiling.
+The commands below build from source on the machine they run on instead. Expect
+the first run to take ten to forty minutes, mostly compiling.
 
 ---
 
 ## Linux, Raspberry Pi, a VM
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/v0.1.0/install/linux.sh | ITSANAS_REF=v0.1.0 sh
+TAG=$(git ls-remote --tags --sort=-v:refname https://github.com/SigSegGit/itsanas 'v*' | head -1 | sed 's#.*refs/tags/##')
+curl -fsSL "https://raw.githubusercontent.com/SigSegGit/itsanas/$TAG/install/linux.sh" | ITSANAS_REF="$TAG" sh
 ```
 
 Installs a toolchain if there is none, builds, installs to `~/.local/bin`
@@ -76,7 +73,7 @@ sh scripts/build-apk.sh          # needs the Android SDK and NDK 27.3
 Kotlin and Compose over the same Rust core. Restores an account from its
 twenty-four words, adds a machine, syncs in a foreground service, opens a file.
 There is no Play Store listing, so installing it means enabling unknown sources.
-Tested on an emulator, **never on a physical handset**.
+Run end to end on an emulator in CI and on a real phone by `scripts/android-e2e.sh`.
 See [`install/android.md`](install/android.md) for what it does not do.
 
 The other is the command line inside [Termux](https://termux.dev), which is how

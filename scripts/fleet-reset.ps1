@@ -9,7 +9,7 @@
 # and old word files in Documents\ITSaNAS and on the Desktop.
 
 $ErrorActionPreference = 'Continue'
-$accounts = 'nicolas', 'test', 'mandarine'
+$accounts = 'nicolas', 'test', 'partner'
 $coord = 'itsanas.ngas.fr:9898'
 $coordId = '2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce'
 $raw = 'https://raw.githubusercontent.com/SigSegGit/itsanas/main/install'

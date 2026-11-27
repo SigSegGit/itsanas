@@ -268,7 +268,7 @@ else
     step "Joining the test account"
     printf '  Paste the 24 words the first machine printed, then Enter (hidden):\n  '
     # stty acts on its stdin, and under `curl | sh` that is the pipe: without
-    # </dev/tty the words were echoed in clear on Mandarine's Mac (2026-10-06).
+    # </dev/tty the words were echoed in clear on a partner's Mac (2026-10-06).
     stty -echo </dev/tty 2>/dev/null
     read -r WORDS </dev/tty
     stty echo </dev/tty 2>/dev/null
@@ -297,7 +297,7 @@ elif [ "$OS" = Darwin ]; then
     step "Installing (macos.sh)"
     if [ "$INSTALL" -eq 1 ]; then
         # macos.sh builds from a checkout and, unlike linux.sh, never clones one,
-        # so under `curl | sh` it had nothing to build (Mandarine's Mac,
+        # so under `curl | sh` it had nothing to build (a partner's Mac,
         # 2026-10-06). Use the checkout this script sits in, or keep one where
         # linux.sh keeps its own.
         if [ -f "$HERE/../Cargo.toml" ]; then

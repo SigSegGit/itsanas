@@ -36,7 +36,7 @@ case "$ROLE" in
     *) echo "usage: bash fleet-docker.sh vm|pi   (vm = the coordinator's machine, first)"; exit 2 ;;
 esac
 
-ACCOUNTS="nicolas test mandarine"
+ACCOUNTS="nicolas test partner"
 PLEDGE="${FLEET_PLEDGE:-2G}"
 COORD=itsanas.ngas.fr:9898
 COORD_ID=2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce
@@ -80,7 +80,7 @@ fi
 # Earlier Docker installs: containers this script does not run (an older
 # compose with fixed names, as on the Pi on 2026-10-14) and the data they
 # kept beside the compose file. Ours are left running on a re-run.
-keep="^itsanas-coordinator$|^itsanas-(nicolas|test|mandarine)-client-1$"
+keep="^itsanas-coordinator$|^itsanas-(nicolas|test|partner)-client-1$"
 for name in $($SUDO docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i itsanas | grep -Ev "$keep"); do
     $SUDO docker rm -f "$name" >/dev/null && say "  old container $name removed"
 done

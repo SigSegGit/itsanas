@@ -72,7 +72,7 @@ Testing the rest would mean a coordinator harness inside the CLI crate for
 about ten lines of glue. That is written here rather than papered over with a
 test that cannot fail: both commands were run against the real coordinator on
 the Raspberry Pi, and both were checked by taking the thing away first — the
-configured address for `mandarine` was removed and recovered from the username
+configured address for `partner` was removed and recovered from the username
 alone, and the dead device was counted in the daemon log eleven times before and
 zero times after.
 
@@ -2973,7 +2973,7 @@ the bound, behind `cfg(test)` and the `hostile` feature.
 
 # `itsanas-coord` — forgetting an account (2)
 
-Added 2026-10-05, after a test account named `mandarine` held its name for
+Added 2026-10-05, after a test account named `partner` held its name for
 good and nothing could free it. `Directory::forget_account`, run by
 `itsanas-coordinator --forget-account NAME` with the coordinator stopped.
 
@@ -3003,7 +3003,7 @@ nothing else about the account.
 | `an_account_that_goes_leaves_no_escrow_count_behind` | `forget_account` and `delete_account` take the name out of `escrow_tries`; an invented name stays until its window is over. Sabotaged (no removal): red. |
 | **`red_team_a_stranger_learns_nothing_from_a_lookup_but_the_key`** | An account with a date and an escrow blob, and one without, answer alike but for name and key: a date of 0 and an escrow flag of false. The directory keeps the real values and `GetEscrow` still hands out the blob. Sabotaged (either field as held): red. |
 | `a_device_silent_past_the_keep_stays_enrolled_and_comes_back_by_announcing` | Peers until `PRESENCE_TTL` and not a second after; `Devices` shows address and silence up to the keep, nothing past it, and still lists the device; one announcement brings it all back. Sabotaged (no erase of the availability row; `>=`): red. |
-| **`red_team_a_presence_in_an_old_format_hides_only_its_own_device`** | The fleet, 2026-11-16 to 22: after the coordinator moved to presences carrying the chain's length (#435), one row in the old format, from a device silent since, failed every listing of its account ("Hit the end of buffer"), so no machine of `test` or `mandarine` found the others. Such a row now reads as a device not seen, a sample skips it, and the expiry pass erases it whatever its record says. Sabotaged (`presence_of` strict; `presences_after` strict; the pass keeping it): red each. |
+| **`red_team_a_presence_in_an_old_format_hides_only_its_own_device`** | The fleet, 2026-11-16 to 22: after the coordinator moved to presences carrying the chain's length (#435), one row in the old format, from a device silent since, failed every listing of its account ("Hit the end of buffer"), so no machine of `test` or `partner` found the others. Such a row now reads as a device not seen, a sample skips it, and the expiry pass erases it whatever its record says. Sabotaged (`presence_of` strict; `presences_after` strict; the pass keeping it): red each. |
 | `one_pass_erases_the_silent_addresses_the_free_names_and_the_spent_counts` | The pass the server calls covers all three tables. Sabotaged (each of the three skipped): red. |
 | **`red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_later`** | Two runs over a real socket. Default period: the old row is gone by the first answer, a row planted afterwards stays, and the one log line holds no address. Short period: a row planted while it runs goes without a restart, and a machine just heard stays. Sabotaged (no pass at start; none after; a pass every time round the loop; an address in the log): red. |
 
