@@ -5,7 +5,7 @@ use itsanas_crypto::UserId;
 use redb::ReadableTable;
 
 use super::{
-    Directory, INVITATIONS, INVITE_WINDOW, INVITED, INVITED_PLACES, LodgedInvitation,
+    Directory, INVITATIONS, INVITE_WINDOW, INVITED, INVITED_PLACES, LodgedInvitation, SUSPENDED,
     escrow::escrow_try, window_over,
 };
 use crate::{
@@ -36,6 +36,9 @@ impl Directory {
             return Err(CoordError::Rejected(
                 "the inviter is not a member of this coordinator",
             ));
+        }
+        if self.is_suspended(signed.invitation.inviter)? {
+            return Err(CoordError::Suspended);
         }
 
         let key = signed.invitation.code;
@@ -109,6 +112,7 @@ fn count_invited(
 /// enumerate which codes exist, and the codes are what keeps strangers out.
 pub(super) fn redeem_in(
     txn: &redb::WriteTransaction,
+    by_id: &redb::Table<'_, &[u8], &str>,
     secret: &Secret,
     joiner: UserId,
     now: u64,
@@ -130,6 +134,18 @@ pub(super) fn redeem_in(
     if !lodged.signed.opens_with(secret)
         || lodged.remaining == 0
         || lodged.signed.invitation.expires_unix <= now
+    {
+        return Err(refused());
+    }
+
+    // The inviter's standing now, not at lodging: a member suspended or
+    // deleted since admits nobody with the codes it handed out.
+    let inviter = lodged.signed.invitation.inviter.as_bytes();
+    if by_id.get(inviter.as_slice())?.is_none()
+        || txn
+            .open_table(SUSPENDED)?
+            .get(inviter.as_slice())?
+            .is_some()
     {
         return Err(refused());
     }

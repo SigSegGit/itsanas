@@ -39,7 +39,7 @@ use rustls::ServerConfig;
 use crate::directory::{Admission, Directory};
 use crate::error::{CoordError, Result};
 use crate::protocol::{MAX_REQUESTS_PER_CONNECTION, Request, Response};
-use crate::service::{CoordService, EscrowLimiter, Expired, PROBE_TRACKED, PROBE_WINDOW};
+use crate::service::{CoordService, EscrowLimiter, Expired, PROBE_TRACKED};
 
 mod client;
 mod names;
@@ -50,7 +50,7 @@ use probe::answer_check_me;
 
 pub use client::{CoordClient, Deadline};
 pub use names::NameBudget;
-pub use probe::{MAX_PROBES_IN_FLIGHT, PROBE_TIMEOUT};
+pub use probe::{MAX_PROBES_IN_FLIGHT, PROBE_TIMEOUT, ProbeBudget};
 
 /// Default port for a coordinator.
 pub const DEFAULT_COORD_PORT: u16 = 9898;
@@ -266,14 +266,15 @@ impl CoordServer {
         // per-connection budget is no budget at all: an attacker reconnects and
         // gets a fresh one, which costs them a handshake and buys them
         // everything. Shared state behind a mutex is the price of the rate
-        // limit meaning anything, and it is only touched on escrow fetches.
+        // limit meaning anything, and only an escrow fetch locks it, for its
+        // count in memory and not across the disk write after it.
         let limiter = Mutex::new(EscrowLimiter::new());
 
         // A second budget, for the one request that makes this process act on
         // the internet rather than answer about it. Shared for the same reason
         // as the first: a per-connection budget is no budget, because
         // reconnecting is cheap.
-        let probes = Mutex::new(EscrowLimiter::with(1, PROBE_WINDOW, PROBE_TRACKED));
+        let probes = Mutex::new(ProbeBudget::new(PROBE_TRACKED));
         let in_flight = AtomicUsize::new(0);
 
         // A third, per address rather than per name: see [`NAME_QUESTIONS`].
@@ -437,14 +438,10 @@ fn serve_one(
         } else if is_a_question(&request) && !spend(names) {
             Response::Refused(TOO_MANY_NAME_QUESTIONS.to_owned())
         } else {
-            // Held only across one request, and only escrow fetches touch it.
-            // A poisoned lock means another thread panicked mid-request; the
-            // safe answer is to refuse rather than to ignore the limit.
-            let Ok(mut limiter) = limiter.lock() else {
-                return Ok(());
-            };
+            // Locked inside, by an escrow fetch alone, and for its count in
+            // memory alone: every other request runs beside the others.
             service
-                .handle(&request, caller, now_unix(), &mut limiter, Instant::now())
+                .handle(&request, caller, now_unix(), limiter, Instant::now())
                 .unwrap_or_else(|error| Response::Refused(error.to_string()))
         };
 
@@ -477,6 +474,6 @@ fn serve_one(
 #[derive(Clone, Copy)]
 struct Budgets<'a> {
     escrow: &'a Mutex<EscrowLimiter>,
-    probes: &'a Mutex<EscrowLimiter>,
+    probes: &'a Mutex<ProbeBudget>,
     names: &'a Mutex<NameBudget>,
 }

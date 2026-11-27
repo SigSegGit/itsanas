@@ -87,9 +87,9 @@ fn ask(service: &CoordService<'_>, request: &Request, caller: DeviceId) -> Respo
 }
 
 fn ask_at(service: &CoordService<'_>, request: &Request, caller: DeviceId, now: u64) -> Response {
-    let mut limiter = EscrowLimiter::new();
+    let limiter = Mutex::new(EscrowLimiter::new());
     service
-        .handle(request, caller, now, &mut limiter, Instant::now())
+        .handle(request, caller, now, &limiter, Instant::now())
         .unwrap()
 }
 
@@ -107,4 +107,57 @@ fn claim_of(
         revoked,
     }
     .sign(owner)
+}
+
+/// One escrow limiter is shared by every connection. Locked around every
+/// request, one slow write held up every other connection's lookups, and
+/// a panic while it was held dropped every request until a restart.
+/// Sabotage: lock the limiter at the top of `handle`; refuse on a
+/// poisoned lock.
+#[test]
+fn a_held_or_poisoned_escrow_limiter_holds_up_no_other_request() {
+    let directory = directory();
+    let service = CoordService::new(&directory);
+    let caller = device(50).device_id();
+    let limiter = Mutex::new(EscrowLimiter::new());
+    let (service, limiter) = (&service, &limiter);
+
+    std::thread::scope(|scope| {
+        let held = limiter.lock().expect("lock");
+        let (tx, rx) = std::sync::mpsc::channel();
+        scope.spawn(move || {
+            let peers = Request::Peers {
+                user: user(50).user_id(),
+            };
+            let answer = service.handle(&peers, caller, NOW, limiter, Instant::now());
+            let _ = tx.send(answer.is_ok());
+        });
+        let answered = rx.recv_timeout(Duration::from_secs(5));
+        drop(held);
+        assert_eq!(
+            answered,
+            Ok(true),
+            "a lookup waited for another connection's escrow fetch"
+        );
+    });
+
+    let poisoned = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let _held = limiter.lock();
+                panic!("a request panicked while it held the limiter");
+            })
+            .join()
+    });
+    assert!(poisoned.is_err() && limiter.is_poisoned());
+    let fetch = Request::GetEscrow {
+        username: "anyone".to_owned(),
+    };
+    let answer = service
+        .handle(&fetch, caller, NOW, limiter, Instant::now())
+        .expect("answer");
+    assert!(
+        matches!(answer, Response::Escrow(_)),
+        "a panic elsewhere left recovery refused until a restart: {answer:?}"
+    );
 }

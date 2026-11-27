@@ -78,11 +78,18 @@ impl CoordService<'_> {
     }
 
     /// What [`Request::Hosts`] tells `caller`: machines of other accounts that
-    /// offer space and were heard lately. Nothing to a device with no claim.
+    /// offer space and were heard lately. Nothing to a device with no live
+    /// claim, or of a suspended account.
     pub(super) fn hosts_for(&self, caller: DeviceId, now: u64) -> Result<Vec<ClaimedPresence>> {
         let Some(mine) = self.directory.claim_for(caller)? else {
             return Ok(Vec::new());
         };
+        if mine.claim.revoked
+            || mine.verify(now).is_err()
+            || self.directory.is_suspended(mine.claim.owner)?
+        {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         for presence in self.directory.presences_after(caller, HOSTS_SCANNED)? {
             let device = presence.presence.device;

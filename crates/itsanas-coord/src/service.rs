@@ -16,6 +16,7 @@
 //! the single job where centralisation is genuinely better, and it is why the
 //! coordinator survived the decentralisation audit in `docs/DESIGN.md` §8.
 
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use itsanas_crypto::{DeviceId, UserId};
@@ -85,9 +86,18 @@ pub const PROBE_WINDOW: Duration = Duration::from_secs(3600);
 ///
 /// Same reasoning as [`ESCROW_TRACKED`], and full means refuse: evicting an
 /// entry to make room is how a caller would clear their own counter. Only
-/// enrolled devices reach this, so the table is bounded by the fleet rather
-/// than by the internet.
+/// enrolled devices reach this, and each of them at most
+/// [`PROBES_PER_DEVICE`] addresses an hour, so the table is bounded by the
+/// fleet rather than by the internet.
 pub const PROBE_TRACKED: usize = 8192;
+
+/// How many different addresses one device may have probed per
+/// [`PROBE_WINDOW`].
+///
+/// One probe per address lets a machine that moved ask again; this caps how
+/// many times it moves. Without it a device announcing a new address before
+/// each probe made the coordinator dial one chosen host after another.
+pub const PROBES_PER_DEVICE: u32 = 3;
 
 /// What a probe request resolves to, before anything touches the network.
 ///
@@ -232,14 +242,24 @@ impl<'a> CoordService<'a> {
 
     /// One more escrow fetch of `username`: memory first (cheap, and what
     /// bounds a flood), then the disk, which a restart does not clear.
+    ///
+    /// The limiter is locked for the memory count alone, never across the
+    /// disk write, and it is shared by every connection: only an escrow fetch
+    /// waits on another. A poisoned lock is taken as it is, since a count left
+    /// half-way is still a count, and refusing every fetch until a restart is
+    /// what a panic elsewhere would otherwise buy.
     fn escrow_allowed(
         &self,
-        limiter: &mut EscrowLimiter,
+        limiter: &Mutex<EscrowLimiter>,
         username: &str,
         now: Instant,
         now_unix: u64,
     ) -> Result<bool> {
-        Ok(limiter.allow(username, now)
+        let allowed = limiter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .allow(username, now);
+        Ok(allowed
             && self.directory.count_escrow_attempt(
                 username,
                 now_unix,
@@ -254,7 +274,7 @@ impl<'a> CoordService<'a> {
         request: &Request,
         caller: DeviceId,
         now_unix: u64,
-        limiter: &mut EscrowLimiter,
+        limiter: &Mutex<EscrowLimiter>,
         now: Instant,
     ) -> Result<Response> {
         match request {

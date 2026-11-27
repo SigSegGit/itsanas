@@ -14,6 +14,7 @@
 //! | `departures` | a device's last signed notice that it is leaving | for good |
 //! | `retired_names` | a deleted account's name | it is free again |
 //! | `deleted_accounts` | an account's own signed deletion | for good: hosts ask, and free what they keep for it |
+//! | `deleted_devices` | the device ids a deleted account had claimed | for good: no other account may claim them |
 //! | `suspended_accounts` | when the operator suspended an account | the suspension is lifted |
 //!
 //! [`crate::service::CoordService::expire`] is what ends the ones with a date,
@@ -155,6 +156,10 @@ const RETIRED: TableDefinition<'_, &str, u64> = TableDefinition::new("retired_na
 /// about at their rounds, so a host that was offline when it happened still
 /// frees what it kept, and checks the account's signature before it does.
 const DELETED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("deleted_accounts");
+/// The device ids a deleted account had claimed, kept for good: they were
+/// public while it lived, and another account claiming one would be listed as
+/// that machine's owner while it still announced.
+const DELETED_DEVICES: TableDefinition<'_, &[u8], ()> = TableDefinition::new("deleted_devices");
 /// A suspended account's key -> the unix time the operator suspended it.
 ///
 /// Set and lifted by the operator only ([`Directory::suspend`]), never by a

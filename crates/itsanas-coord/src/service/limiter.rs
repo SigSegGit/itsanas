@@ -64,6 +64,19 @@ impl EscrowLimiter {
         true
     }
 
+    /// Whether [`Self::allow`] would allow `username` at `now`, counting
+    /// nothing: what lets two budgets be checked before either is charged, so
+    /// a request one of them refuses takes no room in the other.
+    pub fn would_allow(&mut self, username: &str, now: Instant) -> bool {
+        self.forget_expired(now);
+        match self.attempts.get(username) {
+            Some((count, since)) => {
+                now.duration_since(*since) >= self.window || *count < self.allowed
+            }
+            None => self.attempts.len() < self.capacity,
+        }
+    }
+
     /// Drop windows that have elapsed.
     fn forget_expired(&mut self, now: Instant) {
         let window = self.window;

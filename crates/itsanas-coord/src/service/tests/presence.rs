@@ -134,10 +134,10 @@ fn one_pass_erases_the_silent_addresses_the_free_names_and_the_spent_counts() {
             NOW,
         )
         .expect("delete");
-    let mut limiter = EscrowLimiter::new();
+    let limiter = Mutex::new(EscrowLimiter::new());
     let service = CoordService::new(&directory);
     service
-        .escrow_allowed(&mut limiter, "invented", Instant::now(), NOW)
+        .escrow_allowed(&limiter, "invented", Instant::now(), NOW)
         .expect("count");
 
     let later = NOW + crate::directory::NAME_RETIRED_FOR;

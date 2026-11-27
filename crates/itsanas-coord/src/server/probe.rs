@@ -11,7 +11,67 @@ use itsanas_tls::{Identity, connect};
 
 use super::now_unix;
 use crate::protocol::Response;
-use crate::service::{CoordService, EscrowLimiter, Probe};
+use crate::service::{CoordService, EscrowLimiter, PROBE_WINDOW, PROBES_PER_DEVICE, Probe};
+
+/// What a [`Request::CheckMe`](crate::protocol::Request::CheckMe) is charged
+/// to: one probe per address of a device, and [`PROBES_PER_DEVICE`]
+/// addresses per device, per [`PROBE_WINDOW`].
+#[derive(Debug)]
+pub struct ProbeBudget {
+    per_device: EscrowLimiter,
+    per_target: EscrowLimiter,
+}
+
+impl ProbeBudget {
+    /// The budget, remembering at most `tracked` devices.
+    #[must_use]
+    pub fn new(tracked: usize) -> Self {
+        Self {
+            per_device: EscrowLimiter::with(PROBES_PER_DEVICE, PROBE_WINDOW, tracked),
+            per_target: EscrowLimiter::with(
+                1,
+                PROBE_WINDOW,
+                tracked.saturating_mul(PROBES_PER_DEVICE as usize),
+            ),
+        }
+    }
+
+    /// Whether `caller` may have `target` probed at `now`; charged only when
+    /// it may, and the refusal to say when not.
+    ///
+    /// # Errors
+    ///
+    /// The sentence for the caller: a repeat, or one address too many.
+    pub fn allow(
+        &mut self,
+        caller: DeviceId,
+        target: &str,
+        now: Instant,
+    ) -> std::result::Result<(), &'static str> {
+        // Keyed by device **and address**: the budget exists to stop a daemon
+        // asking every round, and a *new* address is precisely the case where
+        // the answer can have changed. Found by using it -- repointing a node
+        // during a fleet migration, the second question was refused as a
+        // repeat of the first, which is the moment somebody most needs it.
+        let device = caller.to_hex();
+        let key = format!("{device}@{target}");
+        // Both checked before either is charged: a repeat must not spend one
+        // of the device's addresses, nor one address too many take a row.
+        if !self.per_target.would_allow(&key, now) {
+            return Err(
+                "this address was already probed within the hour; the answer from then stands",
+            );
+        }
+        if !self.per_device.would_allow(&device, now) {
+            return Err(
+                "this device has had as many addresses probed as it may this hour; ask again later",
+            );
+        }
+        self.per_target.allow(&key, now);
+        self.per_device.allow(&device, now);
+        Ok(())
+    }
+}
 
 /// Decide whether to probe this caller, and probe them.
 ///
@@ -24,7 +84,7 @@ pub(super) fn answer_check_me(
     service: &CoordService<'_>,
     caller: DeviceId,
     device: &DeviceKeys,
-    probes: &Mutex<EscrowLimiter>,
+    probes: &Mutex<ProbeBudget>,
     in_flight: &AtomicUsize,
 ) -> Response {
     let target = match service.probe_target(caller, now_unix()) {
@@ -40,16 +100,8 @@ pub(super) fn answer_check_me(
         let Ok(mut probes) = probes.lock() else {
             return Response::Refused("this coordinator is not answering probes".to_owned());
         };
-        // Keyed by device **and address**: the budget exists to stop a daemon
-        // asking every round, and a *new* address is precisely the case where
-        // the answer can have changed. Found by using it -- repointing a node
-        // during a fleet migration, the second question was refused as a
-        // repeat of the first, which is the moment somebody most needs it.
-        if !probes.allow(&format!("{}@{target}", caller.to_hex()), Instant::now()) {
-            return Response::Unknown(
-                "this address was already probed within the hour; the answer from then stands"
-                    .to_owned(),
-            );
+        if let Err(why) = probes.allow(caller, &target, Instant::now()) {
+            return Response::Unknown(why.to_owned());
         }
     }
 
@@ -378,6 +430,44 @@ mod tests {
         assert!(
             InFlight::take(&count).is_some(),
             "the bound never reopened, so this coordinator stops probing for ever"
+        );
+    }
+
+    /// THE ATTACK: an enrolled device announces a new public address before
+    /// each probe, and each new address was a fresh budget: the coordinator
+    /// dialled one chosen host after another. Sabotage: drop the per-device
+    /// budget; charge it before checking the per-address one.
+    #[test]
+    fn red_team_one_device_cannot_probe_a_new_address_every_time() {
+        let mut budget = ProbeBudget::new(crate::service::PROBE_TRACKED);
+        let now = Instant::now();
+        let (one, two) = (keys(1).device_id(), keys(2).device_id());
+        let allowed = (1..=10)
+            .filter(|n| budget.allow(one, &format!("203.0.113.{n}:22"), now).is_ok())
+            .count();
+        assert_eq!(
+            allowed, PROBES_PER_DEVICE as usize,
+            "one device had a new address probed every time it asked"
+        );
+        assert!(
+            budget.allow(two, "203.0.113.1:22", now).is_ok(),
+            "another device was refused for the first one's probes"
+        );
+        assert!(
+            budget.allow(two, "203.0.113.1:22", now).is_err(),
+            "the same address was probed twice within the hour"
+        );
+        for n in [2, 3] {
+            assert!(
+                budget.allow(two, &format!("203.0.113.{n}:22"), now).is_ok(),
+                "a repeat refused spent the device's budget of addresses"
+            );
+        }
+        assert!(
+            budget
+                .allow(one, "203.0.113.1:22", now + PROBE_WINDOW)
+                .is_ok(),
+            "the window never reopened"
         );
     }
 }

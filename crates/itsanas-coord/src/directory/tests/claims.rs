@@ -366,3 +366,31 @@ fn red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_bac
         "the withdrawn device is enrolled again"
     );
 }
+
+/// THE ATTACK: a device id is public while its account lives (claimed
+/// peers, hosts). Once the account deletes itself, another member claims
+/// that id under their own account, and the machine, still announcing,
+/// is listed as theirs. Sabotage: drop the deleted-devices check in
+/// `claim`.
+#[test]
+fn red_team_a_deleted_accounts_device_cannot_be_claimed_by_another() {
+    let (_dir, directory) = directory();
+    let (alice, mallory) = (user(95), user(96));
+    register(&directory, "alice", &alice);
+    register(&directory, "mallory", &mallory);
+    directory
+        .claim(&signed(&alice, 7, NOW, false), NOW)
+        .expect("alice enrols the machine");
+    directory
+        .delete_account(&deletion(&alice, "alice", NOW + 1), NOW + 1)
+        .expect("delete");
+
+    let taken = directory.claim(&signed(&mallory, 7, NOW + 2, false), NOW + 2);
+    assert!(
+        taken.is_err(),
+        "another member claimed a deleted account's device: {taken:?}"
+    );
+    directory
+        .claim(&signed(&mallory, 8, NOW + 2, false), NOW + 2)
+        .expect("a device of her own still enrols");
+}

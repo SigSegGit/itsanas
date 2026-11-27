@@ -185,3 +185,70 @@ fn red_team_hosts_lists_only_another_accounts_live_offering_machines() {
         "a machine silent past the presence window was introduced"
     );
 }
+
+/// THE ATTACK: a stolen laptop is withdrawn by its owner, or its account is
+/// suspended, and it keeps its device key: it connects and asks for hosts,
+/// and is handed other accounts' addresses and claims for as long as it
+/// runs. Sabotage: drop the revoked check; drop the suspended check.
+#[test]
+fn red_team_a_withdrawn_device_is_introduced_to_nobody() {
+    let directory = directory();
+    let me = user(40);
+    let (laptop, other) = (device(40), device(41));
+    enrol(&directory, &me, &laptop);
+    directory
+        .claim(
+            &NodeClaim {
+                owner: me.user_id(),
+                device: other.device_id(),
+                pledged_bytes: 0,
+                issued_unix: NOW,
+                revoked: false,
+            }
+            .sign(&me),
+            NOW,
+        )
+        .expect("claim");
+    let host_owner = user(42);
+    let host = device(42);
+    enrol(&directory, &host_owner, &host);
+    announce_address(&directory, &host_owner, &host, "203.0.113.7:9797");
+
+    let service = CoordService::new(&directory);
+    let told = |caller: &itsanas_crypto::DeviceKeys| match ask(
+        &service,
+        &Request::Hosts,
+        caller.device_id(),
+    ) {
+        Response::Hosts(list) => list.len(),
+        other => panic!("not a list of hosts: {other:?}"),
+    };
+    assert_eq!(told(&laptop), 1, "a member is introduced to the host");
+
+    directory
+        .claim(
+            &NodeClaim {
+                owner: me.user_id(),
+                device: laptop.device_id(),
+                pledged_bytes: 0,
+                issued_unix: NOW + 1,
+                revoked: true,
+            }
+            .sign(&me),
+            NOW + 1,
+        )
+        .expect("withdraw");
+    assert_eq!(
+        told(&laptop),
+        0,
+        "a withdrawn device was introduced to hosts"
+    );
+    assert_eq!(told(&other), 1, "the account's other machine still is");
+
+    directory.suspend(me.user_id(), NOW).expect("suspend");
+    assert_eq!(
+        told(&other),
+        0,
+        "a suspended account's device was introduced to hosts"
+    );
+}
