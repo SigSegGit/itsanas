@@ -24,7 +24,8 @@ use itsanas_store::{Store, Vault};
 use crate::{
     error::Result,
     protocol::{
-        Head, MAX_SEGMENTS_PER_REQUEST, PROTOCOL_VERSION, Request, Response, challenge_proof,
+        Head, MAX_SEGMENT_BYTES, MAX_SEGMENTS_PER_REQUEST, PROTOCOL_VERSION, Request, Response,
+        challenge_proof,
     },
 };
 
@@ -1044,10 +1045,23 @@ impl<'a> PeerService<'a> {
                     None => return Ok(Vec::new()),
                 },
             };
-            return Ok(mine.into_iter().skip(start).take(limit).collect());
+            // The same byte budget as the vault's page, on an upper bound of
+            // each envelope's encoding: the body and its fixed header.
+            let mut bytes = 0usize;
+            let page = mine.into_iter().skip(start).take(limit);
+            let page = page.take_while(|envelope| {
+                let first = bytes == 0;
+                bytes = bytes.saturating_add(envelope.sealed_body.len() + 256);
+                first || bytes <= MAX_SEGMENT_BYTES
+            });
+            return Ok(page.collect());
         }
 
-        Ok(self.vault.segments_for(owner, device, after, limit)?)
+        // Bounded in bytes as well as in number: 256 segments of 8 MiB each
+        // were decoded for one request, into an answer no frame could carry.
+        Ok(self
+            .vault
+            .segments_page(owner, device, after, limit, MAX_SEGMENT_BYTES)?)
     }
 
     fn chunk(&self, owner: UserId, address: &itsanas_crypto::ChunkId) -> Result<Option<Vec<u8>>> {
@@ -1807,6 +1821,104 @@ mod tests {
         assert!(
             matches!(from_sibling, Response::Stored { accepted: true }),
             "a host at pledge 0 refused its own account's log from a member: a delete made on the phone never reaches it ({from_sibling:?})"
+        );
+    }
+
+    /// A signed segment of `guest`'s whose sealed body is about `bytes` long.
+    fn large_segment(
+        guest: &UserKeys,
+        device: &DeviceKeys,
+        previous: Option<itsanas_crypto::ObjectId>,
+        sequence: u64,
+        bytes: usize,
+    ) -> itsanas_store::SegmentEnvelope {
+        let entry = itsanas_store::LogEntry {
+            sequence,
+            recorded_unix: 1_700_000_000,
+            operation: itsanas_store::Operation::Remove {
+                path: "x".repeat(bytes),
+                version: itsanas_store::VersionVector::new(),
+            },
+        };
+        itsanas_store::SegmentEnvelope::create(
+            guest.oplog_root(),
+            guest.user_id(),
+            device,
+            previous,
+            vec![entry],
+        )
+        .expect("segment")
+    }
+
+    #[test]
+    fn red_team_a_page_of_large_segments_still_fits_one_frame() {
+        // THE ATTACK, by a device that may push to this host: segments of
+        // several MiB each, then `Segments { limit: 256 }` on a few
+        // connections. Counted only by number, the host decoded every one
+        // into one answer (2 GiB at 8 MiB each), which the framing then
+        // refused to send: the chain could never be fetched by anybody.
+        // Sabotage: give `segments_page` `usize::MAX` in `segments`.
+        let host = node(&alice(), 60);
+        let guest = UserKeys::derive(&MasterSecret::from_bytes([0xC9; 32]));
+        let device = DeviceKeys::from_seed(&SecretBytes::new([61; 32]));
+        let mut previous = None;
+        for sequence in 1..=3 {
+            let envelope = large_segment(&guest, &device, previous, sequence, 3 << 20);
+            host.vault.put_segment(&envelope).expect("stored");
+            previous = Some(envelope.segment_id);
+        }
+
+        let mut fetched = Vec::new();
+        let mut after = None;
+        loop {
+            let response = service(&host)
+                .handle_from_test(&Request::Segments {
+                    owner: guest.user_id(),
+                    device: device.device_id(),
+                    after,
+                    limit: MAX_SEGMENTS_PER_REQUEST,
+                })
+                .unwrap();
+            assert!(
+                crate::wire::encode(&response).is_ok(),
+                "a page of segments was assembled that no frame can carry"
+            );
+            let Response::Segments(page) = response else {
+                panic!("expected segments, got {response:?}");
+            };
+            let Some(last) = page.last() else { break };
+            assert!(
+                page.len() <= 2,
+                "{} segments of 3 MiB in one page",
+                page.len()
+            );
+            after = Some(last.segment_id);
+            fetched.extend(page);
+        }
+        assert_eq!(fetched.len(), 3, "byte-capped pages lost part of the chain");
+    }
+
+    #[test]
+    fn red_team_an_oversized_segment_is_refused_before_storing() {
+        // A sealed body that leaves no room in a frame for the envelope can
+        // never be served back; refused for the price of the parse.
+        // Sabotage: drop the `StoreSegment` arm in `is_acceptable`.
+        let host = node(&alice(), 62);
+        let guest = UserKeys::derive(&MasterSecret::from_bytes([0xCA; 32]));
+        let device = DeviceKeys::from_seed(&SecretBytes::new([63; 32]));
+        let envelope = large_segment(&guest, &device, None, 1, crate::protocol::MAX_SEGMENT_BYTES);
+        let response = service(&host)
+            .handle(
+                &Request::StoreSegment {
+                    envelope: Box::new(envelope),
+                },
+                device.device_id(),
+            )
+            .unwrap();
+        assert_eq!(response, Response::Refused("malformed request".to_owned()));
+        assert!(
+            host.vault.heads_for(guest.user_id()).unwrap().is_empty(),
+            "an oversized segment was stored"
         );
     }
 
