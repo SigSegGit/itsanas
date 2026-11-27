@@ -9,7 +9,7 @@ use std::{
 use itsanas_crypto::ChunkId;
 use redb::ReadableTable as _;
 
-use super::{BY_PACK, HEADER, HEADER_LEN, LIVE, PACK_TARGET, Packs, Place, member_key};
+use super::{BY_PACK, CHUNKS, HEADER, HEADER_LEN, LIVE, PACK_TARGET, Packs, Place, member_key};
 use crate::error::{Result, StoreError};
 
 impl Packs {
@@ -46,10 +46,13 @@ impl Packs {
                 // A record that no longer reads stays where it is (its pack
                 // with it): one damaged chunk must not stop every later
                 // compaction, and moving it would only copy the damage.
-                let Ok(Some(bytes)) = self.get(&address) else {
+                let Ok(Some(place)) = self.place(&address) else {
                     continue;
                 };
-                self.relocate(&address, pack, &bytes)?;
+                let Ok(Some(bytes)) = self.get_at(&address, place) else {
+                    continue;
+                };
+                self.relocate(&address, place, &bytes)?;
             }
             if self.members(pack)?.is_empty() {
                 fs::remove_file(&path).map_err(|error| StoreError::io(path.clone(), error))?;
@@ -65,7 +68,9 @@ impl Packs {
     /// Append a copy of `address`'s record and point its row at the copy, in
     /// one durable commit. A crash before the commit leaves the old row and
     /// an unnamed copy, which the replay skips (the address has a row).
-    fn relocate(&self, address: &ChunkId, from: u32, sealed: &[u8]) -> Result<()> {
+    /// A row no longer at `from` (removed, or moved, since it was read) is
+    /// left as it is, and the copy is dead bytes before the mark.
+    fn relocate(&self, address: &ChunkId, from: Place, sealed: &[u8]) -> Result<()> {
         let len = u32::try_from(sealed.len())
             .map_err(|_| StoreError::Corrupt("a chunk too large for a pack record".to_owned()))?;
         let mut current = self
@@ -95,7 +100,14 @@ impl Packs {
             .map_err(|error| StoreError::io(path.clone(), error))?;
         current.1 = start + record.len() as u64;
         let txn = self.db.begin_write()?;
-        {
+        let still = txn
+            .open_table(CHUNKS)?
+            .get(address.as_bytes().as_slice())?
+            .map(|row| Place::decode(row.value()))
+            .transpose()?
+            == Some(from);
+        if still {
+            let from = from.pack;
             let mut members = txn.open_table(BY_PACK)?;
             members.remove(member_key(from, address).as_slice())?;
             drop(members);
@@ -112,8 +124,8 @@ impl Packs {
                     len,
                 },
             )?;
-            Self::write_mark(&txn, pack, current.1)?;
         }
+        Self::write_mark(&txn, pack, current.1)?;
         txn.commit()?;
         *self
             .pending
@@ -146,6 +158,50 @@ impl Packs {
 mod tests {
     use super::super::tests::*;
     use super::super::*;
+
+    /// A reader that found a chunk's record gone after a compaction moved it
+    /// (its place read before the move, its pack opened after the old file
+    /// went) reads the good copy and drops nothing. Sabotage: `remove_row`
+    /// ignores `seen`.
+    #[test]
+    fn a_read_from_a_place_compaction_moved_does_not_drop_the_moved_row() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packs = Packs::open(dir.path()).expect("open");
+        assert!(packs.put(&address(1), b"moved by compaction").unwrap());
+        *packs.current.lock().unwrap() = (2, 0);
+        let stale = packs.place(&address(1)).unwrap().expect("a row");
+        packs
+            .relocate(&address(1), stale, b"moved by compaction")
+            .unwrap();
+        fs::remove_file(packs.pack_path(stale.pack)).unwrap();
+
+        assert_eq!(
+            packs.get_at(&address(1), stale).unwrap().as_deref(),
+            Some(&b"moved by compaction"[..]),
+            "a read from the old place lost the chunk compaction had moved"
+        );
+        assert_eq!(packs.count().unwrap(), 1, "the moved row was dropped");
+        assert!(packs.contains(&address(1)));
+    }
+
+    /// A compaction that read a chunk before it was removed brings nothing
+    /// back when it moves it. Sabotage: drop the `still` check in `relocate`.
+    #[test]
+    fn a_relocation_after_a_remove_brings_nothing_back() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packs = Packs::open(dir.path()).expect("open");
+        assert!(packs.put(&address(1), b"deleted meanwhile").unwrap());
+        *packs.current.lock().unwrap() = (2, 0);
+        let seen = packs.place(&address(1)).unwrap().expect("a row");
+        assert!(packs.remove(&address(1)).unwrap());
+        packs
+            .relocate(&address(1), seen, b"deleted meanwhile")
+            .unwrap();
+
+        assert_eq!(packs.count().unwrap(), 0, "a removed chunk came back");
+        assert_eq!(packs.total_bytes().unwrap(), 0);
+        assert_eq!(packs.get(&address(1)).unwrap(), None);
+    }
 
     #[test]
     fn red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk() {

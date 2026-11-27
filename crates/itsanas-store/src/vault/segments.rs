@@ -83,6 +83,21 @@ impl Vault {
         after: Option<ObjectId>,
         limit: usize,
     ) -> Result<Vec<SegmentEnvelope>> {
+        self.segments_page(owner, device, after, limit, usize::MAX)
+    }
+
+    /// [`Self::segments_for`], stopped before the encoded envelopes would pass
+    /// `max_bytes`, but never empty while one is left: a page that must fit
+    /// one frame. A count alone let 256 segments of 8 MiB each be decoded
+    /// for one small request, into an answer too large to send.
+    pub fn segments_page(
+        &self,
+        owner: UserId,
+        device: DeviceId,
+        after: Option<ObjectId>,
+        limit: usize,
+        max_bytes: usize,
+    ) -> Result<Vec<SegmentEnvelope>> {
         let prefix = chain_key(owner, device);
         let txn = self.db.begin_read()?;
         let table = txn.open_table(SEGMENTS)?;
@@ -91,6 +106,7 @@ impl Vault {
         let end = segment_key(owner, device, u64::MAX);
 
         let mut out = Vec::new();
+        let mut bytes = 0usize;
         let mut skipping = after.is_some();
 
         for row in table.range(start.as_slice()..=end.as_slice())? {
@@ -99,18 +115,24 @@ impl Vault {
                 break;
             }
 
-            let envelope = SegmentEnvelope::decode(value.value())?;
-
             if skipping {
                 // Resume *after* the named segment, so the caller does not
-                // receive one it already has on every round.
-                if Some(envelope.segment_id) == after {
+                // receive one it already has on every round. Only the id is
+                // read, the envelope's first field: decoding each one whole
+                // just to pass it cost a copy of every body up to `after`.
+                let (id, _) = postcard::take_from_bytes::<ObjectId>(value.value())?;
+                if Some(id) == after {
                     skipping = false;
                 }
                 continue;
             }
 
-            out.push(envelope);
+            let size = value.value().len();
+            if !out.is_empty() && bytes.saturating_add(size) > max_bytes {
+                break;
+            }
+            bytes = bytes.saturating_add(size);
+            out.push(SegmentEnvelope::decode(value.value())?);
             if out.len() >= limit {
                 break;
             }

@@ -220,27 +220,36 @@ impl Packs {
         let Ok(Some(place)) = self.place(address) else {
             return false;
         };
+        match self.header_at(address, place) {
+            Some(true) => true,
+            // An I/O failure is not evidence of loss: say no, keep the row.
+            None => false,
+            // Dropped only if the row still names what was read: a compaction
+            // may have moved it meanwhile, and then the record is where it is now.
+            Some(false) => {
+                matches!(self.remove_row(address, Some(place)), Ok(false))
+                    && matches!(self.place(address), Ok(Some(now))
+                        if now != place && self.header_at(address, now) == Some(true))
+            }
+        }
+    }
+
+    /// Whether `address`'s record header is at `place`: `None` for an I/O
+    /// failure that says nothing of the record.
+    fn header_at(&self, address: &ChunkId, place: Place) -> Option<bool> {
         let mut header = [0u8; HEADER_LEN];
         let read = File::open(self.pack_path(place.pack)).and_then(|mut file| {
             file.seek(SeekFrom::Start(place.offset - HEADER))?;
             file.read_exact(&mut header)
         });
-        let whole = read.is_ok()
-            && header[..32] == address.as_bytes()[..]
-            && header[32..] == place.len.to_le_bytes();
-        if !whole
-            && read.as_ref().is_err_and(|e| {
-                e.kind() != std::io::ErrorKind::UnexpectedEof
-                    && e.kind() != std::io::ErrorKind::NotFound
-            })
-        {
-            // An I/O failure is not evidence of loss: say no, keep the row.
-            return false;
+        match read {
+            Ok(()) => Some(
+                header[..32] == address.as_bytes()[..] && header[32..] == place.len.to_le_bytes(),
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Some(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
         }
-        if !whole {
-            let _ = self.remove(address);
-        }
-        whole
     }
 
     /// Damage `address`'s record the way a disk does, behind the index: a
@@ -385,6 +394,28 @@ impl Packs {
         let Some(place) = self.place(address)? else {
             return Ok(None);
         };
+        self.get_at(address, place)
+    }
+
+    /// [`Self::get`] from `place`, read a moment before. A record not there
+    /// drops the row only if it still names `place`: a compaction may have
+    /// moved it to a good copy meanwhile, which is then read where it is.
+    fn get_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
+        if let Some(bytes) = self.read_at(address, place)? {
+            return Ok(Some(bytes));
+        }
+        if self.remove_row(address, Some(place))? {
+            return Ok(None);
+        }
+        match self.place(address)? {
+            Some(now) if now != place => self.read_at(address, now),
+            _ => Ok(None),
+        }
+    }
+
+    /// `address`'s record at `place`, or `None` when it is cut short, gone or
+    /// names another address. Other I/O errors stay errors.
+    fn read_at(&self, address: &ChunkId, place: Place) -> Result<Option<Vec<u8>>> {
         let path = self.pack_path(place.pack);
         let mut header = [0u8; HEADER_LEN];
         let mut bytes = vec![0u8; place.len as usize];
@@ -401,7 +432,6 @@ impl Packs {
                     std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::NotFound
                 ) =>
             {
-                self.remove(address)?;
                 return Ok(None);
             }
             Err(error) => return Err(StoreError::io(path, error)),
@@ -410,7 +440,6 @@ impl Packs {
         // (a damaged pack, a pack rewritten under it) is caught here rather
         // than handed on as somebody else's chunk.
         if header[..32] != address.as_bytes()[..] || header[32..] != place.len.to_le_bytes() {
-            self.remove(address)?;
             return Ok(None);
         }
         Ok(Some(bytes))
@@ -423,6 +452,13 @@ impl Packs {
     /// (A durable commit in redb also makes every earlier one durable, so
     /// every record before the new mark has its row on the disk.)
     pub fn remove(&self, address: &ChunkId) -> Result<bool> {
+        self.remove_row(address, None)
+    }
+
+    /// [`Self::remove`], or, given `seen`, only while the row still names
+    /// that place: a reader that found its record gone must not drop the row
+    /// a compaction has moved since to a good copy.
+    fn remove_row(&self, address: &ChunkId, seen: Option<Place>) -> Result<bool> {
         let writer = self
             .current
             .lock()
@@ -435,10 +471,17 @@ impl Packs {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, 0);
         let removed = {
             let mut chunks = txn.open_table(CHUNKS)?;
-            let place = chunks
-                .remove(address.as_bytes().as_slice())?
+            let now = chunks
+                .get(address.as_bytes().as_slice())?
                 .map(|row| Place::decode(row.value()))
                 .transpose()?;
+            // Still committed when the row moved: the mark is written.
+            let place = if seen.is_none_or(|seen| now == Some(seen)) {
+                chunks.remove(address.as_bytes().as_slice())?;
+                now
+            } else {
+                None
+            };
             if let Some(place) = place {
                 txn.open_table(BY_PACK)?
                     .remove(member_key(place.pack, address).as_slice())?;
