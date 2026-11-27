@@ -666,10 +666,22 @@ impl Config {
             .render(),
             None => self.render(),
         };
-        std::fs::write(path, text).map_err(|error| NodeError::Io {
-            path: path.to_owned(),
-            source: error,
-        })
+        // Written beside and renamed over, so a crash leaves the old config or
+        // the new one, never a truncated file that loads as the defaults (no
+        // vault, no folder) and starts the node on an empty vault.
+        let pending = path.with_extension("new");
+        let io = |at: &Path| {
+            let at = at.to_owned();
+            move |source| NodeError::Io { path: at, source }
+        };
+        let _ = std::fs::remove_file(&pending);
+        std::fs::File::create_new(&pending)
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, text.as_bytes())?;
+                file.sync_all()
+            })
+            .map_err(io(&pending))?;
+        std::fs::rename(&pending, path).map_err(io(path))
     }
 }
 
@@ -1145,6 +1157,38 @@ mod tests {
     }
 
     use super::*;
+
+    /// A power cut while the config is saved: the old config was truncated in
+    /// place, then loaded as the defaults, and the node forgot its vault. A
+    /// save now replaces the file by name and never writes into the old one
+    /// (a hard link to it still reads the old config), and a stale pending
+    /// file left by an earlier crash is no obstacle.
+    #[test]
+    fn red_team_a_save_never_rewrites_the_old_config_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        let named = |username: &str| Config {
+            username: username.to_owned(),
+            ..Config::default()
+        };
+        named("before").save(&path).unwrap();
+        let old = dir.path().join("old");
+        std::fs::hard_link(&path, &old).unwrap();
+        std::fs::write(path.with_extension("new"), b"username = \"half").unwrap();
+
+        named("after").save(&path).unwrap();
+
+        assert_eq!(
+            Config::load(&old).unwrap().username,
+            "before",
+            "the old config was rewritten in place"
+        );
+        assert_eq!(Config::load(&path).unwrap().username, "after");
+        assert!(
+            !path.with_extension("new").exists(),
+            "the pending config was left behind"
+        );
+    }
 
     /// A node under the variable that lost (`HOME` on Windows) is found when
     /// the chosen home holds none, and only then.
