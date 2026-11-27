@@ -9,12 +9,12 @@
   ],
   "defences": {
     "folder: a delete is written at once": {
-      "file": "crates/itsanas-folder/src/lib.rs",
+      "file": "crates/itsanas-folder/src/absent.rs",
       "live": "            deletion::Mode::Trash | deletion::Mode::Direct => {\n                deletion::trash_shared(store, path, now, rules.days)?;",
       "dead": "            deletion::Mode::Trash | deletion::Mode::Direct => {\n                store.remove_file(path)?;"
     },
     "folder: a file put back stays in the trash": {
-      "file": "crates/itsanas-folder/src/lib.rs",
+      "file": "crates/itsanas-folder/src/absent.rs",
       "live": "        deletion::restore_shared_known(store, path)?;\n        Self::put_back(store, path)?;",
       "dead": "        Self::put_back(store, path)?;"
     },

@@ -53,7 +53,6 @@ CEILING = {
     'crates/itsanas-net/src/protocol.rs': 1228,
     'crates/itsanas-coord/src/server.rs': 1120,
     'crates/itsanas-cli/src/setup/web/i18n.js': 1102,
-    'crates/itsanas-sync/tests/convergence.rs': 1068,
     'crates/itsanas-net/tests/placement.rs': 1037,
 }
 

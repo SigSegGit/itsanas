@@ -1,7 +1,7 @@
 //! Deletes between machines with different rules (HANDOVER §8 13): the
 //! account's trash, Protect, and rules that every machine reads alike.
 //!
-//! Deterministic, like `convergence.rs`: the same swarm, no clock but the
+//! Deterministic, like `convergence/`: the same swarm, no clock but the
 //! store's.
 
 use itsanas_store::deletion::{self, Mode, Receive, Rules};

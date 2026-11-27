@@ -9,7 +9,7 @@
   ],
   "defences": {
     "folder: a confirmed pass takes an unmarked folder": {
-      "file": "crates/itsanas-folder/src/lib.rs",
+      "file": "crates/itsanas-folder/src/guard.rs",
       "live": "            Marker::Missing if deletions == Deletions::ApplyWhateverTheCount => {\n                write_marker(&self.root, device);\n                return Ok(());\n            }",
       "dead": "            Marker::Missing if deletions == Deletions::ApplyWhateverTheCount && false => {\n                write_marker(&self.root, device);\n                return Ok(());\n            }"
     },
