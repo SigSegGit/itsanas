@@ -11,10 +11,10 @@ internal fun nameOf(context: android.content.Context, uri: Uri): String {
         val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (column >= 0 && cursor.moveToFirst()) {
             val name = cursor.getString(column)
-            if (!name.isNullOrBlank()) return name
+            if (!name.isNullOrBlank()) return Account.oneName(name)
         }
     }
-    return uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+    return Account.oneName(uri.lastPathSegment ?: "file")
 }
 
 /**
