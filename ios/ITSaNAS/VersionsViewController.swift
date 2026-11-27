@@ -24,12 +24,20 @@ final class VersionsViewController: UITableViewController {
         reload()
     }
 
+    /// Off the main thread: the list waits for a round another screen started.
     private func reload() {
-        do {
-            versions = try Core.versions(path)
-            tableView.reloadData()
-        } catch {
-            show(error.localizedDescription)
+        let path = self.path
+        DispatchQueue.global(qos: .userInitiated).async {
+            let listed = Result { try Core.versions(path) }
+            DispatchQueue.main.async {
+                switch listed {
+                case .success(let versions):
+                    self.versions = versions
+                    self.tableView.reloadData()
+                case .failure(let error):
+                    self.show(error.localizedDescription)
+                }
+            }
         }
     }
 
@@ -60,14 +68,15 @@ final class VersionsViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let at = indexPath.row
-        guard !busy, !(versions[at]["current"] as? Bool ?? false) else { return }
+        guard !busy, !(versions[at]["current"] as? Bool ?? false),
+              let id = versions[at]["id"] as? String else { return }
         busy = true
         let path = self.path
         // Off the main thread: a version not here is fetched from another machine.
         DispatchQueue.global(qos: .userInitiated).async {
             // Then a round, as after a rename: the version is for every machine.
             let outcome = Result {
-                try Core.bringBack(path, at: at)
+                try Core.bringBack(path, id: id)
                 _ = try? Core.sync()
             }
             DispatchQueue.main.async {

@@ -218,6 +218,36 @@ fn red_team_a_passphrase_that_does_not_open_is_not_remembered() {
     );
 }
 
+/// The app closes the account off the main thread when it leaves the screen,
+/// and the close waits for a round to end: a person who came back and opened
+/// the account meanwhile must not have it closed under them.
+#[test]
+fn a_close_asked_before_the_account_was_opened_again_leaves_it_open() {
+    let _turn = host::tests::SERIAL
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().expect("scratch");
+    let home = dir.path().join("phone");
+    drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+    let slot = Mutex::new(None);
+    let opens = AtomicU64::new(0);
+    open_into(&slot, &home, "a passphrase", &nowhere(), NOW).expect("open");
+    let asked = opens.load(Ordering::SeqCst);
+    opens.fetch_add(1, Ordering::SeqCst);
+    open_into(&slot, &home, "a passphrase", &nowhere(), NOW).expect("open again");
+
+    close_unless_reopened(&slot, &opens, asked).expect("close");
+    assert!(
+        slot.lock().expect("slot").is_some(),
+        "a close asked before the person came back closed the account they had just opened"
+    );
+    close_unless_reopened(&slot, &opens, opens.load(Ordering::SeqCst)).expect("close");
+    assert!(
+        slot.lock().expect("slot").is_none(),
+        "a close asked after the last opening left the account open"
+    );
+}
+
 #[test]
 fn a_reply_to_nobody_is_not_taken() {
     let _turn = host::tests::SERIAL

@@ -1008,8 +1008,8 @@ fn sweep_everything(store: &Store, client: &mut PeerClient, report: &mut PushRep
     Ok(())
 }
 
-/// Bring here, from `client`, the chunks of version `at` of `path` (an index
-/// into [`itsanas_store::versions`]) that this machine lacks, so it can be
+/// Bring here, from `client`, the chunks of the version of `path` named `id`
+/// ([`itsanas_store::Version::id`]) that this machine lacks, so it can be
 /// brought back here: a version used to come back only on a machine that
 /// had kept every chunk of it (HANDOVER §8 15). Each chunk is checked as any
 /// chunk is ([`Store::accept_chunk`]), one at a time, so memory stays one
@@ -1023,11 +1023,11 @@ pub fn fetch_version(
     vault: &Vault,
     client: &mut PeerClient,
     path: &str,
-    at: usize,
+    id: &str,
 ) -> Result<bool> {
     let Some(chosen) = itsanas_store::versions(store, vault, path)?
         .into_iter()
-        .nth(at)
+        .find(|version| version.id() == id)
     else {
         return Ok(false);
     };

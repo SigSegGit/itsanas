@@ -1170,7 +1170,7 @@
   // on every machine, fetched first when this machine never held it.
   function versionList(path, versions) {
     const list = document.createElement('ol');
-    versions.forEach(function (version, at) {
+    versions.forEach(function (version) {
       const item = document.createElement('li');
       const when = new Date(version.modified * 1000).toLocaleString();
       item.textContent = when + ' · ' + version.size + ' B' +
@@ -1179,7 +1179,7 @@
         const back = document.createElement('button');
         back.type = 'button';
         back.textContent = t('Bring back');
-        back.addEventListener('click', function () { files('restore', path, { at: String(at) }); });
+        back.addEventListener('click', function () { files('restore', path, { id: version.id }); });
         item.appendChild(back);
       }
       list.appendChild(item);

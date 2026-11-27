@@ -56,13 +56,31 @@ final class PageViewController: UIViewController, WKUIDelegate {
         case "askPassphrase": ask(id, NSLocalizedString("Passphrase", comment: ""), args.first, secure: true)
         case "askRecoveryPhrase": ask(id, NSLocalizedString("Your 24 words", comment: ""), nil, secure: false)
         case "showWords": tell(id, NSLocalizedString("Write these 24 words down", comment: ""), args.first ?? "")
-        case "showAndConfirm":
-            let at = args.dropFirst().joined(separator: ", ")
-            let format = NSLocalizedString("Type words %@, in order", comment: "")
-            ask(id, String(format: format, at), nil, secure: false)
+        case "showAndConfirm": showThenConfirm(id, PageViewController.confirming(args))
         default:
             Core.reply(id, nil)
         }
+    }
+
+    /// What a showAndConfirm request shows, in order: the 24 words (its first
+    /// argument), then which of them to type back (the others). The words
+    /// were shown nowhere, so an account was made with words its owner had
+    /// never seen.
+    static func confirming(_ args: [String]) -> (words: String, question: String) {
+        let at = args.dropFirst().joined(separator: ", ")
+        let format = NSLocalizedString("Type words %@, in order", comment: "")
+        return (args.first ?? "", String(format: format, at))
+    }
+
+    private func showThenConfirm(_ id: UInt64, _ steps: (words: String, question: String)) {
+        asking = true
+        let alert = UIAlertController(
+            title: NSLocalizedString("Write these 24 words down", comment: ""), message: steps.words,
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+            self.ask(id, steps.question, nil, secure: false)
+        })
+        present(alert, animated: true)
     }
 
     private func event(_ args: [String]) {

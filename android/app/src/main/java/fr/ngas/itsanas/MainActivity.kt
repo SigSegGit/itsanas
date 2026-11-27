@@ -120,23 +120,33 @@ class MainActivity : FragmentActivity() {
      */
     @Suppress("DEPRECATION")
     private fun incoming(intent: Intent?): List<Uri> = when (intent?.action) {
-        Intent.ACTION_SEND -> listOfNotNull(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Intent.ACTION_SEND -> {
+            val stream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
-            } ?: sharedText(intent)
-        )
+            }
+            if (stream != null) listOf(stream).filter(::foreign) else listOfNotNull(sharedText(intent))
+        }
 
         Intent.ACTION_SEND_MULTIPLE ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
-            }.orEmpty()
+            }.orEmpty().filter(::foreign)
 
         else -> emptyList()
     }
+
+    /**
+     * A shared stream another application serves: `content://`, and not this
+     * application's own provider. A `file://` stream, or one of our own URIs,
+     * would have had this application read its own private files into the
+     * account at another application's request.
+     */
+    private fun foreign(uri: Uri): Boolean =
+        uri.scheme == android.content.ContentResolver.SCHEME_CONTENT && uri.authority != "$packageName.files"
 
     /**
      * A share that carries words and no file -- a link from the browser, a
@@ -880,11 +890,11 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         VersionsDialog(
             file,
             onClose = { versionsOf = null },
-            onBack = { at ->
+            onBack = { id ->
                 versionsOf = null
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) { Native.bringBack(file.path, at) }
+                        withContext(Dispatchers.IO) { Native.bringBack(file.path, id) }
                         chosen = emptySet()
                         refresh()
                     } catch (error: Throwable) {
@@ -1092,7 +1102,7 @@ private fun FileRow(
 
 /** Every version of one file, newest first; one held here and not current can come back. */
 @Composable
-private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Unit) {
+private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (String) -> Unit) {
     var listed by remember(file.path) { mutableStateOf<org.json.JSONArray?>(null) }
     LaunchedEffect(file.path) {
         listed = withContext(Dispatchers.IO) {
@@ -1125,7 +1135,7 @@ private fun VersionsDialog(file: Known, onClose: () -> Unit, onBack: (Int) -> Un
                                 )
                             }
                             if (version.getBoolean("here") && !version.getBoolean("current")) {
-                                TextButton({ onBack(at) }, Modifier.testTag("version-back-$at")) {
+                                TextButton({ onBack(version.getString("id")) }, Modifier.testTag("version-back-$at")) {
                                     Text(stringResource(R.string.versions_back))
                                 }
                             }
@@ -1207,10 +1217,10 @@ private fun nameOf(context: android.content.Context, uri: Uri): String {
         val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (column >= 0 && cursor.moveToFirst()) {
             val name = cursor.getString(column)
-            if (!name.isNullOrBlank()) return name
+            if (!name.isNullOrBlank()) return Account.oneName(name)
         }
     }
-    return uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+    return Account.oneName(uri.lastPathSegment ?: "file")
 }
 
 /**

@@ -53,10 +53,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     /// iOS gives no foreground service: the store closes when the app leaves
     /// the screen, so nothing holds it while the system may end the process.
+    /// Off the main thread, in the time iOS grants: closing waits for a round
+    /// to end, and iOS ends an app whose main thread waits about 5 s here.
     func applicationDidEnterBackground(_ application: UIApplication) {
         Core.pageStop()
-        Core.close()
         Background.schedule()
+        var grant = UIBackgroundTaskIdentifier.invalid
+        grant = application.beginBackgroundTask { application.endBackgroundTask(grant) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            Core.close()
+            DispatchQueue.main.async { application.endBackgroundTask(grant) }
+        }
         guard let navigation = window?.rootViewController as? UINavigationController else { return }
         navigation.setViewControllers([AppDelegate.first()], animated: false)
     }
