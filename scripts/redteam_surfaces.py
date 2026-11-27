@@ -41,6 +41,7 @@ SURFACES = [
     ('identity', 'keys, accounts, devices, claims, invitations', [
         'itsanas-crypto/src/identity.rs',
         'itsanas-crypto/src/keystore.rs',
+        'itsanas-crypto/src/seal.rs',
         'itsanas-coord/src/claim.rs',
         'itsanas-coord/src/invitation.rs',
         'itsanas-node/src/contact.rs',

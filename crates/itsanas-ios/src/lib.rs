@@ -128,6 +128,7 @@ pub extern "C" fn itsanas_use_coordinator_for_tests(
 /// Unlock the node at `home`.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_open(home: *const c_char, passphrase: *const c_char) -> *mut c_char {
+    OPENS.fetch_add(1, Ordering::SeqCst);
     let home = home_of(home);
     let passphrase = c::text(passphrase, "the passphrase").map(Zeroizing::new);
     answer(move || {
@@ -160,6 +161,7 @@ fn open_and_remember(
 /// `{"opened":false}` when it holds none.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_open_remembered(home: *const c_char) -> *mut c_char {
+    OPENS.fetch_add(1, Ordering::SeqCst);
     let home = home_of(home);
     answer(move || open_remembered(&NODE, &home?, &network()?, itsanas_cli::phone::unix_now()))
 }
@@ -194,17 +196,33 @@ pub extern "C" fn itsanas_finger_matches(state: *const c_char) -> bool {
     c::text(state, "the fingers' state").is_ok_and(|state| keychain::same_fingers(&state))
 }
 
-/// Close the node and stop the page, releasing the store.
+/// How many times the app asked to open the account: a close asked before
+/// the last of them leaves what it opened alone.
+static OPENS: AtomicU64 = AtomicU64::new(0);
+
+/// Close the node and stop the page, releasing the store. The app calls it
+/// off the main thread when it leaves the screen, where it waits for a round
+/// to end: a person back on the screen meanwhile keeps the account open.
 #[unsafe(no_mangle)]
 pub extern "C" fn itsanas_close() -> *mut c_char {
-    answer(|| {
-        stop_page();
-        *NODE
-            .lock()
-            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))? =
-            None;
-        Ok("{}".to_owned())
-    })
+    let asked = OPENS.load(Ordering::SeqCst);
+    answer(move || close_unless_reopened(&NODE, &OPENS, asked))
+}
+
+/// Empty `slot`, unless the account was asked open again since `asked` (what
+/// `opens` counted when the close was asked).
+fn close_unless_reopened(slot: &Mutex<Option<Arc<Node>>>, opens: &AtomicU64, asked: u64) -> Answer {
+    if opens.load(Ordering::SeqCst) != asked {
+        return Ok("{}".to_owned());
+    }
+    stop_page();
+    let mut guard = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
+    if opens.load(Ordering::SeqCst) == asked {
+        *guard = None;
+    }
+    Ok("{}".to_owned())
 }
 
 // -------------------------------------------------------------------- files

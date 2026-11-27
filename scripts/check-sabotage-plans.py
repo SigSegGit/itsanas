@@ -19,6 +19,8 @@ for path in sorted(glob.glob("scripts/sabotage/*.json")):
         problems.append(f"{path}: not JSON: {why}")
         continue
     for name, defence in plan["defences"].items():
+        if defence.get("expect", "build") != "build":
+            problems.append(f"{path}: {name}: \"expect\" can only be \"build\"")
         try:
             with open(defence["file"], encoding="utf-8") as handle:
                 found = handle.read().count(defence["live"])

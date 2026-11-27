@@ -147,7 +147,8 @@ judged redundant with Rodin on 2026-10-04.
 
 - Sends **only** `git diff <base>...HEAD`, never the repository, capped at
   `AI_MAX_DIFF_CHARS` (default 120 000 characters, lockfiles excluded). Over
-  the cap, whole files are dropped from the end and the PR comment lists them.
+  the cap, a file that no longer fits is dropped whole (a later, smaller one may
+  still fit) and the PR comment lists every file left out.
 - Reviews three axes: TDD (does a test fail if the change is reverted), memory
   and resources, network/P2P security.
 - Provider chosen by repository configuration, through the OpenAI-compatible

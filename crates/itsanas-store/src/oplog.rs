@@ -286,6 +286,16 @@ impl SegmentEnvelope {
     /// This is what a *host* can do: it proves the envelope is authentic without
     /// revealing anything about the body.
     pub fn verify_signature(&self) -> Result<()> {
+        // Signed by any free device key, so checked here: nothing downstream
+        // has to cope with a range that ends before it starts.
+        if self.last_sequence < self.first_sequence {
+            return Err(StoreError::Corrupt(format!(
+                "segment {} ends at sequence {} before it starts at {}",
+                self.segment_id.short(),
+                self.last_sequence,
+                self.first_sequence
+            )));
+        }
         let payload = Self::signing_payload(
             self.segment_id,
             self.owner,
@@ -394,7 +404,14 @@ pub fn validate_chain(chain: &[SegmentEnvelope]) -> Result<()> {
         }
 
         expected_previous = Some(segment.segment_id);
-        expected_sequence = Some(segment.last_sequence + 1);
+        // A stranger can sign a segment ending at the last sequence there is:
+        // refused, rather than an overflow in the round that fetched it.
+        expected_sequence = Some(segment.last_sequence.checked_add(1).ok_or_else(|| {
+            StoreError::Corrupt(format!(
+                "segment {} ends at the last possible sequence",
+                segment.segment_id.short()
+            ))
+        })?);
     }
 
     Ok(())
@@ -726,6 +743,58 @@ mod tests {
         let third = segment(&keys, &dev, Some(second.segment_id), 3..=3);
 
         validate_chain(&[second, third]).expect("a partial chain must validate on its own");
+    }
+
+    /// `envelope` with the sequence range a stranger chose, signed again by
+    /// `dev`: what any free device key can put on a host.
+    fn signed_with_range(
+        dev: &DeviceKeys,
+        mut envelope: SegmentEnvelope,
+        first: u64,
+        last: u64,
+    ) -> SegmentEnvelope {
+        envelope.first_sequence = first;
+        envelope.last_sequence = last;
+        let payload = SegmentEnvelope::signing_payload(
+            envelope.segment_id,
+            envelope.owner,
+            envelope.device,
+            first,
+            last,
+            envelope.previous,
+            &envelope.sealed_body,
+        );
+        envelope.signature = dev.sign(SEGMENT_SIGNING_DOMAIN, &payload);
+        envelope
+    }
+
+    /// A stranger's segment ending at the last sequence there is is refused
+    /// by the chain check, not a panic in the round that fetched it.
+    #[test]
+    fn red_team_a_chain_ending_at_the_last_sequence_is_refused_not_panicking() {
+        let keys = user(12);
+        let dev = device(12);
+        let forged = signed_with_range(&dev, segment(&keys, &dev, None, 1..=1), u64::MAX, u64::MAX);
+        forged.verify_signature().expect("signed by its own device");
+
+        let checked = std::panic::catch_unwind(|| validate_chain(&[forged]));
+        assert!(
+            matches!(checked, Ok(Err(_))),
+            "a segment ending at u64::MAX was accepted or panicked the chain check"
+        );
+    }
+
+    /// A signed segment that ends before it starts is refused by the signature
+    /// check a host runs before storing it.
+    #[test]
+    fn red_team_a_signed_segment_ending_before_it_starts_is_refused() {
+        let keys = user(13);
+        let dev = device(13);
+        let forged = signed_with_range(&dev, segment(&keys, &dev, None, 1..=1), 9, 3);
+        assert!(
+            forged.verify_signature().is_err(),
+            "a host would store a segment whose last sequence comes before its first"
+        );
     }
 
     #[test]

@@ -132,12 +132,13 @@ impl KdfParams {
         )
         .map_err(|_| CryptoError::Kdf("argon2 parameters out of range"))?;
 
-        let mut key = [0u8; 32];
+        // Wiped when it goes: the copy in the returned key is wiped on its own.
+        let mut key = zeroize::Zeroizing::new([0u8; 32]);
         Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-            .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+            .hash_password_into(passphrase.as_bytes(), salt, &mut *key)
             .map_err(|_| CryptoError::Kdf("argon2 derivation failed"))?;
 
-        Ok(SecretBytes::new(key))
+        Ok(SecretBytes::new(*key))
     }
 }
 

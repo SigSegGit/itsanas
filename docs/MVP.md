@@ -438,10 +438,18 @@ list Syncthing and Drive arrived at, and it is already here.
 guesses this row first carried.** They had been written from the absence of
 code rather than from a run, and the absence of code was the wrong evidence:
 
-* **Case-only pairs (2) are handled, and handled well.** `Camera/IMG.JPG` and
-  `Camera/img.jpg` are two distinct logical paths in the store. Written out to
-  NTFS, which folds case, the second collides with the first — and the conflict
-  machinery catches it, keeps **both**, and says so by name:
+* **Case-only pairs (2): on 2026-09-16 the conflict machinery kept both; since
+  2026-11-27 a disk that folds case keeps one spelling and reports the other.**
+  `Camera/IMG.JPG` and `Camera/img.jpg` are two distinct logical paths in the
+  store. Written out to NTFS, which folds case, the second collided with the
+  first — and the conflict machinery caught it, kept **both**, and said so by
+  name, which is what the output below shows. That rewrote the second spelling
+  for the whole account as an edit of the first, so a pass on Windows or macOS
+  now keeps one spelling (the one on the disk, else one already synced, else the
+  first), leaves the other in the account untouched with no `.local-` copy, and
+  lists it in the pass's failures
+  (`red_team_a_case_only_pair_from_another_machine_is_not_rewritten_by_one_that_joins`).
+  The 2026-09-16 run:
 
       !!   Camera/img.jpg conflicted — your version kept as Camera/img.local-0e7c2b5917b1.jpg
 
@@ -627,10 +635,11 @@ Set in advance so it cannot be softened afterwards.
   Nicolas's instruction, which makes the exit criterion **A–M and O** rather
   than A–M.
 - **N** → all three halves were run on 2026-09-16 and none of them fails the
-  way this row first predicted. Case pairs and long paths pass on Windows; the
-  accented-name question was answered on a real Mac and APFS folds the two
-  spellings rather than duplicating them. What is left is a conflict-copy case
-  the existing machinery already handles. N does not block the verdict on A-M and O,
+  way this row first predicted. Case pairs and long paths pass on Windows (a
+  case-only pair keeps one spelling on a disk that folds case and reports the
+  other); the accented-name question was answered on a real Mac and APFS folds
+  the two spellings rather than duplicating them. What is left is a case the
+  pass reports rather than loses. N does not block the verdict on A-M and O,
   and no longer blocks the pilot either.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
@@ -718,7 +727,7 @@ Memory is an order of magnitude inside the 200 MiB the criterion asks for. **The
 | K — a host that throws away what it holds | ✅ *in the laboratory, both halves; the first half also on two real machines* | **Detection and repair on hardware, 2026-09-01** (row C): a blob deleted behind a host's back, the owner's next daemon round printed `FAILED 1 of 1 storage challenges` and re-sent the chunk; again between the Pi and the VM, across accounts. **Re-placement on another host** (the half that matters) only in `scripts/acceptance-local.sh`, every push since 2026-09-16, with two hosts pledging: the owner's `placements` rose (83 → 125). Not yet: an emptied vault on a fleet machine with a second host to take the copies |
 | L — told without asking | 🟨 **built, the count seen every night, the alert never on a screen** | The daemon writes the copies it counts on the snapshot; `status --brief` says `exposed`; the three trays and the page draw it (red "only on this machine", orange "not safe yet"), and one notification when it becomes so. The fleet reads each machine's count every night (FLEET-CI row L). Since 2026-11-24 a machine back after a long silence reads `catching-up`, not a false red, and a cloned key image `twin`. **Missing:** the notification itself, seen on a real desktop (Windows, Mac, Linux): the Mac test day |
 | M — two accounts on one machine | ✅ *in the laboratory* | `scripts/acceptance-local.sh` runs two accounts' daemons on one machine on every push: each sees only its own files, the host of the other's chunks cannot read them, one stopped leaves the other syncing. The fleet's VM and Pi run several accounts each, and C scans one for the other's canary every night. **Missing:** the two instances side by side on a person's own computer, as BRIEFING-MVP.md §4 sets them out |
-| N — real filenames | 🟨 **on the laptop's NTFS, not yet between machines** | 2026-09-16 on the laptop: case-only pairs kept both, by name; a 305-character path fine; trailing spaces and dots and reserved names refused out loud (`path.rs`); editor and download leftovers ignored (`scan.rs`). **Missing:** the set written on Linux and read on Windows and the Mac, which is what the criterion asks |
+| N — real filenames | 🟨 **on the laptop's NTFS, not yet between machines** | 2026-09-16 on the laptop: case-only pairs kept both, by name, until 2026-11-27, when one spelling is kept on a disk that folds case and the other is reported; a 305-character path fine; trailing spaces and dots and reserved names refused out loud (`path.rs`); editor and download leftovers ignored (`scan.rs`). **Missing:** the set written on Linux and read on Windows and the Mac, which is what the criterion asks |
 
 | O — it works from somewhere that is not home | 🟨 **every night on the fleet since 2026-10-24, one way** | The fleet's runner (`scripts/fleet/member.sh`) is a member of `test` in a datacentre, behind NAT, on a new address each night, that reaches the account only through the coordinator at `itsanas.ngas.fr:9898`, the public forwards and the relays. Its B and F rows are test O: a file written there arrives byte for byte on the VM at home (67 to 383 s in the runs of 2026-10-27) and its deletion follows and stays (FLEET-CI.md). **Not covered:** the other way, home to away (the runner reads nothing written at home); a person's laptop at a friend's house, as opposed to a datacentre VM; and the Pi, skipped on its host key. The 2026-09-18 text (no port reaching the coordinator, every node on a private coordinator address) is history: `fleet-docker.sh` points every account at `itsanas.ngas.fr:9898`. |
 
