@@ -619,7 +619,11 @@ mod tests {
                 "{address} can only be dialled from its own network and must sort last"
             );
         }
-        for address in ["nas.example.org:9801", "203.0.113.7:9801", "[2001:db8::1]:9797"] {
+        for address in [
+            "nas.example.org:9801",
+            "203.0.113.7:9801",
+            "[2001:db8::1]:9797",
+        ] {
             assert!(
                 !is_private_address(address),
                 "{address} is how somebody in another house reaches this one"
