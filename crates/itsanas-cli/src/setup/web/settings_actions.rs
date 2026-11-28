@@ -213,6 +213,42 @@ pub(super) fn hosting_save(ctx: &Context, request: &Request) -> Response {
     })
 }
 
+/// How available the hosts of this account's copies must be, and the levels
+/// offered: read from the file, so asking disturbs no running loop.
+pub(super) fn copies_values(ctx: &Context) -> Response {
+    match itsanas_node::config::Config::load(&Node::config_path(&ctx.home)) {
+        Ok(config) => ok_json(copies_json(&config)),
+        Err(error) => Response::refuse(409, &error.to_string()),
+    }
+}
+
+/// `hosts`, a level's word (`cheapest`, `90` … `best`), saved for this
+/// machine: the next round places by it.
+pub(super) fn copies_save(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(tier) = field(&form, "hosts").and_then(itsanas_placement::HostTier::parse) else {
+        return Response::refuse(400, "hosts is one of the levels offered");
+    };
+    node_call(ctx, |node| {
+        node.config.host_tier = tier;
+        node.save_config()?;
+        Ok(copies_json(&node.config))
+    })
+}
+
+fn copies_json(config: &itsanas_node::config::Config) -> String {
+    object(&[
+        ("hosts", quote(config.host_tier.name())),
+        (
+            "choices",
+            array(itsanas_placement::TIERS.iter().map(|(_, word)| quote(word))),
+        ),
+    ])
+}
+
 pub(super) fn steer(ctx: &Context, request: &Request) -> Response {
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,

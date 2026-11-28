@@ -66,6 +66,17 @@
     }
   }
 
+  // How available the hosts of this account's copies must be (/api/copies).
+  async function loadCopies() {
+    try { $('st-copies-hosts').value = (await api('GET', '/api/copies')).hosts; } catch (e) { $('st-copies-said').textContent = e.message; }
+  }
+  async function saveCopies() {
+    const line = $('st-copies-said');
+    line.textContent = '';
+    try { $('st-copies-hosts').value = (await api('POST', '/api/copies', { hosts: $('st-copies-hosts').value })).hosts; } catch (e) { line.textContent = e.message; return; }
+    line.textContent = t('Saved.');
+  }
+
   // How long the traces of deletes are kept (/api/traces): one choice for the
   // account, on a slider over the durations the engine offers.
   let traceChoices = [];

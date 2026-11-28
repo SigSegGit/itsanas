@@ -224,6 +224,10 @@ pub struct Config {
     pub updates: Updates,
     /// How the daemon places this account's chunks on other people's hosts.
     pub placement: PlacementMode,
+    /// How available the hosts of this account's copies should be, as this
+    /// machine measured them: tried first, never the only ones
+    /// (`host_availability = 99`). Any level but `cheapest` places by measure.
+    pub host_tier: itsanas_placement::HostTier,
     /// Hold the pledge on disk: a file the size of what is promised and not
     /// yet held, shrunk as chunks arrive ([`crate::pledges::reserve`]), so
     /// another program cannot take the space this machine promised. Off by
@@ -254,6 +258,7 @@ impl Default for Config {
             keep_only: Vec::new(),
             updates: Updates::default(),
             placement: PlacementMode::default(),
+            host_tier: itsanas_placement::HostTier::Cheapest,
             reserve: false,
         }
     }

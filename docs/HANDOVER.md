@@ -620,6 +620,26 @@ from HANDOVER.md on 2026-11-27", and so is the full text of every open item cond
    `config.rs`. (b), (c), (d) ✅ 2026-10-19; the coordinator's swarm-wide marking stays ⬜, and
    must never feed placement (§6).
 
+22. 🟨 **Copies: how available their hosts must be, and where** (asked by Nicolas, 2026-11-28).
+    (a) ✅ The level for the hosts: `host_availability = cheapest|90|95|99|99.9|best` in the
+    config, Settings → Copies of your files (`/api/copies`, computers: a phone's rounds do not
+    place by measure), `itsanas_placement::HostTier`. An **order, not a fence**: hosts measured
+    at the level (by this machine, hourly over four weeks) are tried first, the rest still take
+    copies, so a strict level never leaves a chunk short; any level but `cheapest` places by
+    measure. `red_team_a_level_for_the_hosts_sends_the_next_copy_to_one_that_meets_it`, plan
+    `scripts/sabotage/host-tier.json`. Hourly bits over four weeks cannot tell 99.9 % from
+    99.99 %: one missed hour is 99.85 %, so 99.9 is "never missed" and nothing finer is offered.
+    **Left:** (b) where the copies are: anywhere (default), near this account's machines, at
+    least two time zones, three different ones; a host's time-zone band is not known today and
+    needs a peer message (a protocol step); (c) the balance: what a stricter choice asks against
+    what this account gives, and offering more space when it is short; (d) saying in Settings
+    how much of the account meets the level; (e) a long record per host (a year, probed every
+    quarter-hour by the coordinator and a few machines, not only when the owner dials) for
+    "99.99 %: never missed in a year, at least N probes", and a three-month level for a
+    newcomer: a change to what is written to disk, so a migration (§8 17). Zones (b) come from
+    a fixed list of six bands, sent as a number, cross-checked against latency and the hours a
+    host is on, and two copies are apart only with a different band, operator and network.
+
 20. ⬜ **Paying for a better ratio, a market and not a bank** (Nicolas, 2026-11-24: an idea for a
     business, not to build yet). A member may pay others to provide their share of storage, and
     the project takes a small commission. Conditions, each to hold before anything is built: (a)

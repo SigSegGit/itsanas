@@ -24,8 +24,8 @@ use super::{
     lock, node_call, ok_json,
     preferences::{choose_language, choose_theme, index_html},
     settings_actions::{
-        autostart_change, autostart_json, disk_job, files_change, host_setting, hosting_save,
-        hosting_values, peers_change, peers_list, steer,
+        autostart_change, autostart_json, copies_save, copies_values, disk_job, files_change,
+        host_setting, hosting_save, hosting_values, peers_change, peers_list, steer,
     },
     setup_run::{start_forgot, start_passphrase, start_run, start_words},
     state::{check_name, free_space, plan_json, space_default, state_json, suggest},
@@ -144,6 +144,8 @@ pub(super) fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
         ("GET", "/api/hosting") if ctx.mode == Mode::Settings => hosting_values(ctx),
         ("POST", "/api/hosting") if ctx.mode == Mode::Settings => hosting_save(ctx, request),
+        ("GET", "/api/copies") if ctx.mode == Mode::Settings => copies_values(ctx),
+        ("POST", "/api/copies") if ctx.mode == Mode::Settings => copies_save(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
         ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
@@ -200,6 +202,7 @@ pub(super) fn api(ctx: &Arc<Context>, request: &Request) -> Response {
 pub(super) fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
     let (enabled, what) = match path {
         "/api/pick" => (features.folder, "folder to browse for"),
+        "/api/copies" => (features.advanced, "choice of the copies' hosts"),
         "/api/open" | "/api/pin" => (features.folder, "synced folder"),
         "/api/disk" => (features.disks, "disk to move or back up to"),
         "/api/keys" | "/api/copy-to-key" => (features.usb_key, "USB key to copy to"),

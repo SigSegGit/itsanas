@@ -292,6 +292,14 @@ The coordinator holds no keys, no chunks and no plaintext, and it can be
 switched off without stopping anything already known. That is deliberate;
 [DESIGN.md](DESIGN.md) §8 works through why it holds so little.
 
+**How available the hosts of your copies must be** is a choice of this
+machine's, in Settings → Copies of your files or in the config
+(`host_availability = 99`): cheapest (the default: any host that passes its
+audits), 90, 95, 99, 99.9 (never missed in four weeks) or best. This machine
+measures each host itself, hour by hour over four weeks; the hosts that meet
+the level are tried first and the others still take copies when they are
+needed, so a strict level never leaves a file with too few.
+
 ## 6. Check on it
 
 ```bash

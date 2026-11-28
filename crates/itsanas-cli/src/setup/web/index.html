@@ -446,6 +446,27 @@
       </section>
       </details>
 
+      <details class="group" id="st-g-copies" data-feature="advanced">
+        <summary><span class="group-title">Copies of your files</span> <span class="group-help">How available the machines that keep them must be. The default suits most people.</span></summary>
+      <section class="card" aria-labelledby="st-h-copies">
+        <h2 id="st-h-copies">Copies of your files</h2>
+        <div class="field">
+          <label for="st-copies-hosts">How available their hosts must be</label>
+          <div class="controls"><select id="st-copies-hosts" aria-describedby="st-copies-help">
+            <option value="cheapest">Cheapest: any host that passes its audits</option>
+            <option value="90">At least 90 %</option>
+            <option value="95">At least 95 %</option>
+            <option value="99">At least 99 %</option>
+            <option value="99.9">99.9 % or more: never missed in four weeks</option>
+            <option value="best">The best measured</option>
+          </select></div>
+          <p class="help" id="st-copies-help">Measured by this machine, hour by hour, over four weeks. The hosts that meet the level are tried first; others still take copies when needed, so a strict level never leaves a file with too few.</p>
+        </div>
+        <div class="controls"><button type="button" id="st-copies-save">Save for this machine</button></div>
+        <p id="st-copies-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+      </details>
+
       <details class="group" id="st-g-security">
         <summary><span class="group-title">Security</span> <span class="group-help">Unlocking, the 24 recovery words, the passphrase and a copy on a USB key.</span></summary>
       <section class="card" aria-labelledby="st-h-security">

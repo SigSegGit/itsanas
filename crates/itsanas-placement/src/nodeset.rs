@@ -308,6 +308,7 @@ mod tests {
             ("liveness.rs", include_str!("liveness.rs")),
             ("network.rs", include_str!("network.rs")),
             ("target.rs", include_str!("target.rs")),
+            ("tier.rs", include_str!("tier.rs")),
             ("roster.rs", include_str!("roster.rs")),
             ("release.rs", include_str!("release.rs")),
         ];

@@ -161,6 +161,7 @@ pub(super) fn one_round(
     );
     crate::placing::begin_round(
         node.config.placement,
+        node.config.host_tier,
         &node.store,
         own,
         &accounts,
