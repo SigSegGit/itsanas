@@ -45,6 +45,7 @@ pub mod repair;
 pub mod roster;
 pub mod spreading;
 pub mod target;
+pub mod tier;
 pub mod uptime;
 
 #[cfg(test)]
@@ -58,6 +59,7 @@ pub use repair::{AtRisk, Census, DEFAULT_REPLICATION_FLOOR, Push, RepairPlan, pl
 pub use roster::{Host, Roster};
 pub use spreading::{Blocked, SHARE_DIVISOR, Spreading, critical_mass, space_needed, spreading};
 pub use target::{Account, GOAL, Goal, Holding, Verdict, Want, assess, want};
+pub use tier::{HostTier, TIERS};
 pub use uptime::{
     MIN_ATTEMPTED_HOURS, MIN_SPAN_HOURS, PerMille, Unit, Uptime, WINDOW_HOURS, miss_ppm,
 };

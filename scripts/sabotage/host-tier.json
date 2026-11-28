@@ -1,0 +1,24 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "placement",
+    "--",
+    "level_for_the_hosts"
+  ],
+  "defences": {
+    "tier: placement ignores the member's level": {
+      "file": "crates/itsanas-net/src/placement.rs",
+      "live": "        self.tier.order(&mut ranked, now_hour);\n",
+      "dead": ""
+    },
+    "tier: a host meets a level it was never measured at": {
+      "file": "crates/itsanas-placement/src/tier.rs",
+      "live": "            Self::AtLeast(floor) => measured(holding, now_hour).is_some_and(|got| got >= floor),",
+      "dead": "            Self::AtLeast(_) => true,"
+    }
+  }
+}

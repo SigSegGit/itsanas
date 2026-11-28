@@ -37,6 +37,8 @@
     $('st-traces-slider').addEventListener('input', showTraceValue);
     $('st-traces-never').addEventListener('change', showTraceValue);
     $('st-traces-save').addEventListener('click', saveTraces);
+    $('st-g-copies').addEventListener('toggle', function () { if ($('st-g-copies').open) { loadCopies(); } });
+    $('st-copies-save').addEventListener('click', saveCopies);
     document.querySelectorAll('input[name="disk-use"]').forEach(function (box) {
       box.addEventListener('change', function () { diskUse(box.value); });
     });

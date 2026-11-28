@@ -517,3 +517,45 @@ fn the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit() {
     );
     let _ = handle.join();
 }
+
+/// Settings → Copies: the level of availability asked of the hosts of this
+/// account's copies, `cheapest` until chosen, saved on this machine's node
+/// (so its next round places by it), and nothing but a level it offers.
+#[test]
+fn the_copies_level_is_cheapest_until_chosen_and_only_a_level_offered_is_taken() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (page, slot) = super::trash_and_versions::page_with_node(dir.path(), &[], |_| {});
+    let shown = page.api("GET", "/api/copies", "");
+    assert_eq!(shown.status, 200, "{}", shown.body);
+    assert!(
+        shown.body.contains("\"hosts\":\"cheapest\""),
+        "{}",
+        shown.body
+    );
+    assert!(
+        shown.body.contains("\"99.9\"") && shown.body.contains("\"best\""),
+        "{}",
+        shown.body
+    );
+
+    let saved = page.api("POST", "/api/copies", "hosts=99");
+    assert_eq!(saved.status, 200, "{}", saved.body);
+    let tier = slot
+        .lock()
+        .expect("slot")
+        .clone()
+        .expect("node")
+        .config
+        .host_tier;
+    assert_eq!(
+        tier,
+        itsanas_placement::HostTier::AtLeast(990),
+        "the level was not saved"
+    );
+
+    let unmeasurable = page.api("POST", "/api/copies", "hosts=99.99");
+    assert_eq!(
+        unmeasurable.status, 400,
+        "a level nothing here measures was taken"
+    );
+}

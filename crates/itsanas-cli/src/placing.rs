@@ -96,6 +96,7 @@ pub fn own_devices(
 /// in `REFRESH_AFTER` ([`rows_per_round`]). Returns what was put in the slot.
 pub fn begin_round(
     mode: PlacementMode,
+    tier: itsanas_placement::HostTier,
     store: &Store,
     own: BTreeSet<DeviceId>,
     accounts: &BTreeMap<DeviceId, UserId>,
@@ -105,6 +106,13 @@ pub fn begin_round(
     // Before anything else of the round, so the triggers of this round's
     // pushes already see the mode: armed in `measured`, emptied and disarmed
     // in `everyone`, where nothing would ever work the queue off.
+    // A level for the hosts means choosing them: only measured placement
+    // does, so any level but the default places by measure.
+    let mode = if tier == itsanas_placement::HostTier::Cheapest {
+        mode
+    } else {
+        PlacementMode::Measured
+    };
     if let Err(error) = store.set_placement_measured(mode == PlacementMode::Measured) {
         eprintln!("itsanas: the placement queue could not be switched ({error})");
     }
@@ -112,6 +120,7 @@ pub fn begin_round(
         PlacementMode::Everyone => None,
         PlacementMode::Measured => match Placement::build(store, own, accounts, now) {
             Ok(placement) => {
+                let placement = placement.with_tier(tier);
                 census(store, &placement, interval_secs);
                 Some(Arc::new(placement))
             }
@@ -464,6 +473,7 @@ mod tests {
 
         let placed = begin_round(
             PlacementMode::Measured,
+            itsanas_placement::HostTier::Cheapest,
             &store,
             BTreeSet::new(),
             &BTreeMap::new(),
@@ -480,6 +490,7 @@ mod tests {
 
         let none = begin_round(
             PlacementMode::Everyone,
+            itsanas_placement::HostTier::Cheapest,
             &store,
             BTreeSet::new(),
             &BTreeMap::new(),
@@ -488,6 +499,22 @@ mod tests {
         );
         assert!(none.is_none());
         assert!(current().is_none(), "everyone answers as before placement");
+
+        // A level for the hosts chooses them, which only measured placement
+        // does: `everyone` with a level places by measure.
+        let chosen = begin_round(
+            PlacementMode::Everyone,
+            itsanas_placement::HostTier::AtLeast(990),
+            &store,
+            BTreeSet::new(),
+            &BTreeMap::new(),
+            now,
+            interval,
+        );
+        assert!(
+            chosen.is_some(),
+            "a level for the hosts was ignored under `everyone`"
+        );
     }
 
     #[test]

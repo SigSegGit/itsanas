@@ -66,6 +66,31 @@ fn parse_placement(value: &str, line: usize) -> Result<PlacementMode> {
     })
 }
 
+/// The `host_availability` line, or why it is wrong.
+fn parse_host_tier(value: &str, line: usize) -> Result<itsanas_placement::HostTier> {
+    itsanas_placement::HostTier::parse(value).ok_or_else(|| {
+        let words: Vec<&str> = itsanas_placement::TIERS
+            .iter()
+            .map(|(_, word)| *word)
+            .collect();
+        NodeError::Config(format!(
+            "line {line}: host_availability must be one of {}, found {value:?}",
+            words.join(", ")
+        ))
+    })
+}
+
+/// One line of how this account's copies are placed, or `false` if it is
+/// not one of them.
+fn placement_line(config: &mut Config, key: &str, value: &str, number: usize) -> Result<bool> {
+    match key {
+        "placement" => config.placement = parse_placement(value, number + 1)?,
+        "host_availability" => config.host_tier = parse_host_tier(value, number + 1)?,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
 /// One line of the hosting settings, or `false` if it is not one of them.
 fn hosting_line(config: &mut Config, key: &str, value: &str, number: usize) -> Result<bool> {
     match key {
@@ -203,6 +228,10 @@ impl Config {
         if self.placement != PlacementMode::default() {
             let _ = writeln!(out, "placement = {}", self.placement.name());
         }
+        // Written only when chosen, as above.
+        if self.host_tier != itsanas_placement::HostTier::Cheapest {
+            let _ = writeln!(out, "host_availability = {}", self.host_tier.name());
+        }
         // Same rule again: written only when chosen.
         if self.reserve {
             let _ = writeln!(out, "reserve = on");
@@ -303,8 +332,8 @@ impl Config {
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
                 "updates" => config.updates = parse_updates(value, number + 1)?,
-                "placement" => config.placement = parse_placement(value, number + 1)?,
                 "reserve" => config.reserve = parse_reserve(value, number + 1)?,
+                other if placement_line(&mut config, other, value, number)? => {}
                 other if hosting_line(&mut config, other, value, number)? => {}
                 other => {
                     // A backslash continuation here reached the repository with
@@ -514,6 +543,29 @@ mod tests {
         let on = Config::parse("reserve = on").unwrap();
         assert!(on.reserve && on.render().contains("reserve = on"));
         assert!(Config::parse("reserve = maybe").is_err());
+    }
+
+    #[test]
+    fn the_hosts_availability_is_cheapest_unless_chosen_and_survives_a_save() {
+        let plain = Config::parse("").unwrap();
+        assert_eq!(plain.host_tier, itsanas_placement::HostTier::Cheapest);
+        assert!(
+            !plain.render().contains("host_availability"),
+            "a node that never chose a level writes a key an older binary refuses"
+        );
+        let chosen = Config::parse("host_availability = 99").unwrap();
+        assert_eq!(chosen.host_tier, itsanas_placement::HostTier::AtLeast(990));
+        assert_eq!(
+            Config::parse(&chosen.render()).unwrap().host_tier,
+            chosen.host_tier
+        );
+        let wrong = Config::parse("host_availability = 99.99")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            wrong.contains("cheapest, 90, 95, 99, 99.9, best"),
+            "{wrong}"
+        );
     }
 
     #[test]

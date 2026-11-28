@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-28 — 1836 test functions across 49 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 749 are red-team tests.**
+**Last updated: 2026-11-28 — 1844 test functions across 49 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 752 are red-team tests.**
 
-**1720 of the 1836 tests have an entry of their own on this page** — an *entry*,
+**1728 of the 1844 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -170,8 +170,8 @@ guarantee and is not one.
 | `itsanas-net` two-node (`tests/two_nodes/main.rs`) | 84 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
-| `itsanas-net` placement (`tests/placement/main.rs`) | 17 |
-| `itsanas-placement` unit | 71 |
+| `itsanas-net` placement (`tests/placement/main.rs`) | 18 |
+| `itsanas-placement` unit | 76 |
 | `itsanas-coord` unit | 167 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator/main.rs`) | 25 |
 | `itsanas-coordinator` unit | 4 |
@@ -182,11 +182,11 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 29 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 8 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 403 |
+| `itsanas-cli` unit | 404 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 23 |
 | `itsanas-drive` unit | 23 |
-| `itsanas-node` unit | 190 |
+| `itsanas-node` unit | 191 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -224,7 +224,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `identity` | keys, accounts, devices, claims, invitations | 87 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 101 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 83 |
-| `placement-audit` | where copies go, audits, reliability, release | 47 |
+| `placement-audit` | where copies go, audits, reliability, release | 50 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 59 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 77 |
@@ -1281,7 +1281,7 @@ Real sockets. `tests/eviction.rs`.
 | **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
 | **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
 
-# `itsanas-net` — availability-aware placement (`tests/placement/`) (17)
+# `itsanas-net` — availability-aware placement (`tests/placement/`) (18)
 
 Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
 
@@ -1303,6 +1303,7 @@ Real stores and sockets, `placement = measured`. `everyone` is covered by the re
 | **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
 | **`red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability`** | §8 7c through the store and `Placement::build`: two accounts missed at different sessions satisfy a chunk; recorded on one /24 within `LIVE_FOR` they leave it short on availability and on durability (one household); the same rows older than `LIVE_FOR` change nothing. |
 | **`red_team_a_census_counts_the_chunks_no_host_can_make_reachable`** | §8 7d. Two accounts up half the time at the same hours, both already holding: the census counts every chunk `unreachable`; one always-on host added brings it to zero. |
+| **`red_team_a_level_for_the_hosts_sends_the_next_copy_to_one_that_meets_it`** | Seven hosts of seven accounts, one measured at every session and six at one in two. Placed in placement's own order the first copy goes wherever rendezvous ranks first; with the level at 99 % it goes to the one host measured at 99 %, and the other hosts are still wanted when one is not enough (an order, not a fence). Sabotage (`self.tier.order` dropped in `evaluate_stamps`): the first copy goes elsewhere. |
 | **`red_team_no_coordinator_crate_can_reach_the_roster_builder`** | Neither `itsanas-net` nor `itsanas-placement` pulls in `itsanas-coord` or `itsanas-coordinator` through its normal dependencies, so a coordinator's presence figures cannot become a ranked `Uptime`. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
@@ -1399,7 +1400,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (403)
+# `itsanas-cli` — unit tests (404)
 
 ## `email` — the `itsanas email` command (1)
 
@@ -1640,6 +1641,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_deleting_the_account_through_the_page_takes_its_own_name_typed`** | `/api/delete` with no name, a truncated one or another account's: refused, the home stays and the shell is told nothing; the account's own name deletes it, erases the home and tells the shell. Sabotaged (the typed name not compared): red. |
 | **`red_team_a_phone_refuses_to_replace_the_keys_under_an_open_node`** | `/api/forgot` answers 403 on a phone, whose open node would hold the store for good, and says to lock and choose I forgot. Sabotaged. |
 | **`red_team_a_computer_that_removes_the_account_leaves_no_service_behind`** | A computer removes the account from Settings as a phone does, and its scheduled task, unit or agent and the tray's start at logon go with it (`ServiceControl::uninstall`). Sabotaged (no `uninstall`): red. |
+| `the_copies_level_is_cheapest_until_chosen_and_only_a_level_offered_is_taken` | `GET /api/copies` shows `cheapest` and the levels offered; `POST hosts=99` is saved in the node's config; `hosts=99.99` is refused with 400. |
 | **`machines_typed_on_the_page_are_kept_listed_and_forgotten`** | `/api/peers` adds an address to the node's file and lists it, refuses a parked `relay:` machine, forgets it, and is refused to a shell without Advanced. |
 | **`a_setup_that_stopped_at_the_device_limit_says_so_to_the_page`** | A failed run whose refusal names the device limit carries `atCap`, which opens the devices under the failure; any other refusal does not. |
 | **`red_team_another_account_never_takes_the_home_of_one_already_here`** | "Set up another account" (POST /api/another) refuses the name of an account already on this computer (409) and a name that is no instance name (400), and accepts a free one; Sabotaged (existing-home check dropped): red. |
@@ -2143,7 +2145,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `measured_shows_the_short_queue_and_the_census_slice` | In `measured`, "N chunks short of their target" and census progress print, and no warning when nothing is stuck. |
 | **`red_team_a_network_that_cannot_reach_99_percent_says_so`** | §8 7d. Chunks the census found short on availability with nothing left to try print as a `warning` line saying those files may be unreadable while the other machines are off; `everyone` prints none. |
 | **`red_team_an_own_device_known_only_by_its_claim_is_still_own`** | A device known only by a claim of the same account is own, so it is never placed. |
-| `measured_fills_the_slot_and_runs_the_census_and_everyone_empties_it` | The shared `Placement` slot is filled per round and the census runs in `measured`; in `everyone` the slot is empty. |
+| `measured_fills_the_slot_and_runs_the_census_and_everyone_empties_it` | The shared `Placement` slot is filled per round and the census runs in `measured`; in `everyone` the slot is empty, unless a level for the hosts is chosen: `everyone` with a level places by measure and fills the slot. |
 | **`red_team_a_failed_dial_counts_against_a_known_device_and_writes_nothing_for_a_stranger`** | Dial failures become `note_unreached` for known devices only. |
 | **`red_team_the_phone_saves_pledge_and_keep_as_a_pair_and_says_so_in_its_words`** | `set_limits_on`, the body of `setLimits`, which the settings screen now calls: raising pledge and keep together is accepted (saved one after the other, the new keep was checked against the old pledge and refused); a pair that does not fit is refused naming the screen's field, not `itsanas space`; a negative pledge is refused rather than read as its absolute value (found by `itsanas-redteam`). Sabotaged three ways (keep checked against the old pledge; `SplitRefusal`'s own words; `unsigned_abs`): red. |
 | **`red_team_a_phone_keeps_what_the_account_earns_not_what_it_lends_itself`** | The phone's setters judge a keep against this phone's pledge plus what the account's other machines lend: beside 100 GiB, keep 42 GiB is accepted at a pledge of 0 and 43 refused, in the screen's words. The desktop's `check_split` is unchanged. Sabotaged (the phone's pledge alone): red. |
@@ -2215,7 +2217,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (215)
+# `itsanas-node` — a node on disk (216)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2565,7 +2567,7 @@ not read, the pledge kept whatever the free space.
 | --- | --- |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 
-## `file` — the `key = value` form, and where a portable home keeps its folder (21)
+## `file` — the `key = value` form, and where a portable home keeps its folder (22)
 
 `src/config/file.rs`.
 
@@ -2584,6 +2586,7 @@ not read, the pledge kept whatever the free space.
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
 | `reserve_is_off_unless_the_file_says_on` | `reserve` is off by default and not written; `reserve = on` reads and writes back; any other value is refused. |
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
+| `the_hosts_availability_is_cheapest_unless_chosen_and_survives_a_save` | The hosts-availability key is `cheapest` when absent and then not written (an older binary would refuse the key); `99` reads as 99 %, round-trips through a save, and a level not offered (`99.99`) is refused naming the six. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 | **`red_team_a_save_never_rewrites_the_old_config_in_place`** | Saving a config replaces the file by name and never writes into the old one: a hard link to the old config still reads the old username, the new config loads, and a stale partial `config.new` beside it is replaced and gone. |
 
@@ -2765,7 +2768,7 @@ an account several machines hold.
 | **`red_team_a_rename_to_a_scratch_name_deletes_nothing`** | Renaming `report.docx` to `~WRL0002.tmp` removes and copies nothing in the account, and the following rename of `~WRL0001.tmp` to `report.docx` only keeps `report.docx`. |
 | **`red_team_a_link_moved_into_the_drive_is_not_followed`** | `files_to_keep` returns no file for a directory junction (Windows, `mklink /J`) or symlink (Unix) pointing at a folder holding `secret.txt`, while a real folder under the root still yields its file. |
 
-# `itsanas-placement` — unit tests (71)
+# `itsanas-placement` — unit tests (76)
 
 ## `nodeset` — where a chunk belongs (17)
 
@@ -2881,6 +2884,18 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 | **`red_team_own_devices_and_unlisted_holders_are_never_released`** | Only strict-evidence off-account holders can be named; own devices and holders the caller did not vouch for never are. |
 
 ---
+
+## `tier` — how available the hosts of an account's copies must be (5)
+
+The level a member chooses is an order, never an exclusion: hosts that meet it come first and the others follow.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_demanding_level_puts_the_hosts_that_meet_it_first_and_keeps_the_others`** | Asked for 95 % over hosts measured at 50 %, 99.9 %, none and 96 %, the two that meet it come first in their own order and the other two stay in the list, so a chunk can still reach its goal through them. |
+| **`red_team_a_stranger_with_no_history_meets_no_measured_level`** | A host with no history meets every level but `cheapest`. |
+| `the_best_level_orders_every_host_by_its_measure` | `best` ranks every host by its measure, the host with no history last. |
+| `the_cheapest_level_leaves_placements_order_alone` | `cheapest` does not reorder what placement ranked. |
+| `every_level_is_written_and_read_back_as_its_word` | Each level's name parses back to itself (`99.9%` too), and `99.99`, which nothing here can measure, is not a level. |
 
 # `itsanas-folder` — unit tests (34)
 

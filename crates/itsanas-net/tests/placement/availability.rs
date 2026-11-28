@@ -104,3 +104,55 @@ fn red_team_a_census_counts_the_chunks_no_host_can_make_reachable() {
         "an always-on host is something to try: {helped:?}"
     );
 }
+
+#[test]
+fn red_team_a_level_for_the_hosts_sends_the_next_copy_to_one_that_meets_it() {
+    // Seven hosts of seven accounts: one there at every session this node
+    // tried, six answering one session in two. Placed in placement's own
+    // order, the first copy goes wherever rendezvous ranks first; asked for
+    // 99 %, it goes to the one host measured at 99 %. Sabotage: drop
+    // `self.tier.order` in `evaluate_stamps`.
+    let now = now_unix();
+    let me = node(0xA1, 1);
+    let chunk = write(&me, "notes/tier.bin", 13, 64 << 10)[0];
+    let always = fake(0x61);
+    let mut accounts = BTreeMap::new();
+    for byte in 0x61..=0x67u8 {
+        let device = fake(byte);
+        if device == always {
+            history(&me.store, &device, now, |_| true);
+        } else {
+            history(&me.store, &device, now, |index| index % 2 == 0);
+        }
+        me.store.note_audit(&device, true).expect("audit");
+        accounts.insert(device, user(byte + 0x10));
+    }
+
+    let plain = placement(&me, &accounts, now)
+        .evaluate(&me.store, &chunk)
+        .unwrap();
+    let first_plain = plain.want.hosts.first().copied();
+    assert!(
+        first_plain.is_some(),
+        "placement wanted no host at all: {plain:?}"
+    );
+    let picky = placement(&me, &accounts, now)
+        .with_tier(itsanas_placement::HostTier::AtLeast(990))
+        .evaluate(&me.store, &chunk)
+        .unwrap();
+    assert_eq!(
+        picky.want.hosts.first(),
+        Some(&always),
+        "asked for 99 %, the first copy went elsewhere: {:?}",
+        picky.want.hosts
+    );
+    // The level is an order, not a fence: the others are still wanted when
+    // one host is not enough.
+    assert!(picky.want.hosts.len() > 1, "{:?}", picky.want.hosts);
+    // Without this the test would pass with the level ignored.
+    assert_ne!(
+        first_plain,
+        Some(always),
+        "pick other seeds: rendezvous already ranks the 99 % host first"
+    );
+}

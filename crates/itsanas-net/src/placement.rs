@@ -95,6 +95,9 @@ pub struct Placement {
     this: DeviceId,
     owner: UserId,
     goal: Goal,
+    /// The member's level for hosts' availability: the order candidates
+    /// are tried in ([`itsanas_placement::HostTier`]).
+    tier: itsanas_placement::HostTier,
     now: u64,
     /// Roster order per chunk, for this round (see [`RANKING_MEMO`]).
     ranking: Mutex<HashMap<ChunkId, Vec<DeviceId>>>,
@@ -207,11 +210,19 @@ impl Placement {
             this,
             owner: store.owner(),
             goal: GOAL,
+            tier: itsanas_placement::HostTier::Cheapest,
             now,
             ranking: Mutex::new(HashMap::new()),
             pulled: Mutex::new(BTreeSet::new()),
             evaluations: AtomicU64::new(0),
         })
+    }
+
+    /// The same placement, trying hosts in `tier`'s order.
+    #[must_use]
+    pub const fn with_tier(mut self, tier: itsanas_placement::HostTier) -> Self {
+        self.tier = tier;
+        self
     }
 
     /// Whether `peer` is a host of this round's roster.
@@ -406,12 +417,13 @@ impl Placement {
                 (*stamp >= self.now.saturating_sub(lost_after(holding.uptime))).then_some(holding)
             })
             .collect();
-        let ranked: Vec<Holding<'_>> = self
+        let mut ranked: Vec<Holding<'_>> = self
             .ranked(chunk)
             .into_iter()
             .filter(|device| !holdings.iter().any(|held| held.device == *device))
             .filter_map(|device| self.roster.get(&device).map(Self::of_host))
             .collect();
+        self.tier.order(&mut ranked, now_hour);
         let verdict = assess(&holdings, &self.goal, now_hour);
         let wanted = want(&holdings, &ranked, &self.goal, now_hour);
         let mut holders: Vec<DeviceId> = holdings.iter().map(|held| held.device).collect();

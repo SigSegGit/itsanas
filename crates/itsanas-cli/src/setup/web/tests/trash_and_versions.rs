@@ -4,7 +4,7 @@ use super::*;
 
 /// A page with a node in its slot, as a phone's or a computer's: `files` written
 /// and sealed, `prepare` run on the node first.
-fn page_with_node(
+pub(super) fn page_with_node(
     dir: &Path,
     files: &[&str],
     prepare: impl FnOnce(&itsanas_node::Node),
