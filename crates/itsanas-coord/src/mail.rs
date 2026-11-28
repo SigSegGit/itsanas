@@ -320,6 +320,32 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_flood_of_new_accounts_and_addresses_holds_no_more_than_the_days_mail() {
+        // The day's counts gain an entry only for a mail that was queued, so
+        // they hold at most the day's allowance, however many strangers ask.
+        let (outbox, receiver) = Outbox::new();
+        for n in 0..5_000u32 {
+            let mut bytes = [0u8; 32];
+            bytes[..4].copy_from_slice(&n.to_le_bytes());
+            let to = format!("{n}@flood.example");
+            let _ = outbox.send(Purpose::Recover, UserId::from_bytes(bytes), mail(&to), 1000);
+            let _ = receiver.try_recv();
+        }
+        let counts = outbox.counts.lock().unwrap();
+        let day: u32 = DAILY.iter().sum();
+        assert!(
+            counts.accounts.len() <= day as usize,
+            "{} accounts kept",
+            counts.accounts.len()
+        );
+        assert!(
+            counts.addresses.len() <= day as usize,
+            "{} addresses kept",
+            counts.addresses.len()
+        );
+    }
+
+    #[test]
     fn only_a_mailable_shape_is_taken() {
         for good in ["a@b.example", "first.last+tag@mail.example.org"] {
             assert!(plausible_address(good), "{good}");

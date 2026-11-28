@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-27 — 1834 test functions across 49 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 748 are red-team tests.**
+**Last updated: 2026-11-28 — 1836 test functions across 49 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 749 are red-team tests.**
 
-**1718 of the 1834 tests have an entry of their own on this page** — an *entry*,
+**1720 of the 1836 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement/main.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 166 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 167 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator/main.rs`) | 25 |
 | `itsanas-coordinator` unit | 4 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 29 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 8 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 402 |
+| `itsanas-cli` unit | 403 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 23 |
 | `itsanas-drive` unit | 23 |
@@ -222,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 6 |
 | `identity` | keys, accounts, devices, claims, invitations | 87 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 100 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 101 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 83 |
 | `placement-audit` | where copies go, audits, reliability, release | 47 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
@@ -1399,7 +1399,13 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (402)
+# `itsanas-cli` — unit tests (403)
+
+## `email` — the `itsanas email` command (1)
+
+| Test | What it proves |
+| --- | --- |
+| `every_email_command_reaches_its_action` | `itsanas email` with no action, `set`, `confirm`, `remove` and `remind --coordinator` each parse to their action with their arguments; `remind` without `--coordinator` is refused. |
 
 ## `bench` — measuring this machine (4)
 
@@ -3511,7 +3517,7 @@ What a coordinator says, and how fast, must not depend on whether a name exists:
 | **`red_team_many_ipv6_blocks_of_one_site_share_its_budget`** | A provider hands out /64s by the thousand, so a /64 budget alone cost a script one more /64 per thirty names. A /48 asks at most `NAME_BLOCK_SHARES` (4) times the /64 budget, all its /64s together; another site and an IPv4 address are counted apart. Sabotaged (the /48 always allows): red. |
 | **`red_team_the_messages_a_stranger_mails_with_are_charged_and_slowed`** | `AskRecovery`, `RecoverEscrow` and `RemindUsername` are each a question that spends the asker's own per-address budget (`is_a_question`) and each waits out the answer floor (`is_about_a_name`), so a stranger cannot spend the day's mail on a list of names or learn from the time which names have an address; a member's own `BindEmail` and `Email` are not charged. Sabotaged (`AskRecovery` dropped from either list): red. |
 
-# `itsanas-coord` — what the coordinator mails, and how much (`mail.rs`) (6)
+# `itsanas-coord` — what the coordinator mails, and how much (`mail.rs`) (7)
 
 Three messages only: the code that verifies an address, the code a recovery needs once an address is verified, and a reminder of the account's name. They are queued and sent by another thread, and the provider's daily allowance is shared by every member, so it is bounded here.
 
@@ -3521,6 +3527,7 @@ Three messages only: the code that verifies an address, the code a recovery need
 | **`red_team_one_account_is_not_mailed_twice_in_a_minute_nor_past_its_day`** | One account: a second message 30 seconds after the first is held; one every `ACCOUNT_SPACING_SECS` goes out until `PER_ACCOUNT_DAILY`, after which any purpose is held; a day later it is given back. |
 | **`red_team_a_third_partys_address_takes_three_codes_a_day_at_most`** | Three verification codes to one address from three accounts go out; a fourth from another account, the same address spelt in other letter case, is held (`PER_ADDRESS_DAILY`), so nobody buries a stranger's inbox. |
 | `a_full_queue_is_said_and_counts_nothing` | With `QUEUE` messages waiting, the next send answers `Held::Queue`. |
+| **`red_team_a_flood_of_new_accounts_and_addresses_holds_no_more_than_the_days_mail`** | 5,000 sends for 5,000 distinct accounts and addresses leave the day's counts holding no more accounts and no more addresses than the day's allowance (200): an entry is kept only for a mail that was queued. |
 | `only_a_mailable_shape_is_taken` | `plausible_address` takes `a@b.example` and a plus-tagged dotted one, and refuses an empty string, a missing domain or local part, two `@`, a space, an empty label, a trailing dot, a newline, and one longer than `MAX_WIRE_EMAIL`. |
 | `a_code_is_eight_digits` | Fifty fresh codes are each eight ASCII digits. |
 

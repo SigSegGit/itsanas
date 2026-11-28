@@ -113,3 +113,46 @@ fn read_code(prompt: &str) -> Result<String> {
         .map_err(|error| CliError::Usage(error.to_string()))?;
     Ok(line.trim().to_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser as _;
+
+    use crate::cli::{Command, EmailAction};
+
+    fn parsed(args: &[&str]) -> Option<EmailAction> {
+        match crate::Cli::try_parse_from(args).expect("parses").command {
+            Command::Email { action } => action,
+            _ => panic!("{args:?} is not `email`"),
+        }
+    }
+
+    #[test]
+    fn every_email_command_reaches_its_action() {
+        assert!(
+            parsed(&["itsanas", "email"]).is_none(),
+            "bare `email` shows the address"
+        );
+        assert!(matches!(
+            parsed(&["itsanas", "email", "set", "a@b.example"]),
+            Some(EmailAction::Set { address }) if address == "a@b.example"
+        ));
+        assert!(matches!(
+            parsed(&["itsanas", "email", "confirm", "01234567"]),
+            Some(EmailAction::Confirm { code }) if code == "01234567"
+        ));
+        assert!(matches!(
+            parsed(&["itsanas", "email", "remove"]),
+            Some(EmailAction::Remove)
+        ));
+        assert!(matches!(
+            parsed(&["itsanas", "email", "remind", "a@b.example", "--coordinator", "c.example:9898"]),
+            Some(EmailAction::Remind { address, coordinator, device: None })
+                if address == "a@b.example" && coordinator == "c.example:9898"
+        ));
+        assert!(
+            crate::Cli::try_parse_from(["itsanas", "email", "remind", "a@b.example"]).is_err(),
+            "a reminder names the coordinator: a machine with no account has none configured"
+        );
+    }
+}

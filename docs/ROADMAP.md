@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1834 test functions, 21 of them `#[ignore]`d into the slow job, and 748 of
+**1836 test functions, 21 of them `#[ignore]`d into the slow job, and 749 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
