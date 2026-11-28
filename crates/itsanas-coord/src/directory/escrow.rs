@@ -176,6 +176,20 @@ impl Directory {
     /// either. A client then fails the same way, after the same Argon2id cost,
     /// for a wrong name as for a wrong passphrase.
     pub fn recovery_answer(&self, username: &str) -> Result<Vec<u8>> {
+        match self.escrow(username)? {
+            Some(blob) => Ok(blob),
+            None => self.decoy_answer(username),
+        }
+    }
+
+    /// The decoy `username` is answered with when there is nothing to hand
+    /// out, or when its verified address asks for a code that was not given:
+    /// the same bytes every time for one name, the shape of a real container.
+    ///
+    /// # Errors
+    ///
+    /// The database's, or a missing decoy key.
+    pub fn decoy_answer(&self, username: &str) -> Result<Vec<u8>> {
         let key = {
             let txn = self.db.begin_read()?;
             let secrets = txn.open_table(SECRETS)?;
@@ -195,7 +209,7 @@ impl Directory {
             itsanas_crypto::KdfParams::RECOMMENDED,
         )
         .to_bytes();
-        Ok(self.escrow(username)?.unwrap_or(decoy))
+        Ok(decoy)
     }
 }
 

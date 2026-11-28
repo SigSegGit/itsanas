@@ -186,6 +186,12 @@ impl Setup<'_> {
                         .as_deref()
                         .or_else(|| super::pinned_for(address)),
                     &secret,
+                    // The setup page asks no mailed code yet: an account with
+                    // a verified address is recovered here with the code in
+                    // ITSANAS_EMAIL_CODE, or by `itsanas login --from`.
+                    std::env::var(crate::email::EMAIL_CODE_ENV)
+                        .unwrap_or_default()
+                        .trim(),
                 )?;
                 self.passphrase = Some(secret);
                 node

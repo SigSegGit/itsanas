@@ -7,7 +7,7 @@ Everything on this page that is a status is **redrawn from
 page behind. To change a status, change it there.
 
 <!-- GENERATED:stats -->
-**1822 tests, 737 of them red-team** (a red-team test passes when the attack fails) · **11/16 milestones done**
+**1844 tests, 752 of them red-team** (a red-team test passes when the attack fails) · **11/16 milestones done**
 <!-- /GENERATED:stats -->
 
 ## Progress

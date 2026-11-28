@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-28 — 1822 test functions across 48 binaries, 21 of them
-`#[ignore]`d, plus 2 doctests. 737 are red-team tests.**
+**Last updated: 2026-11-28 — 1844 test functions across 49 binaries, 21 of them
+`#[ignore]`d, plus 2 doctests. 752 are red-team tests.**
 
-**1706 of the 1822 tests have an entry of their own on this page** — an *entry*,
+**1728 of the 1844 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,9 +172,9 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement/main.rs`) | 18 |
 | `itsanas-placement` unit | 76 |
-| `itsanas-coord` unit | 150 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 167 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator/main.rs`) | 25 |
-| `itsanas-coordinator` unit | 1 |
+| `itsanas-coordinator` unit | 4 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 52 |
 | `itsanas-policy` unit | 27 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 29 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 8 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 403 |
+| `itsanas-cli` unit | 404 |
 | `itsanas-android` unit | 26 |
 | `itsanas-ios` unit | 23 |
 | `itsanas-drive` unit | 23 |
@@ -194,6 +194,7 @@ guarantee and is not one.
 | `itsanas-node` suspension (`tests/suspension.rs`) | 3 |
 | `itsanas-node` account pledges (`tests/account_pledges.rs`) | 3 |
 | `itsanas-node` recovery by name (`tests/recovery_by_name.rs`) | 1 |
+| `itsanas-node` recovery with a mailed code (`tests/email_recovery.rs`) | 1 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 13 (13 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
@@ -221,7 +222,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 9 |
 | `tls` | handshakes, session limits | 6 |
 | `identity` | keys, accounts, devices, claims, invitations | 87 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 86 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 101 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 83 |
 | `placement-audit` | where copies go, audits, reliability, release | 50 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 33 |
@@ -1399,7 +1400,13 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (403)
+# `itsanas-cli` — unit tests (404)
+
+## `email` — the `itsanas email` command (1)
+
+| Test | What it proves |
+| --- | --- |
+| `every_email_command_reaches_its_action` | `itsanas email` with no action, `set`, `confirm`, `remove` and `remind --coordinator` each parse to their action with their arguments; `remind` without `--coordinator` is refused. |
 
 ## `bench` — measuring this machine (4)
 
@@ -2210,7 +2217,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (215)
+# `itsanas-node` — a node on disk (216)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -3474,6 +3481,14 @@ available. Missing or unreadable state is an error, not an empty inventory.
 | --- | --- |
 | **`inventory_is_stable_read_only_and_includes_suspended_claims`** | Several accounts, including an empty and a suspended account; active IDs, a present and absent address, last-seen data, stable ordering, unchanged Directory bytes, and a missing Directory refusal. |
 
+# `itsanas-coordinator` — mail through Mailjet (`mailjet.rs`) (3)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_mail_cannot_add_a_line_to_curls_request`** | An address with a quote and a newline, and a text with a `url = ` line, stay inside their quoted values: the config handed to `curl` is nine lines, none starts an `output` option or a `url` other than Mailjet's, and a quote in the secret is escaped. |
+| `the_request_is_mailjets_v3_1_send_over_https_only` | The config begins with the `https://api.mailjet.com/v3.1/send` URL, restricts the protocol to `=https`, carries the recipient in `To`, and has `fail`. |
+| `the_keys_are_never_in_the_debug_form` | `{:?}` of the sender shows neither the API key nor the secret. |
+
 # `itsanas-node` withdrawals (`tests/withdrawals.rs`) — the host's half, against a real coordinator (4)
 
 | Test | What it proves |
@@ -3499,7 +3514,13 @@ The operator runs `itsanas-coordinator --suspend <username>` (`--unsuspend` lift
 | --- | --- |
 | **`red_team_a_wrong_name_and_a_wrong_passphrase_read_the_same`** | The right pair opens; a wrong passphrase for a real account and any passphrase for a name that does not exist fail with one message (`NOTHING_OPENS`), and the wrong name takes at least half as long, since it too runs Argon2id on the coordinator's decoy. "No recovery container for this name" came at once and confirmed every name typed. The floor hides a skipped Argon2id run from a cruder bound, so the quickest of three of each is held within half a measured run. Against an older coordinator that answers `Missing`, the client opens a decoy of its own and pays the same run. Sabotaged (the coordinator answering `Missing` and the client skipping its run): red; the coordinator alone answering `Missing` stays green, which is that second defence. |
 
-# `itsanas-coord` — what a list of names costs (4)
+# `itsanas-node` recovery with a mailed code (`tests/email_recovery.rs`) — an address bound and verified, against a real coordinator (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_the_passphrase_alone_no_longer_recovers_an_account_with_a_verified_address`** | A coordinator mailing into a channel: the passphrase alone opens the container before an address; after `bind_email` and `confirm_email` with the mailed code it is an error; `ask_recovery_code` then `fetch_escrow_with_code` with the passphrase and the mailed code opens it, and the same code a second time does not. Sabotaged (the gate in `escrow_given` dropped): red. |
+
+# `itsanas-coord` — what a list of names costs (5)
 
 What a coordinator says, and how fast, must not depend on whether a name exists: the per-address budget and the answer floor are in the server section above, the client's single message in `tests/recovery_by_name.rs`.
 
@@ -3509,6 +3530,35 @@ What a coordinator says, and how fast, must not depend on whether a name exists:
 | **`red_team_without_a_valid_code_a_taken_a_retired_and_a_free_name_read_the_same`** | On an invite-only coordinator a stranger with no code, or a made-up one, was told "taken" or "retired until..." before the code was looked at: which accounts exist or once did. The code is now spent first, in the transaction that creates the account, so a refusal after it gives it back. Sabotaged (the retired check before the code, as it was): red. |
 | **`red_team_every_address_of_one_ipv6_block_shares_one_name_budget`** | The name budget counts an IPv6 address by its /64, the block one subscriber holds, and an IPv4-mapped address as the IPv4 one. Sabotaged (the whole address as the key): red. |
 | **`red_team_many_ipv6_blocks_of_one_site_share_its_budget`** | A provider hands out /64s by the thousand, so a /64 budget alone cost a script one more /64 per thirty names. A /48 asks at most `NAME_BLOCK_SHARES` (4) times the /64 budget, all its /64s together; another site and an IPv4 address are counted apart. Sabotaged (the /48 always allows): red. |
+| **`red_team_the_messages_a_stranger_mails_with_are_charged_and_slowed`** | `AskRecovery`, `RecoverEscrow` and `RemindUsername` are each a question that spends the asker's own per-address budget (`is_a_question`) and each waits out the answer floor (`is_about_a_name`), so a stranger cannot spend the day's mail on a list of names or learn from the time which names have an address; a member's own `BindEmail` and `Email` are not charged. Sabotaged (`AskRecovery` dropped from either list): red. |
+
+# `itsanas-coord` — what the coordinator mails, and how much (`mail.rs`) (7)
+
+Three messages only: the code that verifies an address, the code a recovery needs once an address is verified, and a reminder of the account's name. They are queued and sent by another thread, and the provider's daily allowance is shared by every member, so it is bounded here.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_recovery_codes_asked_in_a_loop_leave_the_verifications_their_share`** | Recovery codes for as many accounts as the `Recover` share of the day holds are all queued; the next is held (`Held::Budget`), and a verification for a new account still goes out, because each purpose has its own share (`DAILY`). |
+| **`red_team_one_account_is_not_mailed_twice_in_a_minute_nor_past_its_day`** | One account: a second message 30 seconds after the first is held; one every `ACCOUNT_SPACING_SECS` goes out until `PER_ACCOUNT_DAILY`, after which any purpose is held; a day later it is given back. |
+| **`red_team_a_third_partys_address_takes_three_codes_a_day_at_most`** | Three verification codes to one address from three accounts go out; a fourth from another account, the same address spelt in other letter case, is held (`PER_ADDRESS_DAILY`), so nobody buries a stranger's inbox. |
+| `a_full_queue_is_said_and_counts_nothing` | With `QUEUE` messages waiting, the next send answers `Held::Queue`. |
+| **`red_team_a_flood_of_new_accounts_and_addresses_holds_no_more_than_the_days_mail`** | 5,000 sends for 5,000 distinct accounts and addresses leave the day's counts holding no more accounts and no more addresses than the day's allowance (200): an entry is kept only for a mail that was queued. |
+| `only_a_mailable_shape_is_taken` | `plausible_address` takes `a@b.example` and a plus-tagged dotted one, and refuses an empty string, a missing domain or local part, two `@`, a space, an empty label, a trailing dot, a newline, and one longer than `MAX_WIRE_EMAIL`. |
+| `a_code_is_eight_digits` | Fifty fresh codes are each eight ASCII digits. |
+
+# `itsanas-coord` — binding an address, and recovering with a mailed code (`service/tests/email.rs`) (9)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_verified_address_keeps_the_container_from_a_passphrase_alone`** | Before an address, `GetEscrow` returns the real container. Once the address is verified, a request with no code and one with a code nobody mailed get something else (a decoy); a stranger's `AskRecovery` for the name mails the code to the bound address; that code with the name opens the real container once, and a second use does not. |
+| **`red_team_a_recovery_code_dies_after_its_tries_and_its_quarter_hour`** | After `CODE_TRIES` wrong guesses even the right code is `Refused`; a fresh code, used after `CODE_LIFETIME_SECS` and a second, opens nothing. |
+| **`red_team_asking_a_code_says_nothing_of_the_name_and_mails_nothing_without_an_address`** | `AskRecovery` answers `Done` for a real name, an unknown name and an over-long one alike, and mails nothing for an account with no address; with no address, `RecoverEscrow` with an empty code still gives the container, as before. |
+| **`red_team_an_address_is_verified_by_its_code_only`** | After `BindEmail` the status is unverified; a wrong code, and the right code given by a device of another account, are `Refused`; the code from the owner's device verifies it; a stranger with no claim can neither bind nor read the status. |
+| **`red_team_a_verified_address_names_one_account`** | A second account binding the same address, in other letter case, once the first has verified it, is `Refused`. |
+| **`red_team_unbinding_and_deleting_let_the_address_go`** | Unbinding frees the address (`owner_of_email` is `None`) and puts the passphrase-alone recovery back; `forget_account` frees a verified address too. |
+| **`red_team_a_reminder_goes_only_to_a_verified_address_and_says_nothing_back`** | `RemindUsername` answers `Done` whatever the address; it mails nothing before the address is verified or for an unknown address, and after verification mails the account's name. |
+| `a_coordinator_that_sends_no_mail_binds_no_address` | A service with no outbox refuses `BindEmail` with `NO_MAIL`, and the status stays `None`. |
+| **`red_team_a_code_held_back_does_not_replace_the_one_already_mailed`** | A second `BindEmail` within the minute is `Refused` and mails nothing, and the code already in the inbox still verifies the address. |
 
 # `itsanas-coord` — claims, directory, accounting (68)
 

@@ -239,7 +239,9 @@ pub(crate) fn login_from_coordinator(
     println!("the passphrase of whichever machine lodged it — not necessarily one");
     println!("you have used on this machine.");
     let secret = zeroize::Zeroizing::new(passphrase(false)?);
-    let node = recover_from_coordinator(home, username, address, device, &secret)?;
+    let expect = device.map(coordinator::parse_device).transpose()?;
+    let code = crate::email::recovery_code(address, expect, username)?;
+    let node = recover_from_coordinator(home, username, address, device, &secret, &code)?;
 
     println!();
     println!("Account restored.");
@@ -286,9 +288,10 @@ pub(crate) fn recover_from_coordinator(
     address: &str,
     device: Option<&str>,
     secret: &str,
+    code: &str,
 ) -> Result<Node> {
     let expect = device.map(coordinator::parse_device).transpose()?;
-    let secrets = coordinator::fetch_escrow(address, expect, username, secret)?;
+    let secrets = coordinator::fetch_escrow_with_code(address, expect, username, secret, code)?;
     let mut node = Node::restore_from_secrets(home, secret, username, &secrets)?;
 
     // The coordinator that just proved it holds this account is the one to

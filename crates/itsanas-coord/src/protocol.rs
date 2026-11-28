@@ -27,7 +27,15 @@ use crate::directory::{Account, SignedRegistration};
 use crate::invitation::{Secret, SignedInvitation};
 
 /// The protocol version this build speaks.
-pub const COORD_VERSION: u16 = 1;
+pub const COORD_VERSION: u16 = 2;
+
+/// The first version that speaks of email: [`Request::BindEmail`] and the
+/// messages after it, and [`Response::Email`]. A client asks them only once
+/// [`agreed`] reaches it; a coordinator older than this hangs up on them.
+pub const EMAIL_VERSION: u16 = 2;
+
+/// Longest email address accepted on the wire (RFC 5321's path limit).
+pub const MAX_WIRE_EMAIL: usize = 254;
 
 /// The oldest version this build still speaks, as coordinator or client.
 ///
@@ -313,6 +321,65 @@ pub enum Request {
     /// again enumerates nobody. Appended last; a coordinator older than this
     /// hangs up, and the caller finds hosts as it did.
     Hosts,
+
+    /// Bind an email address to the caller's account, or let it go (`None`).
+    ///
+    /// For a live device of the account, as [`Request::PutEscrow`] is. The
+    /// coordinator mails a code to the address and keeps it unverified until
+    /// [`Request::ConfirmEmail`] gives the code back. Once verified, a recovery
+    /// of the account from its passphrase needs a code mailed there too
+    /// ([`Request::RecoverEscrow`]); its 24 words never do. From
+    /// [`EMAIL_VERSION`].
+    BindEmail {
+        /// The address, or nothing to unbind.
+        address: Option<String>,
+    },
+
+    /// The code [`Request::BindEmail`] mailed. From [`EMAIL_VERSION`].
+    ConfirmEmail {
+        /// The digits, as the member typed them.
+        code: String,
+    },
+
+    /// The address bound to the caller's account, and whether it is verified.
+    /// From [`EMAIL_VERSION`].
+    Email,
+
+    /// Mail a recovery code to the verified address of `username`, if it has
+    /// one. Answered [`Response::Done`] for every name, at once, whatever
+    /// happens: neither the answer nor its time says whether the name exists
+    /// or has an address. From [`EMAIL_VERSION`].
+    AskRecovery {
+        /// The account name.
+        username: String,
+    },
+
+    /// [`Request::GetEscrow`] with the code [`Request::AskRecovery`] mailed:
+    /// the account's container when its address is verified and `code` is the
+    /// one waiting, or when it has no address; the decoy otherwise, as for a
+    /// wrong name. From [`EMAIL_VERSION`].
+    RecoverEscrow {
+        /// The account name.
+        username: String,
+        /// The mailed code; empty for an account with no address.
+        code: String,
+    },
+
+    /// Mail the account name whose verified address this is. Answered
+    /// [`Response::Done`] for every address, at once. From [`EMAIL_VERSION`].
+    RemindUsername {
+        /// The address the member gave.
+        address: String,
+    },
+}
+
+/// An account's address as [`Response::Email`] reports it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EmailStatus {
+    /// The address bound.
+    pub address: String,
+    /// Whether its code came back.
+    pub verified: bool,
 }
 
 /// Accounts one [`Request::Deleted`] may ask about.
@@ -416,6 +483,10 @@ pub enum Response {
     /// At most [`MAX_HOSTS_RETURNED`] rows for a [`Request::Hosts`]. Appended
     /// last.
     Hosts(Vec<ClaimedPresence>),
+
+    /// The answer to [`Request::Email`]: the address bound, or none. From
+    /// [`EMAIL_VERSION`].
+    Email(Option<EmailStatus>),
 }
 
 /// How many hosts one [`Request::Hosts`] is told of.
@@ -424,13 +495,21 @@ pub const MAX_HOSTS_RETURNED: usize = 8;
 impl Request {
     /// Whether this request may be made before the caller has proved anything.
     ///
-    /// Only two: agreeing a version, and fetching an escrow blob. Everything
+    /// Agreeing a version, and what a recovery from nothing asks: an escrow
+    /// blob, a mailed recovery code, a reminder of the name. Everything
     /// else either carries its own signature or needs the calling device to
     /// hold a claim. This is the list the hostile-internet argument rests on,
     /// so it is a function rather than a comment.
     #[must_use]
     pub const fn is_open(&self) -> bool {
-        matches!(self, Self::Hello { .. } | Self::GetEscrow { .. })
+        matches!(
+            self,
+            Self::Hello { .. }
+                | Self::GetEscrow { .. }
+                | Self::AskRecovery { .. }
+                | Self::RecoverEscrow { .. }
+                | Self::RemindUsername { .. }
+        )
     }
 
     /// A short name for logs, with no caller-controlled text in it.
@@ -459,6 +538,12 @@ impl Request {
             Self::DeleteAccount(_) => "delete-account",
             Self::Deleted { .. } => "deleted",
             Self::Hosts => "hosts",
+            Self::BindEmail { .. } => "bind-email",
+            Self::ConfirmEmail { .. } => "confirm-email",
+            Self::Email => "email",
+            Self::AskRecovery { .. } => "ask-recovery",
+            Self::RecoverEscrow { .. } => "recover-escrow",
+            Self::RemindUsername { .. } => "remind-username",
         }
     }
 }
@@ -545,6 +630,9 @@ mod tests {
         let (more_requests, more_responses) = deletions_numbered();
         requests.extend(more_requests);
         responses.extend(more_responses);
+        let (email_requests, email_responses) = emails_numbered();
+        requests.extend(email_requests);
+        responses.extend(email_responses);
         let started = std::time::Instant::now();
         let mut tried = 0usize;
         for (seed, (_, request)) in (1u64..).zip(&requests) {
@@ -587,6 +675,54 @@ mod tests {
                 (17, Request::Deleted { users: vec![user] }),
             ],
             vec![(13, Response::Deleted(vec![gone]))],
+        )
+    }
+
+    /// The email messages ([`EMAIL_VERSION`]), numbered apart.
+    fn emails_numbered() -> Numbered {
+        (
+            vec![
+                (18, Request::Hosts),
+                (
+                    19,
+                    Request::BindEmail {
+                        address: Some("a@b.example".to_owned()),
+                    },
+                ),
+                (
+                    20,
+                    Request::ConfirmEmail {
+                        code: "00000000".to_owned(),
+                    },
+                ),
+                (21, Request::Email),
+                (
+                    22,
+                    Request::AskRecovery {
+                        username: "a".to_owned(),
+                    },
+                ),
+                (
+                    23,
+                    Request::RecoverEscrow {
+                        username: "a".to_owned(),
+                        code: String::new(),
+                    },
+                ),
+                (
+                    24,
+                    Request::RemindUsername {
+                        address: "a@b.example".to_owned(),
+                    },
+                ),
+            ],
+            vec![(
+                15,
+                Response::Email(Some(EmailStatus {
+                    address: "a@b.example".to_owned(),
+                    verified: true,
+                })),
+            )],
         )
     }
 
@@ -700,7 +836,10 @@ mod tests {
     /// per published [`COORD_VERSION`]. A row is never edited once its
     /// version shipped: new bytes are a new row, which the last-row check
     /// below makes a new version.
-    const WIRE_BY_VERSION: &[(u16, u64)] = &[(1, 3_629_543_649_988_875_695)];
+    const WIRE_BY_VERSION: &[(u16, u64)] = &[
+        (1, 3_629_543_649_988_875_695),
+        (2, 16_060_752_457_061_024_134),
+    ];
 
     #[test]
     fn red_team_a_message_that_changes_its_bytes_changes_the_version() {
@@ -717,6 +856,9 @@ mod tests {
         let (more_requests, more_responses) = deletions_numbered();
         requests.extend(more_requests);
         responses.extend(more_responses);
+        let (email_requests, email_responses) = emails_numbered();
+        requests.extend(email_requests);
+        responses.extend(email_responses);
         let mut folded: u64 = 0xcbf2_9ce4_8422_2325;
         let bytes = requests
             .iter()
@@ -756,6 +898,9 @@ mod tests {
         let (more_requests, more_responses) = deletions_numbered();
         requests.extend(more_requests);
         responses.extend(more_responses);
+        let (email_requests, email_responses) = emails_numbered();
+        requests.extend(email_requests);
+        responses.extend(email_responses);
         for (number, request) in &requests {
             // An exhaustive match, so a new variant does not compile until it
             // is given a number here.
@@ -778,7 +923,13 @@ mod tests {
                 | Request::Standing(_)
                 | Request::DeleteAccount(_)
                 | Request::Deleted { .. }
-                | Request::Hosts => {}
+                | Request::Hosts
+                | Request::BindEmail { .. }
+                | Request::ConfirmEmail { .. }
+                | Request::Email
+                | Request::AskRecovery { .. }
+                | Request::RecoverEscrow { .. }
+                | Request::RemindUsername { .. } => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -804,7 +955,8 @@ mod tests {
                 | Response::ClaimedPeers(_)
                 | Response::Standing(_)
                 | Response::Deleted(_)
-                | Response::Hosts(_) => {}
+                | Response::Hosts(_)
+                | Response::Email(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

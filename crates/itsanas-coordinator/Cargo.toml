@@ -17,6 +17,7 @@ clap = { version = "4.5.51", features = ["derive", "env"] }
 ctrlc = "3.5.0"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+serde_json = "1.0.145"
 
 [dev-dependencies]
 tempfile = "3.23.0"

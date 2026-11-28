@@ -43,6 +43,10 @@ service and partition attempts, not data.
 - Traffic analysis. Object sizes, object counts and access timing are visible to
   a host. Hiding them requires padding and cover traffic, a deliberate non-goal
   for now.
+- Offline guessing of a stolen recovery container. A verified email address
+  makes a recovery through the coordinator need a mailed code as well as the
+  passphrase; a copy of the coordinator's database is still attacked offline,
+  against the passphrase and the Argon2id cost alone.
 - Availability against a fully offline swarm. A device that keeps everything
   (`itsanas keep all`) can read your files with every other machine off; a device
   with a keep limit cannot read what it does not hold, and replication targets

@@ -53,15 +53,40 @@ pub fn fetch_escrow(
     username: &str,
     passphrase: &str,
 ) -> Result<Vec<u8>> {
+    fetch_escrow_with_code(address, expect, username, passphrase, "")
+}
+
+/// [`fetch_escrow`] with the code the coordinator mailed to the account's
+/// verified address (`ask_recovery_code`); empty for an account with none.
+/// A coordinator older than email is asked as before, without it.
+///
+/// # Errors
+///
+/// [`NOTHING_OPENS`] whatever was wrong: name, passphrase or code.
+pub fn fetch_escrow_with_code(
+    address: &str,
+    expect: Option<DeviceId>,
+    username: &str,
+    passphrase: &str,
+    code: &str,
+) -> Result<Vec<u8>> {
     // A throwaway device key: this machine has no identity yet, and the
     // coordinator does not need it to have one.
     let device = itsanas_crypto::DeviceKeys::generate()?;
     let mut client = CoordClient::connect(address, &device, expect)
         .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
 
-    let answer = client.ask(&Request::GetEscrow {
-        username: username.to_owned(),
-    })?;
+    let request = if client.version() >= itsanas_coord::protocol::EMAIL_VERSION {
+        Request::RecoverEscrow {
+            username: username.to_owned(),
+            code: code.trim().to_owned(),
+        }
+    } else {
+        Request::GetEscrow {
+            username: username.to_owned(),
+        }
+    };
+    let answer = client.ask(&request)?;
     open_recovery_answer(answer, username, passphrase)
 }
 
