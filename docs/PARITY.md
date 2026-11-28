@@ -108,6 +108,7 @@ app, or it is not done there.
 | `itsanas trash` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas vault` | ✅ | ✅ | ✅ | ⬜ a phone has one app-private store |
 | `itsanas backup` | ✅ | ✅ | ✅ | ⬜ a phone has no drive to back up to |
+| `itsanas email` | ✅ | ✅ | ✅ | ⬜ the phone app asks no address yet |
 | `itsanas portable` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a drive |
 | `itsanas copy-to-key` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a key |
 | `itsanas folder` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |

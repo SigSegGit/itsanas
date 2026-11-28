@@ -28,6 +28,7 @@ use crate::protocol::{
     COORD_VERSION, EnrolledDevice, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response,
 };
 
+pub(crate) mod email;
 mod limiter;
 mod peers;
 mod probe;
@@ -128,6 +129,9 @@ pub struct Expired {
 pub struct CoordService<'a> {
     directory: &'a Directory,
     admission: Admission,
+    /// Where mail goes; `None` on a coordinator that sends none, which then
+    /// refuses to bind an address rather than keep one it cannot verify.
+    outbox: Option<&'a crate::mail::Outbox>,
 }
 
 impl<'a> CoordService<'a> {
@@ -141,6 +145,7 @@ impl<'a> CoordService<'a> {
         Self {
             directory,
             admission: Admission::Open,
+            outbox: None,
         }
     }
 
@@ -156,7 +161,15 @@ impl<'a> CoordService<'a> {
         Self {
             directory,
             admission,
+            outbox: None,
         }
+    }
+
+    /// The same service, mailing through `outbox` ([`crate::mail`]).
+    #[must_use]
+    pub const fn with_outbox(mut self, outbox: &'a crate::mail::Outbox) -> Self {
+        self.outbox = Some(outbox);
+        self
     }
 
     /// Erase what has outlived its use: the addresses of devices silent past
@@ -371,23 +384,7 @@ impl<'a> CoordService<'a> {
 
             Request::PutEscrow { blob } => self.put_escrow(caller, blob.as_deref(), now_unix),
 
-            Request::GetEscrow { username } => {
-                if username.len() > MAX_WIRE_USERNAME {
-                    return Ok(Response::Refused("username too long".to_owned()));
-                }
-                if !self.escrow_allowed(limiter, username, now, now_unix)? {
-                    // The same answer whether the name exists or not: a
-                    // limiter that only triggered on real accounts would be a
-                    // free oracle for which names are worth attacking.
-                    return Ok(Response::Refused(
-                        "too many recovery attempts for this account; try again later".to_owned(),
-                    ));
-                }
-                // Never `Missing`: a container or its decoy, the same size and
-                // shape, so a stranger cannot sort names into "exists and
-                // holds one", "exists" and "does not" (`recovery_answer`).
-                Ok(Response::Escrow(self.directory.recovery_answer(username)?))
-            }
+            Request::GetEscrow { username } => self.get_escrow(username, limiter, now, now_unix),
 
             Request::Devices { user } => self.devices_of(*user, caller, now_unix),
 
@@ -413,10 +410,46 @@ impl<'a> CoordService<'a> {
             // is calling back and a socket to call with. Reaching here means
             // somebody wired a service without that, and a silent "no" would
             // read to a member as "your forward is broken".
+            Request::BindEmail { .. }
+            | Request::ConfirmEmail { .. }
+            | Request::Email
+            | Request::AskRecovery { .. }
+            | Request::RecoverEscrow { .. }
+            | Request::RemindUsername { .. } => self.email(request, caller, now_unix, limiter, now),
+
             Request::CheckMe => Ok(Response::Refused(
                 "this coordinator cannot probe: it was built without a network".to_owned(),
             )),
         }
+    }
+
+    /// A recovery that carries no mailed code: [`Request::GetEscrow`].
+    fn get_escrow(
+        &self,
+        username: &str,
+        limiter: &Mutex<EscrowLimiter>,
+        now: Instant,
+        now_unix: u64,
+    ) -> Result<Response> {
+        if username.len() > MAX_WIRE_USERNAME {
+            return Ok(Response::Refused("username too long".to_owned()));
+        }
+        if !self.escrow_allowed(limiter, username, now, now_unix)? {
+            // The same answer whether the name exists or not: a limiter that
+            // only triggered on real accounts would be a free oracle for
+            // which names are worth attacking.
+            return Ok(Response::Refused(
+                "too many recovery attempts for this account; try again later".to_owned(),
+            ));
+        }
+        // Never `Missing`: a container or its decoy, the same size and shape,
+        // so a stranger cannot sort names into "exists and holds one",
+        // "exists" and "does not" (`recovery_answer`). An account whose
+        // verified address asks for a mailed code answers this, which carries
+        // none, with its decoy.
+        Ok(Response::Escrow(
+            self.escrow_given(username, None, now_unix)?,
+        ))
     }
 
     /// Every live claim of `user`, for one of `user`'s own live devices.

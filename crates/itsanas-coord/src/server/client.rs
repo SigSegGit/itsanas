@@ -76,6 +76,8 @@ pub struct CoordClient {
     /// which is the only sensible thing to announce when a node is configured
     /// to listen on every interface. See `itsanas-cli`'s `reachable_address`.
     local: SocketAddr,
+    /// The version agreed with this coordinator ([`crate::protocol::agreed`]).
+    version: u16,
 }
 
 impl CoordClient {
@@ -133,7 +135,11 @@ impl CoordClient {
             .map_err(|error| CoordError::Transport(format!("handshake failed: {error}")))?;
         let _ = peer;
 
-        let mut client = Self { connection, local };
+        let mut client = Self {
+            connection,
+            local,
+            version: COORD_VERSION,
+        };
 
         match client.ask(&Request::Hello {
             version: COORD_VERSION,
@@ -141,6 +147,7 @@ impl CoordClient {
             // A coordinator older than this build answers at its own version,
             // which this build still speaks when it is in the window.
             Response::Welcome { version } if crate::protocol::agreed(version) == Some(version) => {
+                client.version = version;
                 Ok(client)
             }
             Response::Refused(why) => Err(CoordError::Transport(why)),
@@ -148,6 +155,13 @@ impl CoordClient {
                 "expected a version agreement, got {other:?}"
             ))),
         }
+    }
+
+    /// The version this coordinator and this build agreed to speak: a
+    /// message newer than it is not sent, since the coordinator would hang up.
+    #[must_use]
+    pub const fn version(&self) -> u16 {
+        self.version
     }
 
     /// Which of this machine's addresses reached the coordinator.

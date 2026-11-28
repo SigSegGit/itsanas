@@ -751,11 +751,10 @@ fn disk_jobs_go_through_the_running_daemon_which_carries_on_after_them() {
         config.contains("other-disk"),
         "the config does not name the new vault: {config}"
     );
-    let said = run(
-        &home,
-        &["backup", "restore", backup.to_str().expect("utf-8")],
-    );
-    assert!(said.contains("read "), "{said}");
+    // The move ends with the daemon closing its store and serving again: a
+    // restore asked in that gap found the store free, opened it itself and
+    // collided with the daemon reopening it (CI, #472 and #473), so the
+    // restore waits for the daemon to carry on, as a person would see it do.
     let deadline = Instant::now() + PATIENCE;
     while daemon.log().matches("serving").count() < 2 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(200));
@@ -765,6 +764,11 @@ fn disk_jobs_go_through_the_running_daemon_which_carries_on_after_them() {
         "the daemon did not carry on after the move\n--- daemon log\n{}",
         daemon.log()
     );
+    let said = run(
+        &home,
+        &["backup", "restore", backup.to_str().expect("utf-8")],
+    );
+    assert!(said.contains("read "), "{said}");
 }
 
 /// A portable copy on a drive: its launcher keeps the home on the drive, and

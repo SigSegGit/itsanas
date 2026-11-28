@@ -31,6 +31,7 @@ use crate::{NodeError as CliError, Result};
 
 mod account;
 mod claims;
+mod email;
 mod escrow;
 mod ipv6;
 mod lookup;
@@ -46,7 +47,12 @@ pub use claims::{
     STANDING_PER_ROUND, StandingReport, asker, forget_device, pinned, standing, withdraw_device,
     withdraw_old_device, withdraw_self,
 };
-pub use escrow::{NOTHING_OPENS, fetch_escrow, recovery_container, set_escrow};
+pub use email::{
+    NO_EMAIL_HERE, ask_recovery_code, bind_email, confirm_email, email_status, remind_username,
+};
+pub use escrow::{
+    NOTHING_OPENS, fetch_escrow, fetch_escrow_with_code, recovery_container, set_escrow,
+};
 pub use ipv6::{prefer_global_ipv6, with_global_ipv6};
 pub use lookup::{
     Located, OtherPledges, devices, devices_as, enrolled, enrolled_as, find_member, hosts,

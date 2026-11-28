@@ -60,6 +60,7 @@ mod coverage;
 mod device_command;
 mod doctor;
 mod drive_commands;
+mod email;
 mod files;
 mod instances;
 mod joining;
@@ -83,6 +84,7 @@ use doctor::{Inbound, convert_packs, doctor, gc, network_check};
 #[cfg(test)]
 use doctor::{conversion_due, convert_stores};
 use drive_commands::{backup_command, switch_empty_vault, to_a_drive};
+use email::email_command;
 use files::{
     fetch_absent, fetch_version_here, file_job, folder, free, get, host_targets, list, put, remove,
     rename, scan, set_folder, taken_output, trash_command, versions,
@@ -416,6 +418,7 @@ fn command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> 
         Command::Trash { action } => trash_command(&home, action),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
+        Command::Email { action } => email_command(&home, action),
         command
         @ (Command::Portable { .. } | Command::CopyToKey { .. } | Command::Vault { .. }) => {
             to_a_drive(&home, command)

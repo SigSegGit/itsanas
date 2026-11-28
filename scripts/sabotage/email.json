@@ -1,0 +1,40 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-coord",
+    "--lib",
+    "--",
+    "email",
+    "mail::",
+    "stranger_mails"
+  ],
+  "defences": {
+    "email: a verified address does not gate the container": {
+      "file": "crates/itsanas-coord/src/service/email.rs",
+      "live": "                Some((_, true)) => Some(account.user.id),",
+      "dead": "                Some((_, true)) => None,"
+    },
+    "email: a recovery code opens twice": {
+      "file": "crates/itsanas-coord/src/directory/email.rs",
+      "live": "    if SecretBytes::new(waiting.hash) == SecretBytes::new(*hash) {\n        *pending = None;",
+      "dead": "    if SecretBytes::new(waiting.hash) == SecretBytes::new(*hash) {"
+    },
+    "email: one purpose spends the whole day": {
+      "file": "crates/itsanas-coord/src/mail.rs",
+      "live": "        let spent = counts.sent[purpose as usize] >= DAILY[purpose as usize]",
+      "dead": "        let spent = counts.sent.iter().sum::<u32>() >= 200"
+    },
+    "email: a held code replaces the one mailed": {
+      "file": "crates/itsanas-coord/src/service/email.rs",
+      "live": "        if outbox.send(Purpose::Verify, owner, mail, now_unix).is_err() {\n            return Ok(Response::Refused(HELD.to_owned()));\n        }\n        match self.directory.bind_email(owner, address, &code, now_unix) {",
+      "dead": "        let _ = self.directory.bind_email(owner, address, &code, now_unix);\n        if outbox.send(Purpose::Verify, owner, mail, now_unix).is_err() {\n            return Ok(Response::Refused(HELD.to_owned()));\n        }\n        match self.directory.bind_email(owner, address, &code, now_unix) {"
+    },
+    "email: asking a recovery code is free for a stranger": {
+      "file": "crates/itsanas-coord/src/server/names.rs",
+      "live": "        Request::Lookup { .. }\n            | Request::GetEscrow { .. }\n            | Request::AskRecovery { .. }",
+      "dead": "        Request::Lookup { .. }\n            | Request::GetEscrow { .. }"
+    }
+  }
+}
